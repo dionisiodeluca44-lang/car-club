@@ -24,17 +24,31 @@ pnpm dev
 - Service request scheduling for detailing, tuning, storage, maintenance, and more
 - Netlify Forms capture for membership leads and in-app service requests
 
-## Member app prototype
+## Member app backend
 
-The current app experience stores demo member, garage, and service request data in the browser with `localStorage`. This makes the flow testable on a phone before adding a real backend.
+The app is wired for Supabase auth, database records, service requests, and vehicle photo storage. It falls back to local prototype mode until Supabase environment variables are added.
 
-Membership leads submit to the `membership-lead` Netlify form. Member app booking requests submit to the `service-request` Netlify form and also appear in the local prototype request list.
+Membership leads submit to the `membership-lead` Netlify form. Member app booking requests submit to the `service-request` Netlify form and, once Supabase is configured, also save to the database.
 
-For real customer accounts, the next version should add:
+Required environment variables:
 
-- Secure auth with Supabase, Firebase, Clerk, or Auth0
-- Database tables for users, vehicles, service requests, and service history
-- File storage for vehicle photos, invoices, and reports
+```bash
+VITE_SUPABASE_URL=https://your-project-ref.supabase.co
+VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
+```
+
+Setup steps:
+
+1. Create a Supabase project.
+2. Run `supabase/schema.sql` in the Supabase SQL editor.
+3. Copy `.env.example` to `.env.local` for local development and fill in the keys.
+4. Add the same keys in Netlify under Site configuration > Environment variables.
+5. Redeploy Netlify.
+
+Once configured, members can create accounts, sign in, save garage vehicles, upload vehicle photos, update vehicle values/horsepower/work history, and create service requests in the database.
+
+Still planned:
+
 - Admin dashboard for managing requests
 - Email/SMS notifications
 - Stripe subscriptions

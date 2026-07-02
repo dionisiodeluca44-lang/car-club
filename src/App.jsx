@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   Bell,
@@ -23,6 +23,18 @@ import {
   Wrench,
   X,
 } from "lucide-react";
+import {
+  createAccount,
+  createServiceRequest,
+  createVehicle,
+  getCurrentMember,
+  isBackendConfigured,
+  loadServiceRequests,
+  loadVehicles,
+  signIn,
+  signOut,
+  updateVehicleRecord,
+} from "./lib/backend";
 
 const services = [
   {
@@ -159,6 +171,8 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [appError, setAppError] = useState("");
+  const [loadingAccount, setLoadingAccount] = useState(isBackendConfigured);
   const [member, setMember] = useState(() => {
     const saved = localStorage.getItem("carClubMember");
     return saved ? JSON.parse(saved) : null;
@@ -173,6 +187,46 @@ function App() {
   });
 
   const closeMenu = () => setMenuOpen(false);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadAccount() {
+      if (!isBackendConfigured) {
+        setLoadingAccount(false);
+        return;
+      }
+
+      try {
+        const currentMember = await getCurrentMember();
+        if (!active || !currentMember) {
+          setLoadingAccount(false);
+          return;
+        }
+
+        const [savedGarage, savedAppointments] = await Promise.all([
+          loadVehicles(currentMember.id),
+          loadServiceRequests(currentMember.id),
+        ]);
+
+        if (!active) return;
+        setMember(currentMember);
+        setGarage(savedGarage);
+        setAppointments(savedAppointments);
+        setMode("app");
+      } catch (error) {
+        if (active) setAppError(error.message || "Could not load your account.");
+      } finally {
+        if (active) setLoadingAccount(false);
+      }
+    }
+
+    loadAccount();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -202,7 +256,25 @@ function App() {
     }
   }
 
-  function handleLogin(profile) {
+  async function handleLogin(profile) {
+    setAppError("");
+
+    if (isBackendConfigured) {
+      const signedInMember = profile.authAction === "create"
+        ? await createAccount(profile)
+        : await signIn(profile);
+      const [savedGarage, savedAppointments] = await Promise.all([
+        loadVehicles(signedInMember.id),
+        loadServiceRequests(signedInMember.id),
+      ]);
+
+      setMember(signedInMember);
+      setGarage(savedGarage);
+      setAppointments(savedAppointments);
+      setMode("app");
+      return;
+    }
+
     localStorage.setItem("carClubMember", JSON.stringify(profile));
     localStorage.setItem("carClubGarage", JSON.stringify(garage));
     localStorage.setItem("carClubAppointments", JSON.stringify(appointments));
@@ -210,32 +282,66 @@ function App() {
     setMode("app");
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    await signOut();
     localStorage.removeItem("carClubMember");
     setMember(null);
     setMode("site");
   }
 
-  function addVehicle(vehicle) {
+  async function addVehicle(vehicle) {
+    if (isBackendConfigured && member?.id) {
+      const savedVehicle = await createVehicle(member.id, { ...vehicle, status: "New vehicle added" });
+      setGarage((currentGarage) => [savedVehicle, ...currentGarage]);
+      return;
+    }
+
     const nextGarage = [{ ...vehicle, id: crypto.randomUUID(), status: "New vehicle added", workDone: vehicle.workDone || [] }, ...garage];
     localStorage.setItem("carClubGarage", JSON.stringify(nextGarage));
     setGarage(nextGarage);
   }
 
-  function updateVehicle(vehicleId, updates) {
+  async function updateVehicle(vehicleId, updates) {
+    if (isBackendConfigured && member?.id) {
+      const savedVehicle = await updateVehicleRecord(vehicleId, updates);
+      setGarage((currentGarage) => currentGarage.map((vehicle) => (vehicle.id === vehicleId ? savedVehicle : vehicle)));
+      return;
+    }
+
     const nextGarage = garage.map((vehicle) => (vehicle.id === vehicleId ? { ...vehicle, ...updates } : vehicle));
     localStorage.setItem("carClubGarage", JSON.stringify(nextGarage));
     setGarage(nextGarage);
   }
 
-  function addAppointment(appointment) {
+  async function addAppointment(appointment) {
+    if (isBackendConfigured && member?.id) {
+      const savedRequest = await createServiceRequest(member.id, appointment);
+      setAppointments((currentAppointments) => [savedRequest, ...currentAppointments]);
+      return;
+    }
+
     const nextAppointments = [{ ...appointment, id: crypto.randomUUID(), status: "Requested" }, ...appointments];
     localStorage.setItem("carClubAppointments", JSON.stringify(nextAppointments));
     setAppointments(nextAppointments);
   }
 
   if (mode === "login") {
-    return <LoginScreen onLogin={handleLogin} onBack={() => setMode("site")} />;
+    return <LoginScreen appError={appError} backendEnabled={isBackendConfigured} onLogin={handleLogin} onBack={() => setMode("site")} />;
+  }
+
+  if (loadingAccount) {
+    return (
+      <main className="login-screen">
+        <section className="phone-auth">
+          <div className="auth-brand">
+            <span className="brand-mark">WG</span>
+            <span>White Glove</span>
+          </div>
+          <h1>Loading your account.</h1>
+          <p>Checking for an existing member session.</p>
+        </section>
+      </main>
+    );
   }
 
   if (mode === "app" && member) {
@@ -453,15 +559,31 @@ function App() {
   );
 }
 
-function LoginScreen({ onBack, onLogin }) {
-  function submitLogin(event) {
+function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
+  const [authError, setAuthError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+
+  async function submitLogin(event) {
     event.preventDefault();
+    setAuthError("");
+    setAuthLoading(true);
+
     const formData = new FormData(event.currentTarget);
-    onLogin({
-      name: formData.get("name") || "Member",
-      email: formData.get("email") || "member@carclub.com",
-      plan: formData.get("plan") || "Club Drive",
-    });
+    const authAction = event.nativeEvent.submitter?.value || "signin";
+
+    try {
+      await onLogin({
+        authAction,
+        name: formData.get("name") || "Member",
+        email: formData.get("email") || "member@whitegloveconcierge.com",
+        password: formData.get("password"),
+        plan: formData.get("plan") || "Club Drive",
+      });
+    } catch (error) {
+      setAuthError(error.message || "Could not access your account.");
+    } finally {
+      setAuthLoading(false);
+    }
   }
 
   return (
@@ -473,8 +595,13 @@ function LoginScreen({ onBack, onLogin }) {
           <span>White Glove Member App</span>
         </div>
         <h1>Log in to your vehicle concierge account.</h1>
-        <p>For now this is a working prototype. Real secure accounts will be added with a backend such as Supabase or Firebase.</p>
+        <p>{backendEnabled ? "Use your member email and password to access saved vehicles and service requests." : "Backend keys are not connected yet, so this runs in local prototype mode."}</p>
         <form className="app-form" onSubmit={submitLogin}>
+          {(authError || appError) && (
+            <div className="error-message" role="alert">
+              {authError || appError}
+            </div>
+          )}
           <label>
             Full name
             <input name="name" type="text" placeholder="Dionisio De Luca" required />
@@ -482,6 +609,10 @@ function LoginScreen({ onBack, onLogin }) {
           <label>
             Email
             <input name="email" type="email" placeholder="you@example.com" required />
+          </label>
+          <label>
+            Password
+            <input name="password" type="password" placeholder="Minimum 6 characters" required />
           </label>
           <label>
             Membership
@@ -493,8 +624,11 @@ function LoginScreen({ onBack, onLogin }) {
               <option>Collector</option>
             </select>
           </label>
-          <button className="button primary submit" type="submit">
-            Enter App <ArrowRight size={18} />
+          <button className="button primary submit" name="authAction" type="submit" value="signin" disabled={authLoading}>
+            {authLoading ? "Working..." : "Sign In"} <ArrowRight size={18} />
+          </button>
+          <button className="button secondary submit" name="authAction" type="submit" value="create" disabled={authLoading}>
+            Create Account
           </button>
         </form>
       </section>
@@ -719,6 +853,7 @@ function AccountScreen({ member, onLogout }) {
 
 function VehicleForm({ onAddVehicle, onClose }) {
   const [imagePreview, setImagePreview] = useState("");
+  const [vehicleError, setVehicleError] = useState("");
 
   function handleImage(event) {
     const file = event.target.files?.[0];
@@ -728,13 +863,16 @@ function VehicleForm({ onAddVehicle, onClose }) {
     reader.readAsDataURL(file);
   }
 
-  function submitVehicle(event) {
+  async function submitVehicle(event) {
     event.preventDefault();
+    setVehicleError("");
     const formData = new FormData(event.currentTarget);
-    onAddVehicle({
-      year: formData.get("year"),
-      make: formData.get("make"),
-      model: formData.get("model"),
+
+    try {
+      await onAddVehicle({
+        year: formData.get("year"),
+        make: formData.get("make"),
+        model: formData.get("model"),
         mileage: formData.get("mileage"),
         use: formData.get("use"),
         notes: formData.get("notes"),
@@ -742,14 +880,22 @@ function VehicleForm({ onAddVehicle, onClose }) {
         horsepower: formData.get("horsepower") || "HP pending",
         workDone: splitWorkList(formData.get("workDone")),
         image: imagePreview || "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=85",
-    });
-    event.currentTarget.reset();
-    setImagePreview("");
-    onClose();
+      });
+      event.currentTarget.reset();
+      setImagePreview("");
+      onClose();
+    } catch (error) {
+      setVehicleError(error.message || "Could not save this vehicle.");
+    }
   }
 
   return (
     <form className="app-form inline-form" onSubmit={submitVehicle}>
+      {vehicleError && (
+        <div className="error-message" role="alert">
+          {vehicleError}
+        </div>
+      )}
       <label className="upload-tile">
         {imagePreview ? <img alt="Vehicle preview" src={imagePreview} /> : <><Upload size={24} /><span>Upload vehicle photo</span></>}
         <input accept="image/*" name="photo" onChange={handleImage} type="file" />
@@ -838,7 +984,7 @@ function ScheduleForm({ member, onAddAppointment, vehicleOptions }) {
         }
       }
 
-      onAddAppointment(appointment);
+      await onAddAppointment(appointment);
       setRequestSubmitted(true);
       form.reset();
     } catch {
@@ -921,6 +1067,7 @@ function VehicleCard({ onSelect, vehicle }) {
 
 function VehicleDetailScreen({ onBack, onUpdateVehicle, vehicle }) {
   const [photoPreview, setPhotoPreview] = useState("");
+  const [detailError, setDetailError] = useState("");
   const workDone = vehicle.workDone?.length ? vehicle.workDone : ["No work logged yet"];
 
   function handlePhoto(event) {
@@ -931,27 +1078,39 @@ function VehicleDetailScreen({ onBack, onUpdateVehicle, vehicle }) {
     reader.readAsDataURL(file);
   }
 
-  function saveDetails(event) {
+  async function saveDetails(event) {
     event.preventDefault();
+    setDetailError("");
     const formData = new FormData(event.currentTarget);
-    onUpdateVehicle(vehicle.id, {
-      marketValue: formData.get("marketValue") || "Value pending",
-      horsepower: formData.get("horsepower") || "HP pending",
-      mileage: formData.get("mileage") || vehicle.mileage,
-      status: formData.get("status") || vehicle.status,
-      image: photoPreview || vehicle.image,
-    });
-    setPhotoPreview("");
+
+    try {
+      await onUpdateVehicle(vehicle.id, {
+        marketValue: formData.get("marketValue") || "Value pending",
+        horsepower: formData.get("horsepower") || "HP pending",
+        mileage: formData.get("mileage") || vehicle.mileage,
+        status: formData.get("status") || vehicle.status,
+        image: photoPreview || vehicle.image,
+      });
+      setPhotoPreview("");
+    } catch (error) {
+      setDetailError(error.message || "Could not save this vehicle.");
+    }
   }
 
-  function addWork(event) {
+  async function addWork(event) {
     event.preventDefault();
+    setDetailError("");
     const formData = new FormData(event.currentTarget);
     const workItem = formData.get("workItem")?.trim();
     if (!workItem) return;
     const existingWork = vehicle.workDone?.length ? vehicle.workDone : [];
-    onUpdateVehicle(vehicle.id, { workDone: [workItem, ...existingWork] });
-    event.currentTarget.reset();
+
+    try {
+      await onUpdateVehicle(vehicle.id, { workDone: [workItem, ...existingWork] });
+      event.currentTarget.reset();
+    } catch (error) {
+      setDetailError(error.message || "Could not save the work history.");
+    }
   }
 
   return (
@@ -984,6 +1143,11 @@ function VehicleDetailScreen({ onBack, onUpdateVehicle, vehicle }) {
       <section className="app-section">
         <h2>Update Vehicle Details</h2>
         <form className="app-form inline-form" onSubmit={saveDetails}>
+          {detailError && (
+            <div className="error-message" role="alert">
+              {detailError}
+            </div>
+          )}
           <label className="upload-tile small-upload">
             {photoPreview ? <img alt="Updated vehicle preview" src={photoPreview} /> : <><Upload size={24} /><span>Upload new vehicle photo</span></>}
             <input accept="image/*" name="photo" onChange={handlePhoto} type="file" />
