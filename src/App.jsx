@@ -535,7 +535,7 @@ function MemberApp({ appointments, garage, member, onAddAppointment, onAddVehicl
 
         {activeTab === "home" && <Dashboard appointments={appointments} garage={garage} member={member} setActiveTab={setActiveTab} />}
         {activeTab === "garage" && <GarageScreen garage={garage} onAddVehicle={onAddVehicle} onUpdateVehicle={onUpdateVehicle} />}
-        {activeTab === "schedule" && <ScheduleScreen appointments={appointments} onAddAppointment={onAddAppointment} vehicleOptions={vehicleOptions} />}
+        {activeTab === "schedule" && <ScheduleScreen appointments={appointments} member={member} onAddAppointment={onAddAppointment} vehicleOptions={vehicleOptions} />}
         {activeTab === "services" && <ServicesScreen setActiveTab={setActiveTab} />}
         {activeTab === "account" && <AccountScreen member={member} onLogout={onLogout} />}
       </main>
@@ -643,13 +643,13 @@ function GarageScreen({ garage, onAddVehicle, onUpdateVehicle }) {
   );
 }
 
-function ScheduleScreen({ appointments, onAddAppointment, vehicleOptions }) {
+function ScheduleScreen({ appointments, member, onAddAppointment, vehicleOptions }) {
   return (
     <div className="app-stack">
       <section className="app-section">
         <h2>Schedule Concierge Service</h2>
         <p>Request detailing, tuning, maintenance, pickup and delivery, tire services, storage, or collection support.</p>
-        <ScheduleForm onAddAppointment={onAddAppointment} vehicleOptions={vehicleOptions} />
+        <ScheduleForm member={member} onAddAppointment={onAddAppointment} vehicleOptions={vehicleOptions} />
       </section>
       <section className="app-section">
         <div className="app-section-title">
@@ -802,22 +802,69 @@ function VehicleForm({ onAddVehicle, onClose }) {
   );
 }
 
-function ScheduleForm({ onAddAppointment, vehicleOptions }) {
-  function submitAppointment(event) {
+function ScheduleForm({ member, onAddAppointment, vehicleOptions }) {
+  const [requestSubmitted, setRequestSubmitted] = useState(false);
+  const [requestError, setRequestError] = useState("");
+
+  async function submitAppointment(event) {
     event.preventDefault();
+    setRequestSubmitted(false);
+    setRequestError("");
+
+    const form = event.currentTarget;
     const formData = new FormData(event.currentTarget);
-    onAddAppointment({
+    const appointment = {
       vehicle: formData.get("vehicle"),
       service: formData.get("service"),
       date: formData.get("date"),
       time: formData.get("time"),
       notes: formData.get("notes"),
-    });
-    event.currentTarget.reset();
+    };
+
+    formData.set("form-name", "service-request");
+    formData.set("memberName", member.name);
+    formData.set("memberEmail", member.email);
+
+    try {
+      if (window.location.hostname !== "127.0.0.1" && window.location.hostname !== "localhost") {
+        const response = await fetch("/", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams(formData).toString(),
+        });
+
+        if (!response.ok) {
+          throw new Error("Service request failed");
+        }
+      }
+
+      onAddAppointment(appointment);
+      setRequestSubmitted(true);
+      form.reset();
+    } catch {
+      setRequestError("We could not send that request. Please try again or contact the concierge directly.");
+    }
   }
 
   return (
     <form className="app-form inline-form" onSubmit={submitAppointment}>
+      <input type="hidden" name="form-name" value="service-request" />
+      <input type="hidden" name="memberName" value={member.name} />
+      <input type="hidden" name="memberEmail" value={member.email} />
+      <label className="hidden-field">
+        Do not fill this out
+        <input name="bot-field" tabIndex="-1" autoComplete="off" />
+      </label>
+      {requestSubmitted && (
+        <div className="success-message" role="status">
+          Service request sent. Your concierge team will follow up shortly.
+        </div>
+      )}
+      {requestError && (
+        <div className="error-message" role="alert">
+          {requestError}
+        </div>
+      )}
       <label>
         Vehicle
         <select name="vehicle" required>
