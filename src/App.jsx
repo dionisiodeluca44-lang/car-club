@@ -174,6 +174,7 @@ function App() {
   const [appError, setAppError] = useState("");
   const [loadingAccount, setLoadingAccount] = useState(isBackendConfigured);
   const [member, setMember] = useState(() => {
+    if (isBackendConfigured) return null;
     const saved = localStorage.getItem("carClubMember");
     return saved ? JSON.parse(saved) : null;
   });
@@ -200,6 +201,7 @@ function App() {
       try {
         const currentMember = await getCurrentMember();
         if (!active || !currentMember) {
+          if (active) setMember(null);
           setLoadingAccount(false);
           return;
         }
@@ -346,6 +348,10 @@ function App() {
 
   if (mode === "app" && member) {
     return <MemberApp appointments={appointments} garage={garage} member={member} onAddAppointment={addAppointment} onAddVehicle={addVehicle} onLogout={handleLogout} onUpdateVehicle={updateVehicle} />;
+  }
+
+  if (mode === "app") {
+    return <LoginScreen appError="Please sign in to access your member app." backendEnabled={isBackendConfigured} onLogin={handleLogin} onBack={() => setMode("site")} />;
   }
 
   return (
@@ -604,7 +610,7 @@ function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
           )}
           <label>
             Full name
-            <input name="name" type="text" placeholder="Dionisio De Luca" required />
+            <input name="name" type="text" placeholder="Dionisio De Luca" />
           </label>
           <label>
             Email
