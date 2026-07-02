@@ -1,6 +1,6 @@
-# Car Club Vehicle Concierge
+# White Glove Concierge
 
-A premium lead-generation website for a subscription-based vehicle concierge and collection management service.
+A premium lead-generation website and member app prototype for a subscription-based collection management and vehicle concierge service.
 
 ## Run locally
 

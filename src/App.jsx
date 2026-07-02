@@ -26,6 +26,11 @@ import {
 
 const services = [
   {
+    icon: ClipboardCheck,
+    title: "Collection Management",
+    items: ["Monthly inspections", "Service records", "Exercise drives", "Market value reports", "Buying and selling help"],
+  },
+  {
     icon: Wrench,
     title: "Maintenance Concierge",
     items: ["Oil changes", "Scheduled maintenance", "Brake inspections", "Battery checks", "Recall monitoring"],
@@ -54,11 +59,6 @@ const services = [
     icon: ShieldCheck,
     title: "Emergency Concierge",
     items: ["Towing help", "Repair coordination", "Insurance claim support", "Rental assistance", "Status updates"],
-  },
-  {
-    icon: ClipboardCheck,
-    title: "Collection Management",
-    items: ["Monthly inspections", "Service records", "Exercise drives", "Market value reports", "Buying and selling help"],
   },
 ];
 
@@ -245,11 +245,11 @@ function App() {
   return (
     <div className="site-shell">
       <header className="nav">
-        <a className="brand" href="#top" onClick={closeMenu} aria-label="Car Club home">
-          <span className="brand-mark">CC</span>
+        <a className="brand" href="#top" onClick={closeMenu} aria-label="White Glove Concierge home">
+          <span className="brand-mark">WG</span>
           <span>
-            <strong>Car Club</strong>
-            <small>Vehicle Concierge</small>
+            <strong>White Glove Concierge</strong>
+            <small>Collection Management</small>
           </span>
         </a>
         <button className="menu-toggle" type="button" onClick={() => setMenuOpen((open) => !open)} aria-label="Toggle navigation">
@@ -268,10 +268,10 @@ function App() {
           <div className="hero-media" aria-hidden="true" />
           <div className="hero-overlay" />
           <div className="hero-content">
-            <p className="eyebrow">Premium car care, managed for you</p>
-            <h1>Your Personal Car Concierge</h1>
+            <p className="eyebrow">Collection management, handled end to end</p>
+            <h1>White Glove Collection Management</h1>
             <p className="hero-copy">
-              Members manage their garage, upload vehicle details, request detailing, schedule tuning, and coordinate every service from one private account.
+              A private vehicle concierge for collectors and multi-car owners. Upload your garage, track value and modifications, schedule detailing, tuning, storage, pickup, delivery, and full collection care from one member account.
             </p>
             <div className="hero-actions">
               <button className="button primary" type="button" onClick={() => setMode(member ? "app" : "login")}>
@@ -301,13 +301,13 @@ function App() {
         <section className="section app-preview-section">
           <div className="section-heading">
             <p className="eyebrow">Member app</p>
-            <h2>Your whole garage, service schedule, and concierge team in one place.</h2>
+            <h2>Your collection, vehicle values, service schedule, and concierge team in one place.</h2>
           </div>
           <div className="app-preview-grid">
             <article>
               <Upload size={24} />
-              <h3>Upload Your Garage</h3>
-              <p>Add each vehicle with photos, mileage, seasonal status, and notes.</p>
+              <h3>Upload Your Collection</h3>
+              <p>Add each vehicle with photos, mileage, horsepower, market value, and notes.</p>
             </article>
             <article>
               <CalendarCheck size={24} />
@@ -317,7 +317,7 @@ function App() {
             <article>
               <ClipboardCheck size={24} />
               <h3>Track Requests</h3>
-              <p>See upcoming service requests, vehicle health updates, and concierge notes.</p>
+              <p>See service requests, vehicle value, upgrades, completed work, and concierge notes.</p>
             </article>
           </div>
         </section>
@@ -329,9 +329,9 @@ function App() {
           </div>
           <div className="steps">
             {[
-              ["Join the Club", "Choose a monthly or yearly membership plan that fits the way you own and drive."],
-              ["Upload Your Vehicles", "Build your garage with one car or your full collection."],
-              ["Request Concierge Care", "Book detailing, tuning, pickup, delivery, storage, maintenance, and more."],
+              ["Join White Glove", "Choose a membership plan that fits how your collection is stored, driven, and maintained."],
+              ["Upload Your Collection", "Build your garage with photos, value, horsepower, modifications, and service records."],
+              ["Request Concierge Care", "Book collection inspections, detailing, tuning, pickup, delivery, storage, maintenance, and more."],
             ].map(([title, copy], index) => (
               <article className="step-card" key={title}>
                 <span>{String(index + 1).padStart(2, "0")}</span>
@@ -344,8 +344,8 @@ function App() {
 
         <section className="section services" id="services">
           <div className="section-heading">
-            <p className="eyebrow">Complete vehicle care</p>
-            <h2>One concierge team for every service your vehicle needs.</h2>
+            <p className="eyebrow">Collection-first care</p>
+            <h2>One concierge team for your full garage, records, value, and services.</h2>
           </div>
           <div className="service-grid">
             {services.map(({ icon: Icon, title, items }) => (
@@ -444,8 +444,8 @@ function App() {
 
       <footer className="footer">
         <div>
-          <strong>Car Club</strong>
-          <span>Complete vehicle care, managed for you.</span>
+          <strong>White Glove Concierge</strong>
+          <span>Collection management, managed for you.</span>
         </div>
         <button type="button" onClick={() => setMode(member ? "app" : "login")}>Open Member App</button>
       </footer>
@@ -469,8 +469,8 @@ function LoginScreen({ onBack, onLogin }) {
       <section className="phone-auth">
         <button className="text-button" type="button" onClick={onBack}>Back to site</button>
         <div className="auth-brand">
-          <span className="brand-mark">CC</span>
-          <span>Car Club Member App</span>
+          <span className="brand-mark">WG</span>
+          <span>White Glove Member App</span>
         </div>
         <h1>Log in to your vehicle concierge account.</h1>
         <p>For now this is a working prototype. Real secure accounts will be added with a backend such as Supabase or Firebase.</p>
@@ -510,8 +510,8 @@ function MemberApp({ appointments, garage, member, onAddAppointment, onAddVehicl
     <div className="mobile-app-shell">
       <aside className="app-sidebar">
         <div className="auth-brand">
-          <span className="brand-mark">CC</span>
-          <span>Car Club</span>
+          <span className="brand-mark">WG</span>
+          <span>White Glove</span>
         </div>
         <nav>
           <AppNavButton active={activeTab === "home"} icon={Home} label="Home" onClick={() => setActiveTab("home")} />

@@ -1,7 +1,7 @@
 {
-  "name": "Car Club",
-  "short_name": "Car Club",
-  "description": "Vehicle concierge member app for garage uploads and service scheduling.",
+  "name": "White Glove Concierge",
+  "short_name": "White Glove",
+  "description": "Collection management member app for garage uploads, vehicle values, and service scheduling.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#050505",
