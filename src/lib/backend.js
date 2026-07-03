@@ -44,7 +44,12 @@ export async function createAccount({ email, name, password, plan }) {
   if (!data.user) throw new Error("Account could not be created.");
 
   if (!data.session) {
-    throw new Error("Account created. Check your email to confirm your account, then sign in.");
+    return {
+      email,
+      name,
+      plan,
+      pendingConfirmation: true,
+    };
   }
 
   await upsertProfile({

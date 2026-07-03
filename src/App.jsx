@@ -113,6 +113,53 @@ const plans = [
   },
 ];
 
+const serviceOptions = [
+  {
+    label: "Full detail",
+    allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Maintenance concierge",
+    allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Vehicle offer request",
+    allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Pickup and delivery",
+    allowedPlans: ["Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Tire change / storage",
+    allowedPlans: ["Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Tuning / modifications",
+    allowedPlans: ["Platinum", "Collector"],
+  },
+  {
+    label: "Vehicle storage",
+    allowedPlans: ["Platinum", "Collector"],
+  },
+  {
+    label: "Emergency concierge",
+    allowedPlans: ["Platinum", "Collector"],
+  },
+  {
+    label: "Collection management",
+    allowedPlans: ["Collector"],
+  },
+];
+
+function getAvailableServices(plan) {
+  return serviceOptions.filter((service) => service.allowedPlans.includes(plan));
+}
+
+function canBookService(plan, serviceLabel) {
+  return getAvailableServices(plan).some((service) => service.label === serviceLabel);
+}
+
 const benefits = [
   "Save time",
   "Protect vehicle value",
@@ -265,6 +312,11 @@ function App() {
       const signedInMember = profile.authAction === "create"
         ? await createAccount(profile)
         : await signIn(profile);
+      if (signedInMember.pendingConfirmation) {
+        setAppError("Account created. Check your email to confirm your account, then sign in.");
+        return;
+      }
+
       const [savedGarage, savedAppointments] = await Promise.all([
         loadVehicles(signedInMember.id),
         loadServiceRequests(signedInMember.id),
@@ -316,6 +368,10 @@ function App() {
   }
 
   async function addAppointment(appointment) {
+    if (!canBookService(member?.plan, appointment.service)) {
+      throw new Error(`${appointment.service} is not included in the ${member?.plan || "current"} package.`);
+    }
+
     if (isBackendConfigured && member?.id) {
       const savedRequest = await createServiceRequest(member.id, appointment);
       setAppointments((currentAppointments) => [savedRequest, ...currentAppointments]);
@@ -568,6 +624,7 @@ function App() {
 function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+  const appErrorIsNotice = appError?.startsWith("Account created.");
 
   async function submitLogin(event) {
     event.preventDefault();
@@ -603,9 +660,14 @@ function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
         <h1>Log in to your vehicle concierge account.</h1>
         <p>{backendEnabled ? "Use your member email and password to access saved vehicles and service requests." : "Backend keys are not connected yet, so this runs in local prototype mode."}</p>
         <form className="app-form" onSubmit={submitLogin}>
-          {(authError || appError) && (
+          {authError && (
             <div className="error-message" role="alert">
-              {authError || appError}
+              {authError}
+            </div>
+          )}
+          {appError && (
+            <div className={appErrorIsNotice ? "success-message" : "error-message"} role={appErrorIsNotice ? "status" : "alert"}>
+              {appError}
             </div>
           )}
           <label>
@@ -674,9 +736,9 @@ function MemberApp({ appointments, garage, member, onAddAppointment, onAddVehicl
         </header>
 
         {activeTab === "home" && <Dashboard appointments={appointments} garage={garage} member={member} setActiveTab={setActiveTab} />}
-        {activeTab === "garage" && <GarageScreen garage={garage} onAddVehicle={onAddVehicle} onUpdateVehicle={onUpdateVehicle} />}
+        {activeTab === "garage" && <GarageScreen garage={garage} onAddAppointment={addAppointment} onAddVehicle={onAddVehicle} onUpdateVehicle={onUpdateVehicle} />}
         {activeTab === "schedule" && <ScheduleScreen appointments={appointments} member={member} onAddAppointment={onAddAppointment} vehicleOptions={vehicleOptions} />}
-        {activeTab === "services" && <ServicesScreen setActiveTab={setActiveTab} />}
+        {activeTab === "services" && <ServicesScreen member={member} setActiveTab={setActiveTab} />}
         {activeTab === "account" && <AccountScreen member={member} onLogout={onLogout} />}
       </main>
 
@@ -745,7 +807,7 @@ function Dashboard({ appointments, garage, member, setActiveTab }) {
   );
 }
 
-function GarageScreen({ garage, onAddVehicle, onUpdateVehicle }) {
+function GarageScreen({ garage, onAddAppointment, onAddVehicle, onUpdateVehicle }) {
   const [showForm, setShowForm] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const selectedVehicle = garage.find((vehicle) => vehicle.id === selectedVehicleId);
@@ -754,6 +816,7 @@ function GarageScreen({ garage, onAddVehicle, onUpdateVehicle }) {
     return (
       <VehicleDetailScreen
         onBack={() => setSelectedVehicleId("")}
+        onGetOffer={onAddAppointment}
         onUpdateVehicle={onUpdateVehicle}
         vehicle={selectedVehicle}
       />
@@ -804,12 +867,12 @@ function ScheduleScreen({ appointments, member, onAddAppointment, vehicleOptions
   );
 }
 
-function ServicesScreen({ setActiveTab }) {
+function ServicesScreen({ member, setActiveTab }) {
   return (
     <div className="app-stack">
       <section className="app-section">
         <h2>Services You Can Book</h2>
-        <p>Select a service category, then request it through the scheduling tab.</p>
+        <p>Your {member.plan} package includes the services marked available below.</p>
         <div className="app-service-list">
           {services.map(({ icon: Icon, title, items }) => (
             <article key={title}>
@@ -823,6 +886,31 @@ function ServicesScreen({ setActiveTab }) {
               </button>
             </article>
           ))}
+        </div>
+      </section>
+      <section className="app-section">
+        <div className="app-section-title">
+          <div>
+            <h2>Package Access</h2>
+            <p>{member.plan} members can request these services now.</p>
+          </div>
+        </div>
+        <div className="app-service-list">
+          {serviceOptions.map((service) => {
+            const included = service.allowedPlans.includes(member.plan);
+            return (
+              <article className={included ? "" : "locked-service"} key={service.label}>
+                {included ? <Check size={22} /> : <ShieldCheck size={22} />}
+                <div>
+                  <h3>{service.label}</h3>
+                  <p>{included ? "Included in your package" : `Requires ${service.allowedPlans[0]} or higher`}</p>
+                </div>
+                <button disabled={!included} type="button" onClick={() => setActiveTab("schedule")} aria-label={`Schedule ${service.label}`}>
+                  <ChevronRight size={20} />
+                </button>
+              </article>
+            );
+          })}
         </div>
       </section>
     </div>
@@ -957,6 +1045,7 @@ function VehicleForm({ onAddVehicle, onClose }) {
 function ScheduleForm({ member, onAddAppointment, vehicleOptions }) {
   const [requestSubmitted, setRequestSubmitted] = useState(false);
   const [requestError, setRequestError] = useState("");
+  const availableServices = getAvailableServices(member.plan);
 
   async function submitAppointment(event) {
     event.preventDefault();
@@ -978,6 +1067,10 @@ function ScheduleForm({ member, onAddAppointment, vehicleOptions }) {
     formData.set("memberEmail", member.email);
 
     try {
+      if (!canBookService(member.plan, appointment.service)) {
+        throw new Error(`${appointment.service} is not included in your ${member.plan} package.`);
+      }
+
       if (window.location.hostname !== "127.0.0.1" && window.location.hostname !== "localhost") {
         const response = await fetch("/", {
           method: "POST",
@@ -993,8 +1086,8 @@ function ScheduleForm({ member, onAddAppointment, vehicleOptions }) {
       await onAddAppointment(appointment);
       setRequestSubmitted(true);
       form.reset();
-    } catch {
-      setRequestError("We could not send that request. Please try again or contact the concierge directly.");
+    } catch (error) {
+      setRequestError(error.message || "We could not send that request. Please try again or contact the concierge directly.");
     }
   }
 
@@ -1029,14 +1122,9 @@ function ScheduleForm({ member, onAddAppointment, vehicleOptions }) {
         <label>
           Service
           <select name="service" required>
-            <option>Full detail</option>
-            <option>Maintenance concierge</option>
-            <option>Tuning / modifications</option>
-            <option>Pickup and delivery</option>
-            <option>Tire change / storage</option>
-            <option>Vehicle storage</option>
-            <option>Collection management</option>
-            <option>Emergency concierge</option>
+            {availableServices.map((service) => (
+              <option key={service.label}>{service.label}</option>
+            ))}
           </select>
         </label>
         <label>
@@ -1065,15 +1153,17 @@ function VehicleCard({ onSelect, vehicle }) {
         <span>{vehicle.use}</span>
         <h3>{vehicle.year} {vehicle.make} {vehicle.model}</h3>
         <p>{vehicle.mileage} miles</p>
+        <strong className="vehicle-value">{vehicle.marketValue || "Value pending"}</strong>
       </div>
       <strong>{vehicle.status}</strong>
     </button>
   );
 }
 
-function VehicleDetailScreen({ onBack, onUpdateVehicle, vehicle }) {
+function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
   const [photoPreview, setPhotoPreview] = useState("");
   const [detailError, setDetailError] = useState("");
+  const [offerRequested, setOfferRequested] = useState(false);
   const workDone = vehicle.workDone?.length ? vehicle.workDone : ["No work logged yet"];
 
   function handlePhoto(event) {
@@ -1119,6 +1209,24 @@ function VehicleDetailScreen({ onBack, onUpdateVehicle, vehicle }) {
     }
   }
 
+  async function requestOffer() {
+    setDetailError("");
+    setOfferRequested(false);
+
+    try {
+      await onGetOffer({
+        vehicle: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
+        service: "Vehicle offer request",
+        date: "",
+        time: "",
+        notes: `Member requested an offer. Current market value: ${vehicle.marketValue || "Value pending"}. Mileage: ${vehicle.mileage || "Mileage pending"}. Horsepower: ${vehicle.horsepower || "HP pending"}.`,
+      });
+      setOfferRequested(true);
+    } catch (error) {
+      setDetailError(error.message || "Could not request an offer for this vehicle.");
+    }
+  }
+
   return (
     <div className="app-stack">
       <section className="vehicle-detail-hero">
@@ -1144,6 +1252,21 @@ function VehicleDetailScreen({ onBack, onUpdateVehicle, vehicle }) {
           <strong>{vehicle.mileage || "Mileage pending"}</strong>
           <span>Mileage</span>
         </article>
+      </section>
+
+      <section className="app-section offer-panel">
+        <div>
+          <h2>Get an offer for this vehicle</h2>
+          <p>Request a concierge offer based on your vehicle details, mileage, condition notes, upgrades, and current market value.</p>
+        </div>
+        {offerRequested && (
+          <div className="success-message" role="status">
+            Offer request sent. Your concierge team will review this vehicle and follow up.
+          </div>
+        )}
+        <button className="button primary submit" type="button" onClick={requestOffer}>
+          Get Offer
+        </button>
       </section>
 
       <section className="app-section">
