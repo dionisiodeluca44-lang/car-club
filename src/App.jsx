@@ -918,6 +918,8 @@ function ServicesScreen({ member, setActiveTab }) {
 }
 
 function AccountScreen({ member, onLogout }) {
+  const includedServices = getAvailableServices(member.plan);
+
   return (
     <div className="app-stack">
       <section className="app-section account-panel">
@@ -932,13 +934,20 @@ function AccountScreen({ member, onLogout }) {
         </button>
       </section>
       <section className="app-section">
-        <h2>Next Backend Features</h2>
+        <h2>Included In Your Package</h2>
         <ul className="next-list">
-          <li>Secure login and signup</li>
-          <li>Database for members, vehicles, and service requests</li>
-          <li>Photo upload storage</li>
-          <li>Admin dashboard for your team</li>
-          <li>Push notifications and email updates</li>
+          {includedServices.map((service) => (
+            <li key={service.label}>{service.label}</li>
+          ))}
+        </ul>
+      </section>
+      <section className="app-section">
+        <h2>Account Status</h2>
+        <ul className="next-list">
+          <li>Secure login active</li>
+          <li>Garage records saved to your account</li>
+          <li>Vehicle photos saved to private member storage</li>
+          <li>Service and offer requests saved for concierge review</li>
         </ul>
       </section>
     </div>
@@ -1046,6 +1055,7 @@ function ScheduleForm({ member, onAddAppointment, vehicleOptions }) {
   const [requestSubmitted, setRequestSubmitted] = useState(false);
   const [requestError, setRequestError] = useState("");
   const availableServices = getAvailableServices(member.plan);
+  const hasVehicles = vehicleOptions.length > 0;
 
   async function submitAppointment(event) {
     event.preventDefault();
@@ -1067,6 +1077,10 @@ function ScheduleForm({ member, onAddAppointment, vehicleOptions }) {
     formData.set("memberEmail", member.email);
 
     try {
+      if (!hasVehicles) {
+        throw new Error("Add a vehicle to your garage before requesting service.");
+      }
+
       if (!canBookService(member.plan, appointment.service)) {
         throw new Error(`${appointment.service} is not included in your ${member.plan} package.`);
       }
@@ -1110,9 +1124,15 @@ function ScheduleForm({ member, onAddAppointment, vehicleOptions }) {
           {requestError}
         </div>
       )}
+      {!hasVehicles && (
+        <div className="error-message" role="alert">
+          Add a vehicle to your garage before requesting service.
+        </div>
+      )}
       <label>
         Vehicle
-        <select name="vehicle" required>
+        <select name="vehicle" required disabled={!hasVehicles}>
+          {!hasVehicles && <option>No vehicles added yet</option>}
           {vehicleOptions.map((vehicle) => (
             <option key={vehicle}>{vehicle}</option>
           ))}
@@ -1140,7 +1160,7 @@ function ScheduleForm({ member, onAddAppointment, vehicleOptions }) {
         Notes
         <textarea name="notes" rows="3" placeholder="Tell the concierge what you need handled." />
       </label>
-      <button className="button primary submit" type="submit">Request Service</button>
+      <button className="button primary submit" type="submit" disabled={!hasVehicles}>Request Service</button>
     </form>
   );
 }
