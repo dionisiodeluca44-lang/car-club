@@ -808,7 +808,7 @@ function Dashboard({ appointments, garage, member, setActiveTab }) {
 }
 
 function GarageScreen({ garage, onAddAppointment, onAddVehicle, onUpdateVehicle }) {
-  const [showForm, setShowForm] = useState(false);
+  const [showForm, setShowForm] = useState(garage.length === 0);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const selectedVehicle = garage.find((vehicle) => vehicle.id === selectedVehicleId);
 
@@ -836,6 +836,16 @@ function GarageScreen({ garage, onAddAppointment, onAddVehicle, onUpdateVehicle 
           </button>
         </div>
         {showForm && <VehicleForm onAddVehicle={onAddVehicle} onClose={() => setShowForm(false)} />}
+        {!showForm && garage.length === 0 && (
+          <div className="empty-state">
+            <Car size={26} />
+            <h3>No vehicles in your garage yet</h3>
+            <p>Add your first car to track market value, horsepower, photos, work history, and offer requests.</p>
+            <button className="button primary compact-button" type="button" onClick={() => setShowForm(true)}>
+              <Plus size={18} /> Add First Car
+            </button>
+          </div>
+        )}
         <div className="garage-list">
           {garage.map((vehicle) => (
             <VehicleCard key={vehicle.id} onSelect={() => setSelectedVehicleId(vehicle.id)} vehicle={vehicle} />

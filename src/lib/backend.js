@@ -120,8 +120,8 @@ export async function loadVehicles(userId) {
 export async function createVehicle(userId, vehicle) {
   if (!supabase || !userId) return vehicle;
 
-  const imageUrl = await uploadVehicleImage(userId, vehicle.image);
-  const payload = toVehicleRow(userId, { ...vehicle, image: imageUrl || vehicle.image });
+  const imageUrl = await safeUploadVehicleImage(userId, vehicle.image);
+  const payload = toVehicleRow(userId, { ...vehicle, image: imageUrl || reusableImageUrl(vehicle.image) });
 
   const { data, error } = await supabase.from("vehicles").insert(payload).select("*").single();
   if (error) throw error;
@@ -131,8 +131,8 @@ export async function createVehicle(userId, vehicle) {
 export async function updateVehicleRecord(vehicleId, updates) {
   if (!supabase || !vehicleId) return updates;
 
-  const imageUrl = await uploadVehicleImage(null, updates.image);
-  const payload = toVehicleUpdateRow({ ...updates, image: imageUrl || updates.image });
+  const imageUrl = await safeUploadVehicleImage(null, updates.image);
+  const payload = toVehicleUpdateRow({ ...updates, image: imageUrl || reusableImageUrl(updates.image) });
 
   const { data, error } = await supabase.from("vehicles").update(payload).eq("id", vehicleId).select("*").single();
   if (error) throw error;
@@ -191,6 +191,20 @@ async function uploadVehicleImage(userId, image) {
 
   const { data } = supabase.storage.from("vehicle-photos").getPublicUrl(path);
   return data.publicUrl;
+}
+
+async function safeUploadVehicleImage(userId, image) {
+  try {
+    return await uploadVehicleImage(userId, image);
+  } catch (error) {
+    console.warn("Vehicle photo upload failed. Saving vehicle without the uploaded photo.", error);
+    return "";
+  }
+}
+
+function reusableImageUrl(image) {
+  if (!image || String(image).startsWith("data:")) return "";
+  return image;
 }
 
 function fromVehicleRow(row) {
