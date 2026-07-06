@@ -258,6 +258,7 @@ function App() {
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [appError, setAppError] = useState("");
+  const [runtimeError, setRuntimeError] = useState("");
   const [loadingAccount, setLoadingAccount] = useState(isBackendConfigured);
   const [member, setMember] = useState(() => {
     if (isBackendConfigured) return null;
@@ -274,6 +275,20 @@ function App() {
   });
 
   const closeMenu = () => setMenuOpen(false);
+
+  useEffect(() => {
+    function reportRuntimeError(event) {
+      setRuntimeError(event.reason?.message || event.error?.message || event.message || "The app hit an unexpected error.");
+    }
+
+    window.addEventListener("error", reportRuntimeError);
+    window.addEventListener("unhandledrejection", reportRuntimeError);
+
+    return () => {
+      window.removeEventListener("error", reportRuntimeError);
+      window.removeEventListener("unhandledrejection", reportRuntimeError);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -424,6 +439,10 @@ function App() {
 
   if (mode === "login") {
     return <LoginScreen appError={appError} backendEnabled={isBackendConfigured} onLogin={handleLogin} onBack={() => setMode("site")} />;
+  }
+
+  if (runtimeError) {
+    return <RuntimeErrorScreen message={runtimeError} onReset={() => { setRuntimeError(""); setMode("site"); }} />;
   }
 
   if (loadingAccount) {
@@ -705,6 +724,24 @@ function PrivacyPolicy({ onBack }) {
   );
 }
 
+function RuntimeErrorScreen({ message, onReset }) {
+  return (
+    <main className="login-screen">
+      <section className="phone-auth">
+        <div className="auth-brand">
+          <span className="brand-mark">WG</span>
+          <span>White Glove Member App</span>
+        </div>
+        <h1>Something stopped the app.</h1>
+        <p>{message}</p>
+        <button className="button primary submit" type="button" onClick={onReset}>
+          Back to Website
+        </button>
+      </section>
+    </main>
+  );
+}
+
 function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
@@ -909,7 +946,7 @@ function Dashboard({ appointments, garage, member, setActiveTab }) {
 
 function GarageScreen({ garage, onAddAppointment, onAddVehicle, onUpdateVehicle }) {
   const garageList = ensureList(garage);
-  const [showForm, setShowForm] = useState(garageList.length === 0);
+  const [showForm, setShowForm] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const selectedVehicle = garageList.find((vehicle) => vehicle.id === selectedVehicleId);
 
