@@ -219,6 +219,25 @@ function ensureList(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function normalizeVehicle(vehicle, index = 0) {
+  const safeVehicle = vehicle && typeof vehicle === "object" ? vehicle : {};
+
+  return {
+    ...safeVehicle,
+    id: safeVehicle.id || `garage-vehicle-${index}`,
+    year: safeVehicle.year || "",
+    make: safeVehicle.make || "",
+    model: safeVehicle.model || "",
+    mileage: safeVehicle.mileage || "",
+    use: safeVehicle.use || "Collection",
+    status: safeVehicle.status || "Active",
+    marketValue: safeVehicle.marketValue || "Value pending",
+    horsepower: safeVehicle.horsepower || "HP pending",
+    workDone: Array.isArray(safeVehicle.workDone) ? safeVehicle.workDone : splitWorkList(safeVehicle.workDone),
+    image: safeVehicle.image || fallbackVehicleImage,
+  };
+}
+
 function readStoredJson(key, fallback) {
   try {
     const savedValue = localStorage.getItem(key);
@@ -285,6 +304,7 @@ function App() {
 
   useEffect(() => {
     function reportRuntimeError(event) {
+      if (event.target && event.target !== window) return;
       setRuntimeError(event.reason?.message || event.error?.message || event.message || "The app hit an unexpected error.");
     }
 
@@ -834,7 +854,7 @@ function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
 
 function MemberApp({ appointments, garage, member, onAddAppointment, onAddVehicle, onLogout, onUpdateVehicle }) {
   const [activeTab, setActiveTab] = useState("home");
-  const garageList = ensureList(garage);
+  const garageList = ensureList(garage).map(normalizeVehicle);
   const appointmentList = ensureList(appointments);
   const vehicleOptions = useMemo(() => garageList.map((vehicle) => `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle"), [garageList]);
   const firstName = member.name?.split(" ")[0] || "Member";
@@ -1336,10 +1356,13 @@ function ScheduleForm({ member, onAddAppointment, vehicleOptions }) {
 function VehicleCard({ onSelect, vehicle }) {
   const label = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
   const mileage = vehicle.mileage ? `${vehicle.mileage} miles` : "Mileage pending";
+  const handleImageError = (event) => {
+    event.currentTarget.src = fallbackVehicleImage;
+  };
 
   return (
     <button className="vehicle-card" type="button" onClick={onSelect} disabled={!vehicle.id}>
-      <img alt={label} src={vehicle.image || fallbackVehicleImage} />
+      <img alt={label} onError={handleImageError} src={vehicle.image || fallbackVehicleImage} />
       <div>
         <span>{vehicle.use || "Collection"}</span>
         <h3>{label}</h3>
@@ -1358,6 +1381,9 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
   const workHistory = ensureList(vehicle.workDone);
   const workDone = workHistory.length ? workHistory : ["No work logged yet"];
   const vehicleLabel = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
+  const handleImageError = (event) => {
+    event.currentTarget.src = fallbackVehicleImage;
+  };
 
   function handlePhoto(event) {
     const file = event.target.files?.[0];
@@ -1424,7 +1450,7 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
     <div className="app-stack">
       <section className="vehicle-detail-hero">
         <button className="text-button" type="button" onClick={onBack}>Back to Garage</button>
-        <img alt={vehicleLabel} src={photoPreview || vehicle.image || fallbackVehicleImage} />
+        <img alt={vehicleLabel} onError={handleImageError} src={photoPreview || vehicle.image || fallbackVehicleImage} />
         <div>
           <span>{vehicle.use || "Collection"}</span>
           <h2>{vehicleLabel}</h2>
