@@ -410,6 +410,10 @@ function App() {
     return <LoginScreen appError="Please sign in to access your member app." backendEnabled={isBackendConfigured} onLogin={handleLogin} onBack={() => setMode("site")} />;
   }
 
+  if (mode === "privacy") {
+    return <PrivacyPolicy onBack={() => setMode("site")} />;
+  }
+
   return (
     <div className="site-shell">
       <header className="nav">
@@ -615,9 +619,50 @@ function App() {
           <strong>White Glove Concierge</strong>
           <span>Collection management, managed for you.</span>
         </div>
-        <button type="button" onClick={() => setMode(member ? "app" : "login")}>Open Member App</button>
+        <div className="footer-actions">
+          <button type="button" onClick={() => setMode("privacy")}>Privacy Policy</button>
+          <button type="button" onClick={() => setMode(member ? "app" : "login")}>Open Member App</button>
+        </div>
       </footer>
     </div>
+  );
+}
+
+function PrivacyPolicy({ onBack }) {
+  return (
+    <main className="legal-page">
+      <section className="legal-card">
+        <button className="text-button" type="button" onClick={onBack}>Back to site</button>
+        <p className="eyebrow">Privacy Policy</p>
+        <h1>White Glove Concierge Privacy Policy</h1>
+        <p>Last updated: July 6, 2026</p>
+
+        <h2>Information We Collect</h2>
+        <p>
+          We collect information members provide when requesting membership, creating an account, adding garage vehicles, uploading vehicle photos, updating market value, horsepower, mileage, modifications, service history, and submitting concierge service or vehicle offer requests.
+        </p>
+
+        <h2>How We Use Information</h2>
+        <p>
+          We use this information to manage member accounts, maintain garage records, coordinate services, respond to offer requests, communicate with members, improve the app, and provide collection management support.
+        </p>
+
+        <h2>Storage and Service Providers</h2>
+        <p>
+          Member account, vehicle, photo, and service request information may be processed through service providers such as Supabase and Netlify so the website and member app can operate securely.
+        </p>
+
+        <h2>Member Choices</h2>
+        <p>
+          Members may contact White Glove Concierge to request updates, corrections, or deletion of account and vehicle information.
+        </p>
+
+        <h2>Contact</h2>
+        <p>
+          For privacy questions, contact White Glove Concierge through the website contact or membership request form.
+        </p>
+      </section>
+    </main>
   );
 }
 

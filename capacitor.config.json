@@ -1,0 +1,11 @@
+{
+  "appId": "com.whitegloveconcierge.app",
+  "appName": "White Glove Concierge",
+  "webDir": "dist",
+  "server": {
+    "iosScheme": "https"
+  },
+  "ios": {
+    "contentInset": "automatic"
+  }
+}

@@ -47,6 +47,26 @@ Setup steps:
 
 Once configured, members can create accounts, sign in, save garage vehicles, upload vehicle photos, update vehicle values/horsepower/work history, and create service requests in the database.
 
+## iPhone app setup
+
+This project is configured with Capacitor so the existing React app can be packaged as an iPhone app.
+
+App Store basics:
+
+- App name: `White Glove Concierge`
+- Bundle ID: `com.whitegloveconcierge.app`
+- Privacy policy URL after Netlify deploy: `https://vocal-pie-c034af.netlify.app/privacy.html`
+- iOS project folder: `ios/App`
+
+Useful commands:
+
+```bash
+pnpm ios:sync
+pnpm ios:open
+```
+
+Before uploading to TestFlight or the App Store, install full Xcode from the Mac App Store, sign in with an Apple Developer Program account, select your team in Xcode, then create the app record in App Store Connect.
+
 Still planned:
 
 - Admin dashboard for managing requests
