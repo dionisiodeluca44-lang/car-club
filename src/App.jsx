@@ -219,6 +219,16 @@ function ensureList(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function readStoredJson(key, fallback) {
+  try {
+    const savedValue = localStorage.getItem(key);
+    return savedValue ? JSON.parse(savedValue) : fallback;
+  } catch {
+    localStorage.removeItem(key);
+    return fallback;
+  }
+}
+
 class MemberPanelErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -262,16 +272,13 @@ function App() {
   const [loadingAccount, setLoadingAccount] = useState(isBackendConfigured);
   const [member, setMember] = useState(() => {
     if (isBackendConfigured) return null;
-    const saved = localStorage.getItem("carClubMember");
-    return saved ? JSON.parse(saved) : null;
+    return readStoredJson("carClubMember", null);
   });
   const [garage, setGarage] = useState(() => {
-    const saved = localStorage.getItem("carClubGarage");
-    return saved ? JSON.parse(saved) : defaultGarage;
+    return ensureList(readStoredJson("carClubGarage", defaultGarage));
   });
   const [appointments, setAppointments] = useState(() => {
-    const saved = localStorage.getItem("carClubAppointments");
-    return saved ? JSON.parse(saved) : defaultAppointments;
+    return ensureList(readStoredJson("carClubAppointments", defaultAppointments));
   });
 
   const closeMenu = () => setMenuOpen(false);
@@ -860,7 +867,15 @@ function MemberApp({ appointments, garage, member, onAddAppointment, onAddVehicl
         </header>
 
         <MemberPanelErrorBoundary resetKey={activeTab} onRecover={() => setActiveTab("home")}>
-          {activeTab === "home" && <Dashboard appointments={appointmentList} garage={garageList} member={member} setActiveTab={setActiveTab} />}
+          {activeTab === "home" && (
+            <Dashboard
+              appointments={appointmentList}
+              garage={garageList}
+              member={member}
+              onAddVehicle={onAddVehicle}
+              setActiveTab={setActiveTab}
+            />
+          )}
           {activeTab === "garage" && <GarageScreen garage={garageList} onAddAppointment={addAppointment} onAddVehicle={onAddVehicle} onUpdateVehicle={onUpdateVehicle} />}
           {activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} member={member} onAddAppointment={onAddAppointment} vehicleOptions={vehicleOptions} />}
           {activeTab === "services" && <ServicesScreen member={member} setActiveTab={setActiveTab} />}
@@ -878,7 +893,9 @@ function MemberApp({ appointments, garage, member, onAddAppointment, onAddVehicl
   );
 }
 
-function Dashboard({ appointments, garage, member, setActiveTab }) {
+function Dashboard({ appointments, garage, member, onAddVehicle, setActiveTab }) {
+  const [showVehicleForm, setShowVehicleForm] = useState(false);
+
   return (
     <div className="app-stack">
       <section className="member-hero">
@@ -921,15 +938,18 @@ function Dashboard({ appointments, garage, member, setActiveTab }) {
       <section className="app-section">
         <div className="app-section-title">
           <h2>Garage Preview</h2>
-          <button type="button" onClick={() => setActiveTab("garage")}>Manage</button>
+          <button type="button" onClick={() => setShowVehicleForm((open) => !open)}>
+            {showVehicleForm ? "Close" : "Add Vehicle"}
+          </button>
         </div>
+        {showVehicleForm && <VehicleForm onAddVehicle={onAddVehicle} onClose={() => setShowVehicleForm(false)} />}
         {garage.length === 0 ? (
           <div className="empty-state">
             <Car size={26} />
             <h3>No vehicles added yet</h3>
             <p>Add your first vehicle to unlock market value tracking, car details, work history, service requests, and offer requests.</p>
-            <button className="button primary compact-button" type="button" onClick={() => setActiveTab("garage")}>
-              <Plus size={18} /> Add Vehicle
+            <button className="button primary compact-button" type="button" onClick={() => setShowVehicleForm(true)}>
+              <Plus size={18} /> Upload Your Car
             </button>
           </div>
         ) : (
