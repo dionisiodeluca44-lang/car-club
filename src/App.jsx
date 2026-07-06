@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { Component, useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   Bell,
@@ -213,6 +213,45 @@ const defaultAppointments = [
   },
 ];
 
+const fallbackVehicleImage = "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=85";
+
+function ensureList(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+class MemberPanelErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidUpdate(previousProps) {
+    if (previousProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <section className="app-section">
+          <h2>We could not open this section.</h2>
+          <p>Go back home and try again. If it keeps happening, sign out and sign back in.</p>
+          <button className="button primary compact-button" type="button" onClick={this.props.onRecover}>
+            Back to Home
+          </button>
+        </section>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 function App() {
   const [mode, setMode] = useState("site");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -260,8 +299,8 @@ function App() {
 
         if (!active) return;
         setMember(currentMember);
-        setGarage(savedGarage);
-        setAppointments(savedAppointments);
+        setGarage(ensureList(savedGarage));
+        setAppointments(ensureList(savedAppointments));
         setMode("app");
       } catch (error) {
         if (active) setAppError(error.message || "Could not load your account.");
@@ -323,8 +362,8 @@ function App() {
       ]);
 
       setMember(signedInMember);
-      setGarage(savedGarage);
-      setAppointments(savedAppointments);
+      setGarage(ensureList(savedGarage));
+      setAppointments(ensureList(savedAppointments));
       setMode("app");
       return;
     }
@@ -751,7 +790,10 @@ function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
 
 function MemberApp({ appointments, garage, member, onAddAppointment, onAddVehicle, onLogout, onUpdateVehicle }) {
   const [activeTab, setActiveTab] = useState("home");
-  const vehicleOptions = useMemo(() => garage.map((vehicle) => `${vehicle.year} ${vehicle.make} ${vehicle.model}`), [garage]);
+  const garageList = ensureList(garage);
+  const appointmentList = ensureList(appointments);
+  const vehicleOptions = useMemo(() => garageList.map((vehicle) => `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle"), [garageList]);
+  const firstName = member.name?.split(" ")[0] || "Member";
 
   return (
     <div className="mobile-app-shell">
@@ -773,18 +815,20 @@ function MemberApp({ appointments, garage, member, onAddAppointment, onAddVehicl
         <header className="app-topbar">
           <div>
             <p className="eyebrow">Member app</p>
-            <h1>{activeTab === "home" ? `Welcome, ${member.name.split(" ")[0]}` : tabTitle(activeTab)}</h1>
+            <h1>{activeTab === "home" ? `Welcome, ${firstName}` : tabTitle(activeTab)}</h1>
           </div>
           <button className="icon-button" type="button" aria-label="Notifications">
             <Bell size={20} />
           </button>
         </header>
 
-        {activeTab === "home" && <Dashboard appointments={appointments} garage={garage} member={member} setActiveTab={setActiveTab} />}
-        {activeTab === "garage" && <GarageScreen garage={garage} onAddAppointment={addAppointment} onAddVehicle={onAddVehicle} onUpdateVehicle={onUpdateVehicle} />}
-        {activeTab === "schedule" && <ScheduleScreen appointments={appointments} member={member} onAddAppointment={onAddAppointment} vehicleOptions={vehicleOptions} />}
-        {activeTab === "services" && <ServicesScreen member={member} setActiveTab={setActiveTab} />}
-        {activeTab === "account" && <AccountScreen member={member} onLogout={onLogout} />}
+        <MemberPanelErrorBoundary resetKey={activeTab} onRecover={() => setActiveTab("home")}>
+          {activeTab === "home" && <Dashboard appointments={appointmentList} garage={garageList} member={member} setActiveTab={setActiveTab} />}
+          {activeTab === "garage" && <GarageScreen garage={garageList} onAddAppointment={addAppointment} onAddVehicle={onAddVehicle} onUpdateVehicle={onUpdateVehicle} />}
+          {activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} member={member} onAddAppointment={onAddAppointment} vehicleOptions={vehicleOptions} />}
+          {activeTab === "services" && <ServicesScreen member={member} setActiveTab={setActiveTab} />}
+          {activeTab === "account" && <AccountScreen member={member} onLogout={onLogout} />}
+        </MemberPanelErrorBoundary>
       </main>
 
       <nav className="bottom-tabs" aria-label="App navigation">
@@ -864,9 +908,10 @@ function Dashboard({ appointments, garage, member, setActiveTab }) {
 }
 
 function GarageScreen({ garage, onAddAppointment, onAddVehicle, onUpdateVehicle }) {
-  const [showForm, setShowForm] = useState(garage.length === 0);
+  const garageList = ensureList(garage);
+  const [showForm, setShowForm] = useState(garageList.length === 0);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
-  const selectedVehicle = garage.find((vehicle) => vehicle.id === selectedVehicleId);
+  const selectedVehicle = garageList.find((vehicle) => vehicle.id === selectedVehicleId);
 
   if (selectedVehicle) {
     return (
@@ -892,7 +937,7 @@ function GarageScreen({ garage, onAddAppointment, onAddVehicle, onUpdateVehicle 
           </button>
         </div>
         {showForm && <VehicleForm onAddVehicle={onAddVehicle} onClose={() => setShowForm(false)} />}
-        {!showForm && garage.length === 0 && (
+        {!showForm && garageList.length === 0 && (
           <div className="empty-state">
             <Car size={26} />
             <h3>No vehicles in your garage yet</h3>
@@ -903,8 +948,8 @@ function GarageScreen({ garage, onAddAppointment, onAddVehicle, onUpdateVehicle 
           </div>
         )}
         <div className="garage-list">
-          {garage.map((vehicle) => (
-            <VehicleCard key={vehicle.id} onSelect={() => setSelectedVehicleId(vehicle.id)} vehicle={vehicle} />
+          {garageList.map((vehicle, index) => (
+            <VehicleCard key={vehicle.id || `${vehicle.make}-${vehicle.model}-${index}`} onSelect={() => setSelectedVehicleId(vehicle.id)} vehicle={vehicle} />
           ))}
         </div>
       </section>
@@ -1232,16 +1277,19 @@ function ScheduleForm({ member, onAddAppointment, vehicleOptions }) {
 }
 
 function VehicleCard({ onSelect, vehicle }) {
+  const label = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
+  const mileage = vehicle.mileage ? `${vehicle.mileage} miles` : "Mileage pending";
+
   return (
-    <button className="vehicle-card" type="button" onClick={onSelect}>
-      <img alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} src={vehicle.image} />
+    <button className="vehicle-card" type="button" onClick={onSelect} disabled={!vehicle.id}>
+      <img alt={label} src={vehicle.image || fallbackVehicleImage} />
       <div>
-        <span>{vehicle.use}</span>
-        <h3>{vehicle.year} {vehicle.make} {vehicle.model}</h3>
-        <p>{vehicle.mileage} miles</p>
+        <span>{vehicle.use || "Collection"}</span>
+        <h3>{label}</h3>
+        <p>{mileage}</p>
         <strong className="vehicle-value">{vehicle.marketValue || "Value pending"}</strong>
       </div>
-      <strong>{vehicle.status}</strong>
+      <strong>{vehicle.status || "Active"}</strong>
     </button>
   );
 }
@@ -1250,7 +1298,9 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
   const [photoPreview, setPhotoPreview] = useState("");
   const [detailError, setDetailError] = useState("");
   const [offerRequested, setOfferRequested] = useState(false);
-  const workDone = vehicle.workDone?.length ? vehicle.workDone : ["No work logged yet"];
+  const workHistory = ensureList(vehicle.workDone);
+  const workDone = workHistory.length ? workHistory : ["No work logged yet"];
+  const vehicleLabel = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
 
   function handlePhoto(event) {
     const file = event.target.files?.[0];
@@ -1285,7 +1335,7 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
     const formData = new FormData(event.currentTarget);
     const workItem = formData.get("workItem")?.trim();
     if (!workItem) return;
-    const existingWork = vehicle.workDone?.length ? vehicle.workDone : [];
+    const existingWork = workHistory.length ? workHistory : [];
 
     try {
       await onUpdateVehicle(vehicle.id, { workDone: [workItem, ...existingWork] });
@@ -1301,7 +1351,7 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
 
     try {
       await onGetOffer({
-        vehicle: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
+        vehicle: vehicleLabel,
         service: "Vehicle offer request",
         date: "",
         time: "",
@@ -1317,11 +1367,11 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
     <div className="app-stack">
       <section className="vehicle-detail-hero">
         <button className="text-button" type="button" onClick={onBack}>Back to Garage</button>
-        <img alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} src={photoPreview || vehicle.image} />
+        <img alt={vehicleLabel} src={photoPreview || vehicle.image || fallbackVehicleImage} />
         <div>
-          <span>{vehicle.use}</span>
-          <h2>{vehicle.year} {vehicle.make} {vehicle.model}</h2>
-          <p>{vehicle.status}</p>
+          <span>{vehicle.use || "Collection"}</span>
+          <h2>{vehicleLabel}</h2>
+          <p>{vehicle.status || "Active"}</p>
         </div>
       </section>
 
