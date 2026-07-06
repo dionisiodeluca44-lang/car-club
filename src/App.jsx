@@ -842,11 +842,22 @@ function Dashboard({ appointments, garage, member, setActiveTab }) {
           <h2>Garage Preview</h2>
           <button type="button" onClick={() => setActiveTab("garage")}>Manage</button>
         </div>
-        <div className="garage-list compact">
-          {garage.slice(0, 2).map((vehicle) => (
-            <VehicleCard key={vehicle.id} vehicle={vehicle} />
-          ))}
-        </div>
+        {garage.length === 0 ? (
+          <div className="empty-state">
+            <Car size={26} />
+            <h3>No vehicles added yet</h3>
+            <p>Add your first vehicle to unlock market value tracking, car details, work history, service requests, and offer requests.</p>
+            <button className="button primary compact-button" type="button" onClick={() => setActiveTab("garage")}>
+              <Plus size={18} /> Add Vehicle
+            </button>
+          </div>
+        ) : (
+          <div className="garage-list compact">
+            {garage.slice(0, 2).map((vehicle) => (
+              <VehicleCard key={vehicle.id} onSelect={() => setActiveTab("garage")} vehicle={vehicle} />
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );

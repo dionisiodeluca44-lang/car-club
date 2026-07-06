@@ -124,7 +124,7 @@ export async function createVehicle(userId, vehicle) {
   const payload = toVehicleRow(userId, { ...vehicle, image: imageUrl || reusableImageUrl(vehicle.image) });
 
   const { data, error } = await supabase.from("vehicles").insert(payload).select("*").single();
-  if (error) throw error;
+  if (error) throw new Error(`Could not save vehicle: ${error.message}`);
   return fromVehicleRow(data);
 }
 
@@ -135,7 +135,7 @@ export async function updateVehicleRecord(vehicleId, updates) {
   const payload = toVehicleUpdateRow({ ...updates, image: imageUrl || reusableImageUrl(updates.image) });
 
   const { data, error } = await supabase.from("vehicles").update(payload).eq("id", vehicleId).select("*").single();
-  if (error) throw error;
+  if (error) throw new Error(`Could not update vehicle: ${error.message}`);
   return fromVehicleRow(data);
 }
 
