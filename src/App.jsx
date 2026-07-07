@@ -129,8 +129,48 @@ const serviceOptions = [
     allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
   },
   {
+    label: "Oil change",
+    allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Tires",
+    allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Brakes",
+    allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Diagnostics",
+    allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Battery service",
+    allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Recall or warranty work",
+    allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
     label: "Detail my car",
     allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Ceramic coating",
+    allowedPlans: ["Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Paint protection film",
+    allowedPlans: ["Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Window tint",
+    allowedPlans: ["Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Rim or windshield repair",
+    allowedPlans: ["Club Drive", "Gold", "Platinum", "Collector"],
   },
   {
     label: "Need repairs",
@@ -161,6 +201,10 @@ const serviceOptions = [
     allowedPlans: ["Platinum", "Collector"],
   },
   {
+    label: "Roadside assistance",
+    allowedPlans: ["Platinum", "Collector"],
+  },
+  {
     label: "Buy a vehicle",
     allowedPlans: ["Platinum", "Collector"],
   },
@@ -173,7 +217,19 @@ const serviceOptions = [
     allowedPlans: ["Platinum", "Collector"],
   },
   {
+    label: "Registration renewal",
+    allowedPlans: ["Platinum", "Collector"],
+  },
+  {
+    label: "Documents and paperwork",
+    allowedPlans: ["Platinum", "Collector"],
+  },
+  {
     label: "Collection management",
+    allowedPlans: ["Collector"],
+  },
+  {
+    label: "Fleet management",
     allowedPlans: ["Collector"],
   },
 ];
@@ -212,6 +268,28 @@ const conciergeActions = [
   { icon: Upload, label: "Documents" },
 ];
 
+const ownershipTrackers = [
+  "Oil change",
+  "Tire swap",
+  "Brake inspection",
+  "Transmission service",
+  "Fluid flush",
+  "Diagnostics",
+  "Battery age",
+  "Tire age",
+  "Warranty work",
+  "Recalls",
+  "Annual inspection",
+  "Registration renewal",
+  "Insurance",
+  "Service bulletins",
+  "Storage check",
+  "Vehicle exercise",
+  "Fuel stabilizer",
+  "Transportation",
+  "Documents",
+];
+
 const defaultGarage = [
   {
     id: "demo-911",
@@ -223,6 +301,16 @@ const defaultGarage = [
     status: "Detail due",
     marketValue: "$142,000",
     horsepower: "379 hp",
+    vin: "WP0AB2A9-DEMO-911",
+    location: "Montreal storage",
+    insurance: "Collector policy active",
+    warranty: "Factory warranty expired",
+    preferredDealer: "Porsche Centre",
+    pickupLocation: "Home garage",
+    nextService: "Oil change in 42 days",
+    tireAge: "2 years",
+    batteryAge: "18 months",
+    registration: "Renewal due yearly",
     workDone: ["Ceramic coating", "Annual detail", "Battery tender setup"],
     image: "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=900&q=85",
   },
@@ -236,6 +324,16 @@ const defaultGarage = [
     status: "Health report ready",
     marketValue: "$118,000",
     horsepower: "355 hp",
+    vin: "SALWR2SE-DEMO-RR",
+    location: "Daily driver",
+    insurance: "Personal policy active",
+    warranty: "Factory warranty active",
+    preferredDealer: "Land Rover dealer",
+    pickupLocation: "Office",
+    nextService: "Service in 63 days",
+    tireAge: "1 year",
+    batteryAge: "9 months",
+    registration: "Active",
     workDone: ["Winter tire package", "Interior protection", "Paint protection film"],
     image: "https://images.unsplash.com/photo-1542362567-b07e54358753?auto=format&fit=crop&w=900&q=85",
   },
@@ -258,8 +356,16 @@ function ensureList(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function readNoteValue(notes, label) {
+  const line = String(notes || "")
+    .split("\n")
+    .find((item) => item.toLowerCase().startsWith(`${label.toLowerCase()}:`));
+  return line ? line.slice(label.length + 1).trim() : "";
+}
+
 function normalizeVehicle(vehicle, index = 0) {
   const safeVehicle = vehicle && typeof vehicle === "object" ? vehicle : {};
+  const notes = safeVehicle.notes || "";
 
   return {
     ...safeVehicle,
@@ -273,8 +379,43 @@ function normalizeVehicle(vehicle, index = 0) {
     marketValue: safeVehicle.marketValue || "Value pending",
     horsepower: safeVehicle.horsepower || "HP pending",
     workDone: Array.isArray(safeVehicle.workDone) ? safeVehicle.workDone : splitWorkList(safeVehicle.workDone),
+    vin: safeVehicle.vin || readNoteValue(notes, "VIN"),
+    location: safeVehicle.location || readNoteValue(notes, "Location"),
+    insurance: safeVehicle.insurance || readNoteValue(notes, "Insurance"),
+    warranty: safeVehicle.warranty || readNoteValue(notes, "Warranty"),
+    preferredDealer: safeVehicle.preferredDealer || readNoteValue(notes, "Preferred dealership"),
+    pickupLocation: safeVehicle.pickupLocation || readNoteValue(notes, "Preferred pickup"),
+    nextService: safeVehicle.nextService || readNoteValue(notes, "Next service") || "Service timing pending",
+    tireAge: safeVehicle.tireAge || readNoteValue(notes, "Tire age") || "Tire age pending",
+    batteryAge: safeVehicle.batteryAge || readNoteValue(notes, "Battery age") || "Battery age pending",
+    registration: safeVehicle.registration || readNoteValue(notes, "Registration") || "Registration pending",
+    notes,
     image: safeVehicle.image || fallbackVehicleImage,
   };
+}
+
+function vehicleTrackingItems(vehicle) {
+  const tracked = {
+    "Oil change": vehicle.nextService || "Service timing pending",
+    "Tire swap": vehicle.tireAge || "Tire age pending",
+    "Brake inspection": vehicle.status || "Inspection pending",
+    "Battery age": vehicle.batteryAge || "Battery age pending",
+    "Warranty work": vehicle.warranty || "Warranty pending",
+    "Recalls": "Check with preferred dealer",
+    "Annual inspection": "Inspection schedule pending",
+    "Registration renewal": vehicle.registration || "Registration pending",
+    Insurance: vehicle.insurance || "Insurance pending",
+    "Storage check": vehicle.use === "Collection" || vehicle.use === "Seasonal" ? "Monthly check recommended" : "Not currently required",
+    "Vehicle exercise": vehicle.use === "Collection" || vehicle.use === "Seasonal" ? "Exercise schedule pending" : "Driven regularly",
+    Transportation: vehicle.pickupLocation || "Pickup location pending",
+    Documents: vehicle.vin ? "VIN on file" : "VIN needed",
+  };
+
+  return ownershipTrackers.map((label) => ({
+    label,
+    detail: tracked[label] || "Track on request",
+    status: tracked[label] && !String(tracked[label]).toLowerCase().includes("pending") ? "Tracked" : "Needs info",
+  }));
 }
 
 function readStoredJson(key, fallback) {
@@ -954,6 +1095,11 @@ function MemberApp({ appointments, garage, member, onAddAppointment, onAddVehicl
 
 function Dashboard({ appointments, garage, member, onAddVehicle, setActiveTab }) {
   const [showVehicleForm, setShowVehicleForm] = useState(false);
+  const trackerCount = garage.reduce((total, vehicle) => total + vehicleTrackingItems(vehicle).length, 0);
+  const needsInfoCount = garage.reduce(
+    (total, vehicle) => total + vehicleTrackingItems(vehicle).filter((item) => item.status === "Needs info").length,
+    0,
+  );
 
   return (
     <div className="app-stack">
@@ -979,9 +1125,33 @@ function Dashboard({ appointments, garage, member, onAddVehicle, setActiveTab })
         </article>
         <article>
           <ShieldCheck size={22} />
-          <strong>Active</strong>
-          <span>Concierge status</span>
+          <strong>{trackerCount || "Ready"}</strong>
+          <span>Tracked ownership items</span>
         </article>
+      </section>
+
+      <section className="app-section">
+        <div className="app-section-title">
+          <div>
+            <h2>Ownership Tracker</h2>
+            <p>We track the maintenance, documents, warranty, recalls, transport, storage, and emergency needs across your garage.</p>
+          </div>
+          <button type="button" onClick={() => setActiveTab("garage")}>Review garage</button>
+        </div>
+        <div className="tracker-summary-grid">
+          <article>
+            <strong>{garage.length}</strong>
+            <span>Vehicles managed</span>
+          </article>
+          <article>
+            <strong>{trackerCount}</strong>
+            <span>Ownership items watched</span>
+          </article>
+          <article>
+            <strong>{needsInfoCount}</strong>
+            <span>Items needing details</span>
+          </article>
+        </div>
       </section>
 
       <section className="app-section">
@@ -1228,6 +1398,10 @@ function VehicleForm({ onAddVehicle, onClose }) {
       formData.get("warranty") && `Warranty: ${formData.get("warranty")}`,
       formData.get("preferredDealer") && `Preferred dealership: ${formData.get("preferredDealer")}`,
       formData.get("pickupLocation") && `Preferred pickup: ${formData.get("pickupLocation")}`,
+      formData.get("nextService") && `Next service: ${formData.get("nextService")}`,
+      formData.get("tireAge") && `Tire age: ${formData.get("tireAge")}`,
+      formData.get("batteryAge") && `Battery age: ${formData.get("batteryAge")}`,
+      formData.get("registration") && `Registration: ${formData.get("registration")}`,
     ].filter(Boolean).join("\n");
 
     try {
@@ -1237,6 +1411,16 @@ function VehicleForm({ onAddVehicle, onClose }) {
         model: formData.get("model"),
         mileage: formData.get("mileage"),
         use: formData.get("use"),
+        vin: formData.get("vin"),
+        location: formData.get("location"),
+        insurance: formData.get("insurance"),
+        warranty: formData.get("warranty"),
+        preferredDealer: formData.get("preferredDealer"),
+        pickupLocation: formData.get("pickupLocation"),
+        nextService: formData.get("nextService"),
+        tireAge: formData.get("tireAge"),
+        batteryAge: formData.get("batteryAge"),
+        registration: formData.get("registration"),
         notes: ownershipNotes,
         marketValue: formData.get("marketValue") || "Value pending",
         horsepower: formData.get("horsepower") || "HP pending",
@@ -1319,6 +1503,22 @@ function VehicleForm({ onAddVehicle, onClose }) {
         <label>
           Preferred pickup location
           <input name="pickupLocation" type="text" placeholder="Home, office, storage facility" />
+        </label>
+        <label>
+          Next service
+          <input name="nextService" type="text" placeholder="Oil change in 42 days" />
+        </label>
+        <label>
+          Tire age
+          <input name="tireAge" type="text" placeholder="2 years" />
+        </label>
+        <label>
+          Battery age
+          <input name="batteryAge" type="text" placeholder="18 months" />
+        </label>
+        <label>
+          Registration
+          <input name="registration" type="text" placeholder="Active or renewal date" />
         </label>
       </div>
       <label>
@@ -1476,6 +1676,15 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
   const workHistory = ensureList(vehicle.workDone);
   const workDone = workHistory.length ? workHistory : ["No work logged yet"];
   const vehicleLabel = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
+  const trackingItems = vehicleTrackingItems(vehicle);
+  const ownershipProfile = [
+    ["VIN", vehicle.vin || "Needed"],
+    ["Location", vehicle.location || "Needed"],
+    ["Insurance", vehicle.insurance || "Needed"],
+    ["Warranty", vehicle.warranty || "Needed"],
+    ["Preferred dealership", vehicle.preferredDealer || "Needed"],
+    ["Preferred pickup", vehicle.pickupLocation || "Needed"],
+  ];
   const handleImageError = (event) => {
     event.currentTarget.src = fallbackVehicleImage;
   };
@@ -1492,6 +1701,19 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
     event.preventDefault();
     setDetailError("");
     const formData = new FormData(event.currentTarget);
+    const ownershipNotes = [
+      formData.get("notes") || vehicle.notes,
+      formData.get("vin") && `VIN: ${formData.get("vin")}`,
+      formData.get("location") && `Location: ${formData.get("location")}`,
+      formData.get("insurance") && `Insurance: ${formData.get("insurance")}`,
+      formData.get("warranty") && `Warranty: ${formData.get("warranty")}`,
+      formData.get("preferredDealer") && `Preferred dealership: ${formData.get("preferredDealer")}`,
+      formData.get("pickupLocation") && `Preferred pickup: ${formData.get("pickupLocation")}`,
+      formData.get("nextService") && `Next service: ${formData.get("nextService")}`,
+      formData.get("tireAge") && `Tire age: ${formData.get("tireAge")}`,
+      formData.get("batteryAge") && `Battery age: ${formData.get("batteryAge")}`,
+      formData.get("registration") && `Registration: ${formData.get("registration")}`,
+    ].filter(Boolean).join("\n");
 
     try {
       await onUpdateVehicle(vehicle.id, {
@@ -1499,6 +1721,17 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
         horsepower: formData.get("horsepower") || "HP pending",
         mileage: formData.get("mileage") || vehicle.mileage,
         status: formData.get("status") || vehicle.status,
+        vin: formData.get("vin") || vehicle.vin,
+        location: formData.get("location") || vehicle.location,
+        insurance: formData.get("insurance") || vehicle.insurance,
+        warranty: formData.get("warranty") || vehicle.warranty,
+        preferredDealer: formData.get("preferredDealer") || vehicle.preferredDealer,
+        pickupLocation: formData.get("pickupLocation") || vehicle.pickupLocation,
+        nextService: formData.get("nextService") || vehicle.nextService,
+        tireAge: formData.get("tireAge") || vehicle.tireAge,
+        batteryAge: formData.get("batteryAge") || vehicle.batteryAge,
+        registration: formData.get("registration") || vehicle.registration,
+        notes: ownershipNotes,
         image: photoPreview || vehicle.image,
       });
       setPhotoPreview("");
@@ -1533,7 +1766,7 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
         service: "Vehicle offer request",
         date: "",
         time: "",
-        notes: `Member requested an offer. Current market value: ${vehicle.marketValue || "Value pending"}. Mileage: ${vehicle.mileage || "Mileage pending"}. Horsepower: ${vehicle.horsepower || "HP pending"}.`,
+        notes: `Member requested an offer. Current market value: ${vehicle.marketValue || "Value pending"}. Mileage: ${vehicle.mileage || "Mileage pending"}. VIN: ${vehicle.vin || "Needed"}. Location: ${vehicle.location || "Needed"}. Horsepower: ${vehicle.horsepower || "HP pending"}.`,
       });
       setOfferRequested(true);
     } catch (error) {
@@ -1566,6 +1799,44 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
           <strong>{vehicle.mileage || "Mileage pending"}</strong>
           <span>Mileage</span>
         </article>
+      </section>
+
+      <section className="app-section">
+        <div className="app-section-title">
+          <div>
+            <h2>Ownership Profile</h2>
+            <p>Core details your concierge needs to manage service, transport, warranty, insurance, and documents.</p>
+          </div>
+        </div>
+        <div className="profile-grid">
+          {ownershipProfile.map(([label, value]) => (
+            <article key={label}>
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="app-section">
+        <div className="app-section-title">
+          <div>
+            <h2>Concierge Tracking</h2>
+            <p>Everything White Glove should monitor for this vehicle.</p>
+          </div>
+        </div>
+        <div className="tracker-list">
+          {trackingItems.map((item) => (
+            <article key={item.label}>
+              <Check size={18} />
+              <div>
+                <h3>{item.label}</h3>
+                <p>{item.detail}</p>
+              </div>
+              <span>{item.status}</span>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="app-section offer-panel">
@@ -1612,7 +1883,51 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
               Status
               <input defaultValue={vehicle.status || ""} name="status" placeholder="Detail due" type="text" />
             </label>
+            <label>
+              VIN
+              <input defaultValue={vehicle.vin || ""} name="vin" placeholder="WP0AB2A9..." type="text" />
+            </label>
+            <label>
+              Location
+              <input defaultValue={vehicle.location || ""} name="location" placeholder="Home, office, storage" type="text" />
+            </label>
+            <label>
+              Insurance
+              <input defaultValue={vehicle.insurance || ""} name="insurance" placeholder="Provider or policy notes" type="text" />
+            </label>
+            <label>
+              Warranty
+              <input defaultValue={vehicle.warranty || ""} name="warranty" placeholder="Factory, extended, or none" type="text" />
+            </label>
+            <label>
+              Preferred dealership
+              <input defaultValue={vehicle.preferredDealer || ""} name="preferredDealer" placeholder="Dealer or shop" type="text" />
+            </label>
+            <label>
+              Preferred pickup
+              <input defaultValue={vehicle.pickupLocation || ""} name="pickupLocation" placeholder="Home, office, storage" type="text" />
+            </label>
+            <label>
+              Next service
+              <input defaultValue={vehicle.nextService || ""} name="nextService" placeholder="Oil change in 42 days" type="text" />
+            </label>
+            <label>
+              Tire age
+              <input defaultValue={vehicle.tireAge || ""} name="tireAge" placeholder="2 years" type="text" />
+            </label>
+            <label>
+              Battery age
+              <input defaultValue={vehicle.batteryAge || ""} name="batteryAge" placeholder="18 months" type="text" />
+            </label>
+            <label>
+              Registration
+              <input defaultValue={vehicle.registration || ""} name="registration" placeholder="Active or renewal date" type="text" />
+            </label>
           </div>
+          <label>
+            Internal notes
+            <textarea defaultValue={vehicle.notes || ""} name="notes" rows="3" placeholder="Concierge notes, document status, owner preferences..." />
+          </label>
           <button className="button primary submit" type="submit">Save Car Details</button>
         </form>
       </section>

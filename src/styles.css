@@ -1097,13 +1097,76 @@ textarea:focus {
   gap: 1rem;
 }
 
-.vehicle-stat-grid article {
+.vehicle-stat-grid article,
+.tracker-summary-grid article,
+.profile-grid article {
   display: grid;
   gap: 0.35rem;
   padding: 1rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.055);
+}
+
+.tracker-summary-grid,
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.profile-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tracker-summary-grid strong,
+.profile-grid strong {
+  color: var(--ink);
+  font-size: clamp(1.1rem, 3vw, 1.55rem);
+}
+
+.tracker-summary-grid span,
+.profile-grid span {
+  color: var(--gold-bright);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tracker-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.tracker-list article {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.tracker-list svg {
+  color: var(--gold-bright);
+}
+
+.tracker-list h3 {
+  margin-bottom: 0.15rem;
+  font-size: 1rem;
+}
+
+.tracker-list p {
+  margin-bottom: 0;
+}
+
+.tracker-list span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .offer-panel {
@@ -1389,7 +1452,9 @@ textarea:focus {
   .app-metrics,
   .garage-list.compact,
   .app-form-grid,
-  .vehicle-stat-grid {
+  .vehicle-stat-grid,
+  .tracker-summary-grid,
+  .profile-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1416,6 +1481,14 @@ textarea:focus {
 
   .request-card {
     grid-template-columns: 1fr;
+  }
+
+  .tracker-list article {
+    grid-template-columns: auto 1fr;
+  }
+
+  .tracker-list span {
+    grid-column: 2;
   }
 
   .request-date {
