@@ -896,7 +896,7 @@ function MemberApp({ appointments, garage, member, onAddAppointment, onAddVehicl
               setActiveTab={setActiveTab}
             />
           )}
-          {activeTab === "garage" && <GarageScreen garage={garageList} onAddAppointment={addAppointment} onAddVehicle={onAddVehicle} onUpdateVehicle={onUpdateVehicle} />}
+          {activeTab === "garage" && <GarageScreen garage={garageList} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onUpdateVehicle={onUpdateVehicle} />}
           {activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} member={member} onAddAppointment={onAddAppointment} vehicleOptions={vehicleOptions} />}
           {activeTab === "services" && <ServicesScreen member={member} setActiveTab={setActiveTab} />}
           {activeTab === "account" && <AccountScreen member={member} onLogout={onLogout} />}
