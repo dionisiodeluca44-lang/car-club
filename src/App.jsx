@@ -40,37 +40,47 @@ const services = [
   {
     icon: ClipboardCheck,
     title: "Collection Management",
-    items: ["Monthly inspections", "Service records", "Exercise drives", "Market value reports", "Buying and selling help"],
+    items: ["Mileage checks", "Battery care", "Insurance tracking", "Storage oversight", "Monthly condition reports"],
   },
   {
     icon: Wrench,
     title: "Maintenance Concierge",
-    items: ["Oil changes", "Scheduled maintenance", "Brake inspections", "Battery checks", "Recall monitoring"],
+    items: ["Oil changes", "Tires", "Brakes", "Diagnostics", "Warranty work"],
   },
   {
     icon: Sparkles,
-    title: "Detailing",
-    items: ["Exterior wash", "Interior cleaning", "Paint correction", "Ceramic coating", "Engine bay cleaning"],
+    title: "Cosmetic Services",
+    items: ["Detailing", "Ceramic coating", "Paint correction", "Paint protection film", "Window tint"],
   },
   {
     icon: KeyRound,
-    title: "Pickup & Delivery",
-    items: ["Vehicle pickup", "Service transport", "Detailing drop-off", "Return delivery", "Priority scheduling"],
+    title: "Transportation",
+    items: ["Vehicle pickup", "Service transport", "Airport pickup", "Return delivery", "Nationwide shipping"],
   },
   {
     icon: Gauge,
-    title: "Tire Concierge",
-    items: ["Seasonal changes", "Tire storage", "Balancing", "Pressure checks", "Condition reports"],
+    title: "Buying Concierge",
+    items: ["Vehicle search", "Inspections", "Negotiation", "Shipping", "Delivery coordination"],
   },
   {
     icon: Warehouse,
-    title: "Storage Services",
-    items: ["Winter storage", "Climate options", "Battery tender", "Monthly checkups", "Pressure maintenance"],
+    title: "Storage & Luxury Care",
+    items: ["Climate-controlled storage", "Weekly exercise", "Battery tender", "Concierge fueling", "Show prep"],
   },
   {
     icon: ShieldCheck,
-    title: "Emergency Concierge",
-    items: ["Towing help", "Repair coordination", "Insurance claim support", "Rental assistance", "Status updates"],
+    title: "Emergency & Roadside",
+    items: ["Flat tire help", "Dead battery", "Tow coordination", "Lockout support", "Accident support"],
+  },
+  {
+    icon: Car,
+    title: "Selling Concierge",
+    items: ["Photography", "Listing support", "Buyer screening", "Negotiation", "Paperwork coordination"],
+  },
+  {
+    icon: ClipboardCheck,
+    title: "Fleet Management",
+    items: ["5 to 100 vehicles", "Preventive schedules", "Driver coordination", "Service records", "Vendor management"],
   },
 ];
 
@@ -115,11 +125,15 @@ const plans = [
 
 const serviceOptions = [
   {
-    label: "Full detail",
+    label: "Schedule maintenance",
     allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
   },
   {
-    label: "Maintenance concierge",
+    label: "Detail my car",
+    allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Need repairs",
     allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
   },
   {
@@ -147,6 +161,18 @@ const serviceOptions = [
     allowedPlans: ["Platinum", "Collector"],
   },
   {
+    label: "Buy a vehicle",
+    allowedPlans: ["Platinum", "Collector"],
+  },
+  {
+    label: "Sell my vehicle",
+    allowedPlans: ["Platinum", "Collector"],
+  },
+  {
+    label: "Insurance help",
+    allowedPlans: ["Platinum", "Collector"],
+  },
+  {
     label: "Collection management",
     allowedPlans: ["Collector"],
   },
@@ -165,13 +191,26 @@ const benefits = [
   "Protect vehicle value",
   "Never miss maintenance",
   "One contact for everything",
-  "Premium care for every vehicle",
+  "One membership for every vehicle need",
   "Better records for resale",
-  "Less stress",
-  "Ideal for collectors",
+  "No calling shops or comparing prices",
+  "Built for daily drivers, collections, and fleets",
 ];
 
 const reportItems = ["Photos", "Tire condition", "Brake condition", "Battery condition", "Fluid levels", "Recommended repairs", "Completed work", "Next service timing"];
+
+const conciergeActions = [
+  { icon: Wrench, label: "Schedule Maintenance" },
+  { icon: Sparkles, label: "Detail My Car" },
+  { icon: ShieldCheck, label: "Need Repairs" },
+  { icon: Gauge, label: "Buy a Vehicle" },
+  { icon: Car, label: "Sell My Vehicle" },
+  { icon: KeyRound, label: "Emergency Assistance" },
+  { icon: Warehouse, label: "Storage" },
+  { icon: CalendarCheck, label: "Transportation" },
+  { icon: ClipboardCheck, label: "Insurance Help" },
+  { icon: Upload, label: "Documents" },
+];
 
 const defaultGarage = [
   {
@@ -525,10 +564,10 @@ function App() {
           <div className="hero-media" aria-hidden="true" />
           <div className="hero-overlay" />
           <div className="hero-content">
-            <p className="eyebrow">Collection management, handled end to end</p>
-            <h1>White Glove Collection Management</h1>
+            <p className="eyebrow">One membership. One point of contact. Zero hassle.</p>
+            <h1>Vehicle ownership, fully managed.</h1>
             <p className="hero-copy">
-              A private vehicle concierge for collectors and multi-car owners. Upload your garage, track value and modifications, schedule detailing, tuning, storage, pickup, delivery, and full collection care from one member account.
+              White Glove Concierge handles every automotive need through one dedicated concierge. Maintenance, detailing, transportation, storage, buying, selling, repairs, emergencies, collections, and fleet support, all coordinated for you.
             </p>
             <div className="hero-actions">
               <button className="button primary" type="button" onClick={() => setMode(member ? "app" : "login")}>
@@ -541,16 +580,16 @@ function App() {
           </div>
           <div className="hero-panel" aria-label="Service highlights">
             <div>
-              <strong>Garage</strong>
-              <span>upload your collection</span>
+              <strong>One contact</strong>
+              <span>text your concierge</span>
             </div>
             <div>
-              <strong>Book</strong>
-              <span>detailing and tuning</span>
+              <strong>One app</strong>
+              <span>manage every vehicle</span>
             </div>
             <div>
-              <strong>Track</strong>
-              <span>records and requests</span>
+              <strong>One network</strong>
+              <span>vetted service partners</span>
             </div>
           </div>
         </section>
@@ -558,23 +597,23 @@ function App() {
         <section className="section app-preview-section">
           <div className="section-heading">
             <p className="eyebrow">Member app</p>
-            <h2>Your collection, vehicle values, service schedule, and concierge team in one place.</h2>
+            <h2>Open the app, tell us what you need, and your concierge coordinates the rest.</h2>
           </div>
           <div className="app-preview-grid">
             <article>
               <Upload size={24} />
-              <h3>Upload Your Collection</h3>
-              <p>Add each vehicle with photos, mileage, horsepower, market value, and notes.</p>
+              <h3>Upload Your Garage</h3>
+              <p>Add vehicles with VIN, mileage, location, warranty, insurance, photos, value, and notes.</p>
             </article>
             <article>
               <CalendarCheck size={24} />
-              <h3>Schedule Services</h3>
-              <p>Request detailing, tuning, pickup, tire service, storage, or maintenance.</p>
+              <h3>Schedule Anything</h3>
+              <p>Maintenance, repairs, detailing, storage, transport, buying, selling, roadside, and insurance help.</p>
             </article>
             <article>
               <ClipboardCheck size={24} />
-              <h3>Track Requests</h3>
-              <p>See service requests, vehicle value, upgrades, completed work, and concierge notes.</p>
+              <h3>Track Ownership</h3>
+              <p>See upcoming service, recalls, records, completed work, market value, and concierge updates.</p>
             </article>
           </div>
         </section>
@@ -582,13 +621,13 @@ function App() {
         <section className="section how">
           <div className="section-heading">
             <p className="eyebrow">How it works</p>
-            <h2>You enjoy your cars. We take care of everything else.</h2>
+            <h2>You own the vehicle. We manage the ownership experience.</h2>
           </div>
           <div className="steps">
             {[
-              ["Join White Glove", "Choose a membership plan that fits how your collection is stored, driven, and maintained."],
-              ["Upload Your Collection", "Build your garage with photos, value, horsepower, modifications, and service records."],
-              ["Request Concierge Care", "Book collection inspections, detailing, tuning, pickup, delivery, storage, maintenance, and more."],
+              ["Join White Glove", "Add your vehicles, VINs, mileage, location, insurance, warranty, preferred dealer, and pickup details."],
+              ["We Track Everything", "Your app monitors service intervals, tires, brakes, recalls, registration, battery age, records, and upcoming needs."],
+              ["Tap Schedule Service", "Your concierge compares vetted providers, pricing, availability, reviews, distance, and transportation options, then books it."],
             ].map(([title, copy], index) => (
               <article className="step-card" key={title}>
                 <span>{String(index + 1).padStart(2, "0")}</span>
@@ -601,8 +640,8 @@ function App() {
 
         <section className="section services" id="services">
           <div className="section-heading">
-            <p className="eyebrow">Collection-first care</p>
-            <h2>One concierge team for your full garage, records, value, and services.</h2>
+            <p className="eyebrow">Automotive ownership management</p>
+            <h2>From daily drivers to million-dollar collections, every need is handled through one concierge.</h2>
           </div>
           <div className="service-grid">
             {services.map(({ icon: Icon, title, items }) => (
@@ -622,7 +661,7 @@ function App() {
         <section className="section split" id="memberships">
           <div className="section-heading compact">
             <p className="eyebrow">Memberships</p>
-            <h2>Simple plans now. Custom care as your needs grow.</h2>
+            <h2>Simple monthly membership, with concierge coordination and partner services as needed.</h2>
           </div>
           <div className="plan-grid">
             {plans.map((plan) => (
@@ -653,9 +692,9 @@ function App() {
           <div className="image-band-media" aria-hidden="true" />
           <div className="image-band-copy">
             <p className="eyebrow">Collection management</p>
-            <h2>Built for collectors, seasonal owners, and multi-vehicle households.</h2>
+            <h2>Built for collectors, busy owners, and companies with 5 to 100 vehicles.</h2>
             <p>
-              Keep every vehicle ready, protected, documented, and properly exercised with a dedicated care plan. We coordinate storage, inspections, service schedules, records, buying support, and selling support through one trusted team.
+              Keep every vehicle ready, protected, documented, and properly serviced with a dedicated care plan. We coordinate maintenance, transportation, storage, inspections, buying, selling, paperwork, and emergency support through a trusted partner network.
             </p>
           </div>
         </section>
@@ -663,7 +702,7 @@ function App() {
         <section className="section value">
           <div className="section-heading">
             <p className="eyebrow">Why join</p>
-            <h2>A calmer way to own vehicles you care about.</h2>
+            <h2>Stop managing shops, schedules, transport, repairs, and paperwork yourself.</h2>
           </div>
           <div className="benefit-grid">
             {benefits.map((benefit) => (
@@ -678,9 +717,9 @@ function App() {
         <section className="section reports">
           <div>
             <p className="eyebrow">Vehicle health reports</p>
-            <h2>Every visit creates a clearer record of your vehicle's condition.</h2>
+            <h2>Every vehicle gets a clearer ownership record.</h2>
             <p>
-              Members receive digital reports after service and checkups, making it easier to plan maintenance, understand condition, and preserve resale value.
+              Members receive digital reports after service, checkups, and concierge requests, making it easier to plan maintenance, understand condition, document history, and preserve resale value.
             </p>
           </div>
           <div className="report-card">
@@ -724,7 +763,7 @@ function PrivacyPolicy({ onBack }) {
 
         <h2>Information We Collect</h2>
         <p>
-          We collect information members provide when requesting membership, creating an account, adding garage vehicles, uploading vehicle photos, updating market value, horsepower, mileage, modifications, service history, and submitting concierge service or vehicle offer requests.
+          We collect information members provide when requesting membership, creating an account, adding garage vehicles, uploading vehicle photos, updating market value, horsepower, VIN, mileage, location, insurance notes, warranty notes, preferred dealership, pickup location, modifications, service history, and submitting concierge service, buying, selling, transport, storage, emergency, or vehicle offer requests.
         </p>
 
         <h2>How We Use Information</h2>
@@ -922,9 +961,9 @@ function Dashboard({ appointments, garage, member, onAddVehicle, setActiveTab })
         <div>
           <span>{member.plan} member</span>
           <h2>{garage.length} vehicles under care</h2>
-          <p>Your concierge team is ready for detailing, tuning, pickup, storage, inspections, and maintenance requests.</p>
+          <p>One app, one phone number, and one concierge team for every automotive need.</p>
         </div>
-        <button className="button primary" type="button" onClick={() => setActiveTab("schedule")}>Schedule Service</button>
+        <button className="button primary" type="button" onClick={() => setActiveTab("schedule")}>Need Something?</button>
       </section>
 
       <section className="app-metrics">
@@ -943,6 +982,29 @@ function Dashboard({ appointments, garage, member, onAddVehicle, setActiveTab })
           <strong>Active</strong>
           <span>Concierge status</span>
         </article>
+      </section>
+
+      <section className="app-section">
+        <div className="app-section-title">
+          <div>
+            <h2>Need Something?</h2>
+            <p>Tell your concierge what you need handled. We compare providers, coordinate transportation, and manage the request.</p>
+          </div>
+        </div>
+        <div className="app-service-list">
+          {conciergeActions.map(({ icon: Icon, label }) => (
+            <article key={label}>
+              <Icon size={22} />
+              <div>
+                <h3>{label}</h3>
+                <p>Send this request to your concierge team.</p>
+              </div>
+              <button type="button" onClick={() => setActiveTab("schedule")} aria-label={`Request ${label}`}>
+                <ChevronRight size={20} />
+              </button>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="app-section">
@@ -1158,6 +1220,15 @@ function VehicleForm({ onAddVehicle, onClose }) {
     event.preventDefault();
     setVehicleError("");
     const formData = new FormData(event.currentTarget);
+    const ownershipNotes = [
+      formData.get("notes"),
+      formData.get("vin") && `VIN: ${formData.get("vin")}`,
+      formData.get("location") && `Location: ${formData.get("location")}`,
+      formData.get("insurance") && `Insurance: ${formData.get("insurance")}`,
+      formData.get("warranty") && `Warranty: ${formData.get("warranty")}`,
+      formData.get("preferredDealer") && `Preferred dealership: ${formData.get("preferredDealer")}`,
+      formData.get("pickupLocation") && `Preferred pickup: ${formData.get("pickupLocation")}`,
+    ].filter(Boolean).join("\n");
 
     try {
       await onAddVehicle({
@@ -1166,7 +1237,7 @@ function VehicleForm({ onAddVehicle, onClose }) {
         model: formData.get("model"),
         mileage: formData.get("mileage"),
         use: formData.get("use"),
-        notes: formData.get("notes"),
+        notes: ownershipNotes,
         marketValue: formData.get("marketValue") || "Value pending",
         horsepower: formData.get("horsepower") || "HP pending",
         workDone: splitWorkList(formData.get("workDone")),
@@ -1209,6 +1280,14 @@ function VehicleForm({ onAddVehicle, onClose }) {
           <input name="mileage" type="text" placeholder="12,500" />
         </label>
         <label>
+          VIN
+          <input name="vin" type="text" placeholder="WP0AB2A9..." />
+        </label>
+        <label>
+          Vehicle location
+          <input name="location" type="text" placeholder="Montreal, QC" />
+        </label>
+        <label>
           Current market value
           <input name="marketValue" type="text" placeholder="$85,000" />
         </label>
@@ -1224,6 +1303,22 @@ function VehicleForm({ onAddVehicle, onClose }) {
             <option>Collection</option>
             <option>Track</option>
           </select>
+        </label>
+        <label>
+          Insurance
+          <input name="insurance" type="text" placeholder="Provider or policy notes" />
+        </label>
+        <label>
+          Warranty
+          <input name="warranty" type="text" placeholder="Factory, extended, or none" />
+        </label>
+        <label>
+          Preferred dealership
+          <input name="preferredDealer" type="text" placeholder="Dealer or shop preference" />
+        </label>
+        <label>
+          Preferred pickup location
+          <input name="pickupLocation" type="text" placeholder="Home, office, storage facility" />
         </label>
       </div>
       <label>
@@ -1573,12 +1668,12 @@ function LeadSection({ handleSubmit, submitted, submitError }) {
         <p className="eyebrow">Apply</p>
         <h2>Request membership info</h2>
         <p>
-          Tell us about your vehicles and the services you want handled. Our team will contact you shortly to build your custom vehicle care plan.
+          Tell us about your vehicles and what you want handled. Our team will contact you shortly to build your ownership management plan.
         </p>
         <div className="contact-strip">
-          <span><MapPin size={18} /> Local concierge coverage</span>
-          <span><CalendarCheck size={18} /> Priority scheduling</span>
-          <span><ShieldCheck size={18} /> Preventive care</span>
+          <span><MapPin size={18} /> Partner network coverage</span>
+          <span><CalendarCheck size={18} /> Concierge coordination</span>
+          <span><ShieldCheck size={18} /> Ownership management</span>
         </div>
       </div>
 
@@ -1670,7 +1765,22 @@ function LeadSection({ handleSubmit, submitted, submitError }) {
         <fieldset>
           <legend>Services interested in</legend>
           <div className="checkbox-grid">
-            {["Maintenance", "Detailing", "Tuning/modifications", "Tire storage/change", "Vehicle storage", "Pickup and delivery", "Collection management", "Buying/selling assistance", "Other"].map((service) => (
+            {[
+              "Maintenance",
+              "Detailing",
+              "Repairs",
+              "Tires",
+              "Transportation",
+              "Vehicle storage",
+              "Buying a vehicle",
+              "Selling a vehicle",
+              "Emergency assistance",
+              "Insurance help",
+              "Documents",
+              "Collection management",
+              "Fleet management",
+              "Other",
+            ].map((service) => (
               <label key={service}>
                 <input type="checkbox" name="services" value={service} />
                 {service}
