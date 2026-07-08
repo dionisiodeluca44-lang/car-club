@@ -1267,12 +1267,54 @@ function GarageScreen({ garage, onAddAppointment, onAddVehicle, onUpdateVehicle 
 }
 
 function ScheduleScreen({ appointments, member, onAddAppointment, vehicleOptions }) {
+  const includedServices = useMemo(() => getAvailableServices(member.plan), [member.plan]);
+  const [selectedService, setSelectedService] = useState(includedServices[0]?.label || "");
+
+  useEffect(() => {
+    if (!includedServices.some((service) => service.label === selectedService)) {
+      setSelectedService(includedServices[0]?.label || "");
+    }
+  }, [includedServices, selectedService]);
+
   return (
     <div className="app-stack">
       <section className="app-section">
+        <div className="app-section-title">
+          <div>
+            <h2>Included In Your {member.plan} Package</h2>
+            <p>Choose any included service below. Your concierge will coordinate the provider, timing, pricing, and transportation.</p>
+          </div>
+          <span>{includedServices.length} services</span>
+        </div>
+        <div className="app-service-list">
+          {includedServices.map((service) => {
+            const selected = selectedService === service.label;
+            return (
+              <article className={selected ? "selected-service" : ""} key={service.label}>
+                <Check size={22} />
+                <div>
+                  <h3>{service.label}</h3>
+                  <p>Included in your package</p>
+                </div>
+                <button type="button" onClick={() => setSelectedService(service.label)} aria-label={`Select ${service.label}`}>
+                  {selected ? <Check size={20} /> : <ChevronRight size={20} />}
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="app-section">
         <h2>Schedule Concierge Service</h2>
-        <p>Request detailing, tuning, maintenance, pickup and delivery, tire services, storage, or collection support.</p>
-        <ScheduleForm member={member} onAddAppointment={onAddAppointment} vehicleOptions={vehicleOptions} />
+        <p>Send the request to your concierge. We will handle shop selection, availability, pricing, transport, and follow-up.</p>
+        <ScheduleForm
+          member={member}
+          onAddAppointment={onAddAppointment}
+          selectedService={selectedService}
+          setSelectedService={setSelectedService}
+          vehicleOptions={vehicleOptions}
+        />
       </section>
       <section className="app-section">
         <div className="app-section-title">
@@ -1534,7 +1576,7 @@ function VehicleForm({ onAddVehicle, onClose }) {
   );
 }
 
-function ScheduleForm({ member, onAddAppointment, vehicleOptions }) {
+function ScheduleForm({ member, onAddAppointment, selectedService, setSelectedService, vehicleOptions }) {
   const [requestSubmitted, setRequestSubmitted] = useState(false);
   const [requestError, setRequestError] = useState("");
   const availableServices = getAvailableServices(member.plan);
@@ -1624,9 +1666,9 @@ function ScheduleForm({ member, onAddAppointment, vehicleOptions }) {
       <div className="app-form-grid">
         <label>
           Service
-          <select name="service" required>
+          <select name="service" onChange={(event) => setSelectedService(event.target.value)} required value={selectedService}>
             {availableServices.map((service) => (
-              <option key={service.label}>{service.label}</option>
+              <option key={service.label} value={service.label}>{service.label}</option>
             ))}
           </select>
         </label>

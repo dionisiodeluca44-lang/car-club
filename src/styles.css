@@ -1275,6 +1275,11 @@ textarea:focus {
   grid-template-columns: auto 1fr auto;
 }
 
+.app-service-list article.selected-service {
+  border-color: rgba(229, 200, 121, 0.62);
+  background: rgba(201, 164, 92, 0.12);
+}
+
 .app-service-list svg {
   color: var(--gold-bright);
 }
