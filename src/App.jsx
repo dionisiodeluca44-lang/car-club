@@ -1,4 +1,4 @@
-import React, { Component, useEffect, useMemo, useState } from "react";
+import React, { Component, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   Bell,
@@ -31,6 +31,7 @@ import {
   isBackendConfigured,
   loadServiceRequests,
   loadVehicles,
+  resendConfirmationEmail,
   signIn,
   signOut,
   updateVehicleRecord,
@@ -418,6 +419,99 @@ function vehicleTrackingItems(vehicle) {
   }));
 }
 
+function vehicleLabel(vehicle) {
+  return `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
+}
+
+function parseDueDays(value) {
+  const match = String(value || "").match(/(\d+)\s*days?/i);
+  return match ? Number(match[1]) : null;
+}
+
+function buildServiceReminders(garage, plan) {
+  const reminders = [];
+
+  ensureList(garage).forEach((vehicle) => {
+    const label = vehicleLabel(vehicle);
+    const dueDays = parseDueDays(vehicle.nextService);
+
+    if (dueDays !== null && canBookService(plan, "Oil change")) {
+      reminders.push({
+        id: `${vehicle.id}-oil`,
+        vehicle: label,
+        service: "Oil change",
+        title: `Oil change due in ${dueDays} days`,
+        message: `Would you like White Glove to schedule service for your ${label}?`,
+        urgency: dueDays <= 14 ? "Due soon" : "Upcoming",
+      });
+    }
+
+    if ((String(vehicle.status).toLowerCase().includes("detail") || vehicle.use === "Seasonal" || vehicle.use === "Collection") && canBookService(plan, "Detail my car")) {
+      reminders.push({
+        id: `${vehicle.id}-detail`,
+        vehicle: label,
+        service: "Detail my car",
+        title: "Would you like to schedule detailing?",
+        message: `Keep your ${label} ready, clean, photographed, and protected.`,
+        urgency: "Recommended",
+      });
+    }
+
+    if (String(vehicle.batteryAge).match(/18|24|2 year|3 year/i) && canBookService(plan, "Battery service")) {
+      reminders.push({
+        id: `${vehicle.id}-battery`,
+        vehicle: label,
+        service: "Battery service",
+        title: "Battery check recommended",
+        message: `Your ${label} battery age is ${vehicle.batteryAge}. We can coordinate a test or replacement.`,
+        urgency: "Preventive",
+      });
+    }
+
+    if (String(vehicle.tireAge).match(/2 year|3 year|4 year|5 year/i) && canBookService(plan, "Tires")) {
+      reminders.push({
+        id: `${vehicle.id}-tires`,
+        vehicle: label,
+        service: "Tires",
+        title: "Tire inspection recommended",
+        message: `Your ${label} tire age is ${vehicle.tireAge}. We can arrange inspection, changeover, or replacement.`,
+        urgency: "Preventive",
+      });
+    }
+  });
+
+  return reminders.slice(0, 6);
+}
+
+function serviceHistoryForVehicle(vehicle, appointments) {
+  const label = vehicleLabel(vehicle);
+  const workItems = ensureList(vehicle.workDone).map((item, index) => ({
+    id: `work-${vehicle.id}-${index}`,
+    title: item,
+    meta: "Completed work",
+    status: "Logged",
+  }));
+  const requestItems = ensureList(appointments)
+    .filter((appointment) => appointment.vehicle === label)
+    .map((appointment) => ({
+      id: appointment.id,
+      title: appointment.service,
+      meta: appointment.date ? `${appointment.date}${appointment.time ? ` at ${appointment.time}` : ""}` : "Date pending",
+      status: appointment.status || "Requested",
+    }));
+
+  return [...requestItems, ...workItems];
+}
+
+function formatPostDate(value) {
+  if (!value) return "Just now";
+  try {
+    return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(value));
+  } catch {
+    return "Just now";
+  }
+}
+
 function readStoredJson(key, fallback) {
   try {
     const savedValue = localStorage.getItem(key);
@@ -478,6 +572,9 @@ function App() {
   });
   const [appointments, setAppointments] = useState(() => {
     return ensureList(readStoredJson("carClubAppointments", defaultAppointments));
+  });
+  const [feedPosts, setFeedPosts] = useState(() => {
+    return ensureList(readStoredJson("carClubFeedPosts", []));
   });
 
   const closeMenu = () => setMenuOpen(false);
@@ -574,7 +671,7 @@ function App() {
         ? await createAccount(profile)
         : await signIn(profile);
       if (signedInMember.pendingConfirmation) {
-        setAppError("Account created. Check your email to confirm your account, then sign in.");
+        setAppError(`Account created for ${signedInMember.email}. Check your email to confirm your account, then sign in.`);
         return;
       }
 
@@ -608,24 +705,26 @@ function App() {
     if (isBackendConfigured && member?.id) {
       const savedVehicle = await createVehicle(member.id, { ...vehicle, status: "New vehicle added" });
       setGarage((currentGarage) => [savedVehicle, ...currentGarage]);
-      return;
+      return savedVehicle;
     }
 
     const nextGarage = [{ ...vehicle, id: crypto.randomUUID(), status: "New vehicle added", workDone: vehicle.workDone || [] }, ...garage];
     localStorage.setItem("carClubGarage", JSON.stringify(nextGarage));
     setGarage(nextGarage);
+    return nextGarage[0];
   }
 
   async function updateVehicle(vehicleId, updates) {
     if (isBackendConfigured && member?.id) {
       const savedVehicle = await updateVehicleRecord(vehicleId, updates);
       setGarage((currentGarage) => currentGarage.map((vehicle) => (vehicle.id === vehicleId ? savedVehicle : vehicle)));
-      return;
+      return savedVehicle;
     }
 
     const nextGarage = garage.map((vehicle) => (vehicle.id === vehicleId ? { ...vehicle, ...updates } : vehicle));
     localStorage.setItem("carClubGarage", JSON.stringify(nextGarage));
     setGarage(nextGarage);
+    return nextGarage.find((vehicle) => vehicle.id === vehicleId);
   }
 
   async function addAppointment(appointment) {
@@ -636,12 +735,26 @@ function App() {
     if (isBackendConfigured && member?.id) {
       const savedRequest = await createServiceRequest(member.id, appointment);
       setAppointments((currentAppointments) => [savedRequest, ...currentAppointments]);
-      return;
+      return savedRequest;
     }
 
     const nextAppointments = [{ ...appointment, id: crypto.randomUUID(), status: "Requested" }, ...appointments];
     localStorage.setItem("carClubAppointments", JSON.stringify(nextAppointments));
     setAppointments(nextAppointments);
+    return nextAppointments[0];
+  }
+
+  async function addFeedPost(post) {
+    const nextPost = {
+      ...post,
+      id: crypto.randomUUID(),
+      author: member?.name || "Member",
+      createdAt: new Date().toISOString(),
+    };
+    const nextPosts = [nextPost, ...feedPosts];
+    localStorage.setItem("carClubFeedPosts", JSON.stringify(nextPosts));
+    setFeedPosts(nextPosts);
+    return nextPost;
   }
 
   if (mode === "login") {
@@ -668,7 +781,7 @@ function App() {
   }
 
   if (mode === "app" && member) {
-    return <MemberApp appointments={appointments} garage={garage} member={member} onAddAppointment={addAppointment} onAddVehicle={addVehicle} onLogout={handleLogout} onUpdateVehicle={updateVehicle} />;
+    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onLogout={handleLogout} onUpdateVehicle={updateVehicle} />;
   }
 
   if (mode === "app") {
@@ -952,11 +1065,13 @@ function RuntimeErrorScreen({ message, onReset }) {
 function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+  const [authNotice, setAuthNotice] = useState("");
   const appErrorIsNotice = appError?.startsWith("Account created.");
 
   async function submitLogin(event) {
     event.preventDefault();
     setAuthError("");
+    setAuthNotice("");
     setAuthLoading(true);
 
     const formData = new FormData(event.currentTarget);
@@ -977,6 +1092,29 @@ function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
     }
   }
 
+  async function handleResendConfirmation() {
+    setAuthError("");
+    setAuthNotice("");
+
+    const emailInput = document.querySelector(".app-form input[name='email']");
+    const email = emailInput?.value;
+
+    if (!email) {
+      setAuthError("Enter your email first, then resend the confirmation.");
+      return;
+    }
+
+    try {
+      setAuthLoading(true);
+      await resendConfirmationEmail(email);
+      setAuthNotice("Confirmation email sent again. Check your inbox and spam folder.");
+    } catch (error) {
+      setAuthError(error.message || "Could not resend the confirmation email.");
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
   return (
     <main className="login-screen">
       <section className="phone-auth">
@@ -991,6 +1129,11 @@ function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
           {authError && (
             <div className="error-message" role="alert">
               {authError}
+            </div>
+          )}
+          {authNotice && (
+            <div className="success-message" role="status">
+              {authNotice}
             </div>
           )}
           {appError && (
@@ -1026,18 +1169,26 @@ function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
           <button className="button secondary submit" name="authAction" type="submit" value="create" disabled={authLoading}>
             Create Account
           </button>
+          <button className="button ghost submit" type="button" onClick={handleResendConfirmation} disabled={authLoading || !backendEnabled}>
+            Resend Confirmation Email
+          </button>
         </form>
       </section>
     </main>
   );
 }
 
-function MemberApp({ appointments, garage, member, onAddAppointment, onAddVehicle, onLogout, onUpdateVehicle }) {
+function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, onAddFeedPost, onAddVehicle, onLogout, onUpdateVehicle }) {
   const [activeTab, setActiveTab] = useState("home");
+  const [completion, setCompletion] = useState(null);
   const garageList = ensureList(garage).map(normalizeVehicle);
   const appointmentList = ensureList(appointments);
   const vehicleOptions = useMemo(() => garageList.map((vehicle) => `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle"), [garageList]);
   const firstName = member.name?.split(" ")[0] || "Member";
+  const navigateToTab = (tab) => {
+    setCompletion(null);
+    setActiveTab(tab);
+  };
 
   return (
     <div className="mobile-app-shell">
@@ -1047,11 +1198,11 @@ function MemberApp({ appointments, garage, member, onAddAppointment, onAddVehicl
           <span>White Glove</span>
         </div>
         <nav>
-          <AppNavButton active={activeTab === "home"} icon={Home} label="Home" onClick={() => setActiveTab("home")} />
-          <AppNavButton active={activeTab === "garage"} icon={Car} label="Garage" onClick={() => setActiveTab("garage")} />
-          <AppNavButton active={activeTab === "schedule"} icon={CalendarCheck} label="Schedule" onClick={() => setActiveTab("schedule")} />
-          <AppNavButton active={activeTab === "services"} icon={Sparkles} label="Services" onClick={() => setActiveTab("services")} />
-          <AppNavButton active={activeTab === "account"} icon={User} label="Account" onClick={() => setActiveTab("account")} />
+          <AppNavButton active={activeTab === "home" && !completion} icon={Home} label="Home" onClick={() => navigateToTab("home")} />
+          <AppNavButton active={activeTab === "garage" && !completion} icon={Car} label="Garage" onClick={() => navigateToTab("garage")} />
+          <AppNavButton active={activeTab === "schedule" && !completion} icon={CalendarCheck} label="Schedule" onClick={() => navigateToTab("schedule")} />
+          <AppNavButton active={activeTab === "feed" && !completion} icon={Upload} label="Feed" onClick={() => navigateToTab("feed")} />
+          <AppNavButton active={activeTab === "account" && !completion} icon={User} label="Account" onClick={() => navigateToTab("account")} />
         </nav>
       </aside>
 
@@ -1059,7 +1210,7 @@ function MemberApp({ appointments, garage, member, onAddAppointment, onAddVehicl
         <header className="app-topbar">
           <div>
             <p className="eyebrow">Member app</p>
-            <h1>{activeTab === "home" ? `Welcome, ${firstName}` : tabTitle(activeTab)}</h1>
+            <h1>{completion ? "Successfully Updated" : activeTab === "home" ? `Welcome, ${firstName}` : tabTitle(activeTab)}</h1>
           </div>
           <button className="icon-button" type="button" aria-label="Notifications">
             <Bell size={20} />
@@ -1067,39 +1218,110 @@ function MemberApp({ appointments, garage, member, onAddAppointment, onAddVehicl
         </header>
 
         <MemberPanelErrorBoundary resetKey={activeTab} onRecover={() => setActiveTab("home")}>
-          {activeTab === "home" && (
+          {completion && <CompletionScreen completion={completion} onNavigate={navigateToTab} />}
+          {!completion && activeTab === "home" && (
             <Dashboard
               appointments={appointmentList}
               garage={garageList}
               member={member}
+              onAddAppointment={onAddAppointment}
+              onAddFeedPost={onAddFeedPost}
               onAddVehicle={onAddVehicle}
               setActiveTab={setActiveTab}
+              onComplete={setCompletion}
+              feedPosts={feedPosts}
             />
           )}
-          {activeTab === "garage" && <GarageScreen garage={garageList} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onUpdateVehicle={onUpdateVehicle} />}
-          {activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} member={member} onAddAppointment={onAddAppointment} vehicleOptions={vehicleOptions} />}
-          {activeTab === "services" && <ServicesScreen member={member} setActiveTab={setActiveTab} />}
-          {activeTab === "account" && <AccountScreen member={member} onLogout={onLogout} />}
+          {!completion && activeTab === "garage" && <GarageScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={setCompletion} />}
+          {!completion && activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onComplete={setCompletion} vehicleOptions={vehicleOptions} />}
+          {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedPost={onAddFeedPost} vehicleOptions={vehicleOptions} />}
+          {!completion && activeTab === "account" && <AccountScreen member={member} onLogout={onLogout} />}
         </MemberPanelErrorBoundary>
       </main>
 
       <nav className="bottom-tabs" aria-label="App navigation">
-        <AppNavButton active={activeTab === "home"} icon={Home} label="Home" onClick={() => setActiveTab("home")} />
-        <AppNavButton active={activeTab === "garage"} icon={Car} label="Garage" onClick={() => setActiveTab("garage")} />
-        <AppNavButton active={activeTab === "schedule"} icon={CalendarCheck} label="Book" onClick={() => setActiveTab("schedule")} />
-        <AppNavButton active={activeTab === "services"} icon={Sparkles} label="Services" onClick={() => setActiveTab("services")} />
+        <AppNavButton active={activeTab === "home" && !completion} icon={Home} label="Home" onClick={() => navigateToTab("home")} />
+        <AppNavButton active={activeTab === "garage" && !completion} icon={Car} label="Garage" onClick={() => navigateToTab("garage")} />
+        <AppNavButton active={activeTab === "schedule" && !completion} icon={CalendarCheck} label="Book" onClick={() => navigateToTab("schedule")} />
+        <AppNavButton active={activeTab === "feed" && !completion} icon={Upload} label="Feed" onClick={() => navigateToTab("feed")} />
       </nav>
     </div>
   );
 }
 
-function Dashboard({ appointments, garage, member, onAddVehicle, setActiveTab }) {
+function CompletionScreen({ completion, onNavigate }) {
+  const {
+    actionLabel = "Back Home",
+    actionTab = "home",
+    details = [],
+    message = "Your concierge team has the latest details.",
+    secondaryLabel = "View Requests",
+    secondaryTab = "schedule",
+    title = "Successfully updated.",
+  } = completion || {};
+
+  return (
+    <section className="completion-screen">
+      <div className="completion-mark">
+        <Check size={34} />
+      </div>
+      <p className="eyebrow">White Glove Concierge</p>
+      <h2>{title}</h2>
+      <p>{message}</p>
+      {details.length > 0 && (
+        <div className="completion-details">
+          {details.map(([label, value]) => (
+            <article key={label}>
+              <span>{label}</span>
+              <strong>{value || "Pending"}</strong>
+            </article>
+          ))}
+        </div>
+      )}
+      <div className="completion-actions">
+        <button className="button primary" type="button" onClick={() => onNavigate(actionTab)}>
+          {actionLabel}
+        </button>
+        <button className="button secondary" type="button" onClick={() => onNavigate(secondaryTab)}>
+          {secondaryLabel}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, onAddFeedPost, onAddVehicle, onComplete, setActiveTab }) {
   const [showVehicleForm, setShowVehicleForm] = useState(false);
   const trackerCount = garage.reduce((total, vehicle) => total + vehicleTrackingItems(vehicle).length, 0);
   const needsInfoCount = garage.reduce(
     (total, vehicle) => total + vehicleTrackingItems(vehicle).filter((item) => item.status === "Needs info").length,
     0,
   );
+  const serviceReminders = buildServiceReminders(garage, member.plan);
+
+  async function sendReminderRequest(reminder) {
+    const savedRequest = await onAddAppointment({
+      vehicle: reminder.vehicle,
+      service: reminder.service,
+      date: "",
+      time: "",
+      notes: `${reminder.title}. ${reminder.message}`,
+    });
+
+    onComplete?.({
+      actionLabel: "View Requests",
+      actionTab: "schedule",
+      details: [
+        ["Service", savedRequest?.service || reminder.service],
+        ["Vehicle", savedRequest?.vehicle || reminder.vehicle],
+        ["Status", savedRequest?.status || "Requested"],
+      ],
+      message: "Your concierge request has been sent from the service reminder. White Glove will coordinate the appointment details.",
+      secondaryLabel: "Back Home",
+      secondaryTab: "home",
+      title: "Service request successfully sent.",
+    });
+  }
 
   return (
     <div className="app-stack">
@@ -1157,6 +1379,60 @@ function Dashboard({ appointments, garage, member, onAddVehicle, setActiveTab })
       <section className="app-section">
         <div className="app-section-title">
           <div>
+            <h2>Service Reminders</h2>
+            <p>White Glove watches your garage and prompts the next useful request before it becomes a problem.</p>
+          </div>
+          <button type="button" onClick={() => setActiveTab("schedule")}>Schedule</button>
+        </div>
+        {serviceReminders.length === 0 ? (
+          <div className="empty-state compact-empty">
+            <CalendarCheck size={24} />
+            <h3>No reminders due yet</h3>
+            <p>Add service timing, tire age, battery age, and detail notes in your garage to activate smarter reminders.</p>
+          </div>
+        ) : (
+          <div className="service-reminder-list">
+            {serviceReminders.slice(0, 3).map((reminder) => (
+              <article key={reminder.id}>
+                <span>{reminder.urgency}</span>
+                <div>
+                  <h3>{reminder.title}</h3>
+                  <p>{reminder.message}</p>
+                </div>
+                <button type="button" onClick={() => sendReminderRequest(reminder)}>Send Request</button>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="app-section">
+        <div className="app-section-title">
+          <div>
+            <h2>Post To Feed</h2>
+            <p>Upload garage photos, detail results, delivery shots, storage updates, and collection highlights.</p>
+          </div>
+          <button type="button" onClick={() => setActiveTab("feed")}>View Feed</button>
+        </div>
+        <FeedUploadForm onAddFeedPost={onAddFeedPost} onComplete={onComplete} vehicleOptions={garage.map(vehicleLabel)} />
+        {feedPosts.length > 0 && (
+          <div className="feed-preview-grid">
+            {feedPosts.slice(0, 3).map((post) => (
+              <article key={post.id}>
+                <img alt={post.caption || "Feed post"} src={post.image} />
+                <div>
+                  <strong>{post.vehicle || "Garage update"}</strong>
+                  <span>{post.caption || "White Glove member feed"}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="app-section">
+        <div className="app-section-title">
+          <div>
             <h2>Need Something?</h2>
             <p>Tell your concierge what you need handled. We compare providers, coordinate transportation, and manage the request.</p>
           </div>
@@ -1194,7 +1470,7 @@ function Dashboard({ appointments, garage, member, onAddVehicle, setActiveTab })
             {showVehicleForm ? "Close" : "Add Vehicle"}
           </button>
         </div>
-        {showVehicleForm && <VehicleForm onAddVehicle={onAddVehicle} onClose={() => setShowVehicleForm(false)} />}
+        {showVehicleForm && <VehicleForm onAddVehicle={onAddVehicle} onClose={() => setShowVehicleForm(false)} onComplete={onComplete} />}
         {garage.length === 0 ? (
           <div className="empty-state">
             <Car size={26} />
@@ -1216,7 +1492,7 @@ function Dashboard({ appointments, garage, member, onAddVehicle, setActiveTab })
   );
 }
 
-function GarageScreen({ garage, onAddAppointment, onAddVehicle, onUpdateVehicle }) {
+function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVehicle, onUpdateVehicle, onComplete }) {
   const garageList = ensureList(garage);
   const [showForm, setShowForm] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
@@ -1226,6 +1502,8 @@ function GarageScreen({ garage, onAddAppointment, onAddVehicle, onUpdateVehicle 
     return (
       <VehicleDetailScreen
         onBack={() => setSelectedVehicleId("")}
+        appointments={appointments}
+        onComplete={onComplete}
         onGetOffer={onAddAppointment}
         onUpdateVehicle={onUpdateVehicle}
         vehicle={selectedVehicle}
@@ -1238,6 +1516,36 @@ function GarageScreen({ garage, onAddAppointment, onAddVehicle, onUpdateVehicle 
       <section className="app-section">
         <div className="app-section-title">
           <div>
+            <h2>Recommended Next</h2>
+            <p>These prompts come from each vehicle's service timing, status, battery age, tire age, and care profile.</p>
+          </div>
+          <span>{serviceReminders.length} reminders</span>
+        </div>
+        {serviceReminders.length === 0 ? (
+          <div className="empty-state compact-empty">
+            <Clock size={24} />
+            <h3>No service reminders yet</h3>
+            <p>Add next service timing or vehicle condition details in Garage to activate reminders.</p>
+          </div>
+        ) : (
+          <div className="service-reminder-list">
+            {serviceReminders.map((reminder) => (
+              <article key={reminder.id}>
+                <span>{reminder.urgency}</span>
+                <div>
+                  <h3>{reminder.title}</h3>
+                  <p>{reminder.message}</p>
+                </div>
+                <button type="button" onClick={() => sendReminderRequest(reminder)}>Send Request</button>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="app-section">
+        <div className="app-section-title">
+          <div>
             <h2>Your Garage</h2>
             <p>Upload your car collection with photos, mileage, notes, and usage type.</p>
           </div>
@@ -1245,7 +1553,7 @@ function GarageScreen({ garage, onAddAppointment, onAddVehicle, onUpdateVehicle 
             <Plus size={18} /> Add Car
           </button>
         </div>
-        {showForm && <VehicleForm onAddVehicle={onAddVehicle} onClose={() => setShowForm(false)} />}
+        {showForm && <VehicleForm onAddVehicle={onAddVehicle} onClose={() => setShowForm(false)} onComplete={onComplete} />}
         {!showForm && garageList.length === 0 && (
           <div className="empty-state">
             <Car size={26} />
@@ -1266,9 +1574,11 @@ function GarageScreen({ garage, onAddAppointment, onAddVehicle, onUpdateVehicle 
   );
 }
 
-function ScheduleScreen({ appointments, member, onAddAppointment, vehicleOptions }) {
+function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComplete, vehicleOptions }) {
   const includedServices = useMemo(() => getAvailableServices(member.plan), [member.plan]);
+  const serviceReminders = useMemo(() => buildServiceReminders(garage, member.plan), [garage, member.plan]);
   const [selectedService, setSelectedService] = useState(includedServices[0]?.label || "");
+  const formSectionRef = useRef(null);
 
   useEffect(() => {
     if (!includedServices.some((service) => service.label === selectedService)) {
@@ -1276,41 +1586,97 @@ function ScheduleScreen({ appointments, member, onAddAppointment, vehicleOptions
     }
   }, [includedServices, selectedService]);
 
+  function chooseService(serviceLabel) {
+    if (!canBookService(member.plan, serviceLabel)) return;
+    setSelectedService(serviceLabel);
+    window.requestAnimationFrame(() => {
+      formSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  async function sendReminderRequest(reminder) {
+    const savedRequest = await onAddAppointment({
+      vehicle: reminder.vehicle,
+      service: reminder.service,
+      date: "",
+      time: "",
+      notes: `${reminder.title}. ${reminder.message}`,
+    });
+
+    onComplete?.({
+      actionLabel: "View Requests",
+      actionTab: "schedule",
+      details: [
+        ["Service", savedRequest?.service || reminder.service],
+        ["Vehicle", savedRequest?.vehicle || reminder.vehicle],
+        ["Status", savedRequest?.status || "Requested"],
+      ],
+      message: "The reminder was turned into a concierge request. White Glove will follow up with timing and next steps.",
+      secondaryLabel: "Back Home",
+      secondaryTab: "home",
+      title: "Service reminder request sent.",
+    });
+  }
+
   return (
     <div className="app-stack">
       <section className="app-section">
         <div className="app-section-title">
           <div>
-            <h2>Included In Your {member.plan} Package</h2>
-            <p>Choose any included service below. Your concierge will coordinate the provider, timing, pricing, and transportation.</p>
+            <h2>Book A Service</h2>
+            <p>Select a service, then fill out the appointment details below. Included services are ready to book; locked services show which package unlocks them.</p>
           </div>
-          <span>{includedServices.length} services</span>
+          <span>{serviceOptions.length} services</span>
         </div>
-        <div className="app-service-list">
-          {includedServices.map((service) => {
+        {serviceReminders.length > 0 && (
+          <div className="booking-reminder-strip">
+            {serviceReminders.slice(0, 2).map((reminder) => (
+              <button key={reminder.id} type="button" onClick={() => chooseService(reminder.service)}>
+                <span>{reminder.urgency}</span>
+                <strong>{reminder.title}</strong>
+                <small>{reminder.vehicle}</small>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="schedule-service-grid">
+          {serviceOptions.map((service) => {
             const selected = selectedService === service.label;
+            const included = service.allowedPlans.includes(member.plan);
             return (
-              <article className={selected ? "selected-service" : ""} key={service.label}>
-                <Check size={22} />
+              <button
+                className={`${selected ? "selected-service" : ""} ${included ? "" : "locked-schedule-service"}`.trim()}
+                disabled={!included}
+                key={service.label}
+                type="button"
+                onClick={() => chooseService(service.label)}
+                aria-label={included ? `Schedule ${service.label}` : `${service.label} requires ${service.allowedPlans[0]} package`}
+              >
+                <span className="schedule-service-icon">
+                  {included ? selected ? <Check size={24} /> : <CalendarCheck size={24} /> : <ShieldCheck size={24} />}
+                </span>
                 <div>
                   <h3>{service.label}</h3>
-                  <p>Included in your package</p>
+                  <p>{included ? "Included in your package. Tap to book." : `Requires ${service.allowedPlans[0]} or higher.`}</p>
                 </div>
-                <button type="button" onClick={() => setSelectedService(service.label)} aria-label={`Select ${service.label}`}>
-                  {selected ? <Check size={20} /> : <ChevronRight size={20} />}
-                </button>
-              </article>
+                <span className="schedule-service-cta">{included ? selected ? "Selected" : "Book" : "Locked"}</span>
+              </button>
             );
           })}
         </div>
       </section>
 
-      <section className="app-section">
-        <h2>Schedule Concierge Service</h2>
-        <p>Send the request to your concierge. We will handle shop selection, availability, pricing, transport, and follow-up.</p>
+      <section className="app-section" ref={formSectionRef}>
+        <div className="app-section-title">
+          <div>
+            <h2>Appointment Details</h2>
+            <p>{selectedService ? `${selectedService} is selected. Add the vehicle, preferred timing, and notes.` : "Select an included service above to start booking."}</p>
+          </div>
+        </div>
         <ScheduleForm
           member={member}
           onAddAppointment={onAddAppointment}
+          onComplete={onComplete}
           selectedService={selectedService}
           setSelectedService={setSelectedService}
           vehicleOptions={vehicleOptions}
@@ -1318,7 +1684,7 @@ function ScheduleScreen({ appointments, member, onAddAppointment, vehicleOptions
       </section>
       <section className="app-section">
         <div className="app-section-title">
-          <h2>Requests</h2>
+          <h2>Current Bookings</h2>
           <span>{appointments.length} total</span>
         </div>
         {appointments.map((appointment) => (
@@ -1379,6 +1745,134 @@ function ServicesScreen({ member, setActiveTab }) {
   );
 }
 
+function FeedScreen({ feedPosts, member, onAddFeedPost, vehicleOptions }) {
+  return (
+    <div className="app-stack">
+      <section className="app-section">
+        <div className="app-section-title">
+          <div>
+            <h2>Member Feed</h2>
+            <p>Share vehicle photos, service updates, detail results, delivery moments, and collection highlights.</p>
+          </div>
+          <span>{feedPosts.length} posts</span>
+        </div>
+        <FeedUploadForm onAddFeedPost={onAddFeedPost} vehicleOptions={vehicleOptions} />
+      </section>
+
+      <section className="app-section">
+        <div className="app-section-title">
+          <div>
+            <h2>Garage Feed</h2>
+            <p>Photos uploaded by {member.name?.split(" ")[0] || "members"} appear here.</p>
+          </div>
+        </div>
+        {feedPosts.length === 0 ? (
+          <div className="empty-state">
+            <Upload size={26} />
+            <h3>No feed posts yet</h3>
+            <p>Upload your first car photo from Home or this Feed screen.</p>
+          </div>
+        ) : (
+          <div className="feed-grid">
+            {feedPosts.map((post) => (
+              <article key={post.id}>
+                <img alt={post.caption || "Vehicle feed post"} src={post.image} />
+                <div>
+                  <span>{post.vehicle || "Garage update"}</span>
+                  <h3>{post.caption || "White Glove member post"}</h3>
+                  <p>{post.author || "Member"} · {formatPostDate(post.createdAt)}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function FeedUploadForm({ onAddFeedPost, onComplete, vehicleOptions }) {
+  const [imagePreview, setImagePreview] = useState("");
+  const [feedError, setFeedError] = useState("");
+
+  function handleImage(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setImagePreview(reader.result);
+    reader.readAsDataURL(file);
+  }
+
+  async function submitFeedPost(event) {
+    event.preventDefault();
+    setFeedError("");
+
+    if (!imagePreview) {
+      setFeedError("Upload a photo before posting to the feed.");
+      return;
+    }
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+
+    try {
+      const savedPost = await onAddFeedPost({
+        caption: formData.get("caption"),
+        image: imagePreview,
+        vehicle: formData.get("vehicle"),
+      });
+
+      form.reset();
+      setImagePreview("");
+      onComplete?.({
+        actionLabel: "View Feed",
+        actionTab: "feed",
+        details: [
+          ["Vehicle", savedPost.vehicle || "Garage update"],
+          ["Post", savedPost.caption || "Photo uploaded"],
+          ["Status", "Posted"],
+        ],
+        message: "Your photo has been added to the member feed.",
+        secondaryLabel: "Back Home",
+        secondaryTab: "home",
+        title: "Feed post successfully updated.",
+      });
+    } catch (error) {
+      setFeedError(error.message || "Could not upload this feed post.");
+    }
+  }
+
+  return (
+    <form className="app-form inline-form feed-upload-form" onSubmit={submitFeedPost}>
+      {feedError && (
+        <div className="error-message" role="alert">
+          {feedError}
+        </div>
+      )}
+      <label className="upload-tile feed-upload-tile">
+        {imagePreview ? <img alt="Feed preview" src={imagePreview} /> : <><Upload size={24} /><span>Upload feed photo</span></>}
+        <input accept="image/*" name="photo" onChange={handleImage} type="file" />
+      </label>
+      <div className="app-form-grid">
+        <label>
+          Vehicle
+          <select name="vehicle">
+            <option value="">Garage update</option>
+            {vehicleOptions.map((vehicle) => (
+              <option key={vehicle} value={vehicle}>{vehicle}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Caption
+          <input name="caption" type="text" placeholder="Fresh detail, delivery day, service update..." />
+        </label>
+      </div>
+      <button className="button primary submit" type="submit">Post To Feed</button>
+    </form>
+  );
+}
+
 function AccountScreen({ member, onLogout }) {
   const includedServices = getAvailableServices(member.plan);
 
@@ -1416,7 +1910,7 @@ function AccountScreen({ member, onLogout }) {
   );
 }
 
-function VehicleForm({ onAddVehicle, onClose }) {
+function VehicleForm({ onAddVehicle, onClose, onComplete }) {
   const [imagePreview, setImagePreview] = useState("");
   const [vehicleError, setVehicleError] = useState("");
 
@@ -1447,7 +1941,7 @@ function VehicleForm({ onAddVehicle, onClose }) {
     ].filter(Boolean).join("\n");
 
     try {
-      await onAddVehicle({
+      const savedVehicle = await onAddVehicle({
         year: formData.get("year"),
         make: formData.get("make"),
         model: formData.get("model"),
@@ -1472,6 +1966,19 @@ function VehicleForm({ onAddVehicle, onClose }) {
       event.currentTarget.reset();
       setImagePreview("");
       onClose();
+      onComplete?.({
+        actionLabel: "View Garage",
+        actionTab: "garage",
+        details: [
+          ["Vehicle", `${savedVehicle?.year || formData.get("year")} ${savedVehicle?.make || formData.get("make")} ${savedVehicle?.model || formData.get("model")}`.trim()],
+          ["Market value", savedVehicle?.marketValue || formData.get("marketValue") || "Value pending"],
+          ["Status", savedVehicle?.status || "New vehicle added"],
+        ],
+        message: "Your garage has been updated. White Glove can now track this vehicle, its records, service needs, market value, and offer requests.",
+        secondaryLabel: "Schedule Service",
+        secondaryTab: "schedule",
+        title: "Vehicle listing successfully updated.",
+      });
     } catch (error) {
       setVehicleError(error.message || "Could not save this vehicle.");
     }
@@ -1576,7 +2083,7 @@ function VehicleForm({ onAddVehicle, onClose }) {
   );
 }
 
-function ScheduleForm({ member, onAddAppointment, selectedService, setSelectedService, vehicleOptions }) {
+function ScheduleForm({ member, onAddAppointment, onComplete, selectedService, setSelectedService, vehicleOptions }) {
   const [requestSubmitted, setRequestSubmitted] = useState(false);
   const [requestError, setRequestError] = useState("");
   const availableServices = getAvailableServices(member.plan);
@@ -1622,9 +2129,22 @@ function ScheduleForm({ member, onAddAppointment, selectedService, setSelectedSe
         }
       }
 
-      await onAddAppointment(appointment);
+      const savedRequest = await onAddAppointment(appointment);
       setRequestSubmitted(true);
       form.reset();
+      onComplete?.({
+        actionLabel: "View Requests",
+        actionTab: "schedule",
+        details: [
+          ["Service", savedRequest?.service || appointment.service],
+          ["Vehicle", savedRequest?.vehicle || appointment.vehicle],
+          ["Preferred date", savedRequest?.date || appointment.date || "Date pending"],
+        ],
+        message: "Your concierge request has been sent. We will coordinate provider availability, pricing, transportation, and next steps.",
+        secondaryLabel: "Back Home",
+        secondaryTab: "home",
+        title: "Service booking successfully updated.",
+      });
     } catch (error) {
       setRequestError(error.message || "We could not send that request. Please try again or contact the concierge directly.");
     }
@@ -1711,13 +2231,14 @@ function VehicleCard({ onSelect, vehicle }) {
   );
 }
 
-function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
+function VehicleDetailScreen({ appointments, onBack, onComplete, onGetOffer, onUpdateVehicle, vehicle }) {
   const [photoPreview, setPhotoPreview] = useState("");
   const [detailError, setDetailError] = useState("");
   const [offerRequested, setOfferRequested] = useState(false);
   const workHistory = ensureList(vehicle.workDone);
   const workDone = workHistory.length ? workHistory : ["No work logged yet"];
   const vehicleLabel = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
+  const serviceHistory = serviceHistoryForVehicle(vehicle, appointments);
   const trackingItems = vehicleTrackingItems(vehicle);
   const ownershipProfile = [
     ["VIN", vehicle.vin || "Needed"],
@@ -1758,7 +2279,7 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
     ].filter(Boolean).join("\n");
 
     try {
-      await onUpdateVehicle(vehicle.id, {
+      const savedVehicle = await onUpdateVehicle(vehicle.id, {
         marketValue: formData.get("marketValue") || "Value pending",
         horsepower: formData.get("horsepower") || "HP pending",
         mileage: formData.get("mileage") || vehicle.mileage,
@@ -1777,6 +2298,19 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
         image: photoPreview || vehicle.image,
       });
       setPhotoPreview("");
+      onComplete?.({
+        actionLabel: "View Garage",
+        actionTab: "garage",
+        details: [
+          ["Vehicle", vehicleLabel],
+          ["Market value", savedVehicle?.marketValue || formData.get("marketValue") || vehicle.marketValue || "Value pending"],
+          ["Status", savedVehicle?.status || formData.get("status") || vehicle.status || "Active"],
+        ],
+        message: "Your concierge profile for this vehicle has been updated. We will use these details for service, tracking, transport, and offer requests.",
+        secondaryLabel: "Schedule Service",
+        secondaryTab: "schedule",
+        title: "Vehicle details successfully updated.",
+      });
     } catch (error) {
       setDetailError(error.message || "Could not save this vehicle.");
     }
@@ -1803,7 +2337,7 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
     setOfferRequested(false);
 
     try {
-      await onGetOffer({
+      const savedRequest = await onGetOffer({
         vehicle: vehicleLabel,
         service: "Vehicle offer request",
         date: "",
@@ -1811,6 +2345,19 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
         notes: `Member requested an offer. Current market value: ${vehicle.marketValue || "Value pending"}. Mileage: ${vehicle.mileage || "Mileage pending"}. VIN: ${vehicle.vin || "Needed"}. Location: ${vehicle.location || "Needed"}. Horsepower: ${vehicle.horsepower || "HP pending"}.`,
       });
       setOfferRequested(true);
+      onComplete?.({
+        actionLabel: "View Requests",
+        actionTab: "schedule",
+        details: [
+          ["Request", savedRequest?.service || "Vehicle offer request"],
+          ["Vehicle", savedRequest?.vehicle || vehicleLabel],
+          ["Market value", vehicle.marketValue || "Value pending"],
+        ],
+        message: "Your offer request has been sent. White Glove will review the vehicle details and prepare the next step.",
+        secondaryLabel: "Back to Garage",
+        secondaryTab: "garage",
+        title: "Offer request successfully updated.",
+      });
     } catch (error) {
       setDetailError(error.message || "Could not request an offer for this vehicle.");
     }
@@ -1878,6 +2425,38 @@ function VehicleDetailScreen({ onBack, onGetOffer, onUpdateVehicle, vehicle }) {
               <span>{item.status}</span>
             </article>
           ))}
+        </div>
+      </section>
+
+      <section className="app-section">
+        <div className="app-section-title">
+          <div>
+            <h2>Service History</h2>
+            <p>Completed work and concierge requests stay attached to this vehicle for resale, planning, and ownership records.</p>
+          </div>
+        </div>
+        <div className="service-history-list">
+          {serviceHistory.length === 0 ? (
+            <article>
+              <ClipboardCheck size={20} />
+              <div>
+                <h3>No service history yet</h3>
+                <p>Log completed work below or schedule this vehicle's first concierge request.</p>
+              </div>
+              <span>Ready</span>
+            </article>
+          ) : (
+            serviceHistory.map((item) => (
+              <article key={item.id}>
+                <ClipboardCheck size={20} />
+                <div>
+                  <h3>{item.title}</h3>
+                  <p>{item.meta}</p>
+                </div>
+                <span>{item.status}</span>
+              </article>
+            ))
+          )}
         </div>
       </section>
 
@@ -2162,7 +2741,7 @@ function tabTitle(tab) {
     home: "Dashboard",
     garage: "Garage",
     schedule: "Schedule",
-    services: "Services",
+    feed: "Feed",
     account: "Account",
   };
   return titles[tab];

@@ -7,6 +7,11 @@ export const isBackendConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
 export const supabase = isBackendConfigured ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
+function getAuthRedirectUrl() {
+  if (typeof window === "undefined") return undefined;
+  return window.location.origin;
+}
+
 export async function getCurrentMember() {
   if (!supabase) return null;
 
@@ -33,6 +38,7 @@ export async function createAccount({ email, name, password, plan }) {
     email,
     password,
     options: {
+      emailRedirectTo: getAuthRedirectUrl(),
       data: {
         full_name: name,
         plan,
@@ -65,6 +71,19 @@ export async function createAccount({ email, name, password, plan }) {
     name,
     plan,
   };
+}
+
+export async function resendConfirmationEmail(email) {
+  if (!supabase) return;
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email,
+    options: {
+      emailRedirectTo: getAuthRedirectUrl(),
+    },
+  });
+
+  if (error) throw error;
 }
 
 export async function signIn({ email, password }) {

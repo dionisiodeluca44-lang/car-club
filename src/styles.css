@@ -855,6 +855,81 @@ textarea:focus {
   max-width: 1180px;
 }
 
+.completion-screen {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  min-height: min(720px, calc(100vh - 10rem));
+  max-width: 860px;
+  padding: clamp(1.4rem, 5vw, 3rem);
+  border: 1px solid rgba(229, 200, 121, 0.32);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(180deg, rgba(201, 164, 92, 0.12), rgba(255, 255, 255, 0.045)),
+    rgba(8, 8, 8, 0.92);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.32);
+  text-align: center;
+}
+
+.completion-mark {
+  display: grid;
+  place-items: center;
+  width: 5rem;
+  height: 5rem;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(107, 220, 160, 0.52);
+  border-radius: 999px;
+  background: rgba(41, 138, 87, 0.22);
+  color: #d9ffe9;
+}
+
+.completion-screen h2 {
+  max-width: 680px;
+  margin-bottom: 0.85rem;
+  font-size: clamp(2.2rem, 6vw, 4.8rem);
+}
+
+.completion-screen > p:not(.eyebrow) {
+  max-width: 680px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.completion-details {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  width: 100%;
+  margin: 1.5rem 0;
+}
+
+.completion-details article {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.22);
+  text-align: left;
+}
+
+.completion-details span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.completion-details strong {
+  overflow-wrap: anywhere;
+}
+
+.completion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
 .member-hero,
 .app-section,
 .app-metrics article {
@@ -1169,6 +1244,63 @@ textarea:focus {
   font-weight: 800;
 }
 
+.service-reminder-list,
+.service-history-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.service-reminder-list article,
+.service-history-list article {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.service-reminder-list article > span,
+.service-history-list article > span {
+  padding: 0.45rem 0.65rem;
+  border: 1px solid rgba(229, 200, 121, 0.25);
+  border-radius: var(--radius);
+  color: var(--gold-bright);
+  font-size: 0.78rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.service-reminder-list h3,
+.service-history-list h3 {
+  margin-bottom: 0.25rem;
+  font-size: 1rem;
+}
+
+.service-reminder-list p,
+.service-history-list p {
+  margin-bottom: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.service-reminder-list button {
+  min-height: 2.7rem;
+  padding: 0 0.85rem;
+  border: 1px solid rgba(229, 200, 121, 0.32);
+  border-radius: var(--radius);
+  background: rgba(201, 164, 92, 0.12);
+  color: var(--gold-bright);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.service-history-list svg {
+  color: var(--gold-bright);
+}
+
 .offer-panel {
   display: grid;
   gap: 1rem;
@@ -1266,9 +1398,170 @@ textarea:focus {
   object-fit: cover;
 }
 
+.feed-upload-form {
+  gap: 0.9rem;
+}
+
+.feed-upload-tile {
+  min-height: 220px;
+}
+
+.feed-preview-grid,
+.feed-grid {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.feed-preview-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+
+.feed-preview-grid article,
+.feed-grid article {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.24);
+}
+
+.feed-preview-grid img,
+.feed-grid img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+.feed-preview-grid div,
+.feed-grid div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.9rem;
+}
+
+.feed-preview-grid span,
+.feed-grid span,
+.feed-grid p {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.feed-preview-grid strong,
+.feed-grid h3 {
+  overflow-wrap: anywhere;
+}
+
+.feed-grid {
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+
 .app-service-list {
   display: grid;
   gap: 0.85rem;
+}
+
+.schedule-service-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.9rem;
+}
+
+.booking-reminder-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.booking-reminder-strip button {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(229, 200, 121, 0.32);
+  border-radius: var(--radius);
+  background: rgba(201, 164, 92, 0.1);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.booking-reminder-strip span,
+.booking-reminder-strip small {
+  color: var(--muted);
+}
+
+.booking-reminder-strip strong {
+  color: var(--gold-bright);
+}
+
+.schedule-service-grid button {
+  display: grid;
+  align-content: space-between;
+  min-height: 190px;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.schedule-service-grid button:disabled {
+  cursor: not-allowed;
+}
+
+.schedule-service-grid button:hover,
+.schedule-service-grid button.selected-service {
+  transform: translateY(-2px);
+  border-color: rgba(229, 200, 121, 0.62);
+  background: rgba(201, 164, 92, 0.12);
+}
+
+.schedule-service-grid button.locked-schedule-service {
+  opacity: 0.54;
+}
+
+.schedule-service-grid button.locked-schedule-service:hover {
+  transform: none;
+  border-color: var(--line);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.schedule-service-icon {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border: 1px solid rgba(229, 200, 121, 0.32);
+  border-radius: var(--radius);
+  background: rgba(201, 164, 92, 0.1);
+  color: var(--gold-bright);
+}
+
+.schedule-service-grid h3 {
+  margin: 1rem 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.schedule-service-grid p {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.schedule-service-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  margin-top: 1rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius);
+  color: var(--gold-bright);
+  font-size: 0.82rem;
+  font-weight: 900;
 }
 
 .app-service-list article {
@@ -1454,7 +1747,17 @@ textarea:focus {
     width: 100%;
   }
 
+  .schedule-service-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .schedule-service-grid button {
+    min-height: 168px;
+  }
+
   .app-metrics,
+  .completion-details,
+  .feed-preview-grid,
   .garage-list.compact,
   .app-form-grid,
   .vehicle-stat-grid,
@@ -1488,12 +1791,36 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 
+  .completion-screen {
+    min-height: calc(100vh - 10rem);
+    padding: 1.2rem;
+  }
+
+  .completion-actions {
+    width: 100%;
+  }
+
+  .completion-actions .button {
+    width: 100%;
+  }
+
   .tracker-list article {
     grid-template-columns: auto 1fr;
   }
 
   .tracker-list span {
     grid-column: 2;
+  }
+
+  .service-reminder-list article,
+  .service-history-list article {
+    grid-template-columns: 1fr;
+  }
+
+  .service-reminder-list button,
+  .service-reminder-list article > span,
+  .service-history-list article > span {
+    width: fit-content;
   }
 
   .request-date {
