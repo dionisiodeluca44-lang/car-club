@@ -847,6 +847,12 @@ textarea:focus {
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.06);
   color: var(--ink);
+  cursor: pointer;
+}
+
+.profile-settings-button:hover {
+  border-color: rgba(229, 200, 121, 0.5);
+  background: rgba(201, 164, 92, 0.12);
 }
 
 .app-stack {
@@ -1027,6 +1033,16 @@ textarea:focus {
   min-width: max-content;
 }
 
+.package-limit-note {
+  margin-bottom: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(229, 200, 121, 0.32);
+  border-radius: var(--radius);
+  background: rgba(201, 164, 92, 0.1);
+  color: var(--soft);
+  font-weight: 800;
+}
+
 .garage-list {
   display: grid;
   gap: 1rem;
@@ -1055,13 +1071,15 @@ textarea:focus {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.quick-action-grid {
+.quick-action-grid,
+.service-category-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.8rem;
 }
 
-.quick-action-grid button {
+.quick-action-grid button,
+.service-category-grid button {
   min-height: 112px;
   display: grid;
   align-content: center;
@@ -1077,13 +1095,33 @@ textarea:focus {
   cursor: pointer;
 }
 
-.quick-action-grid button:hover {
+.service-category-grid button {
+  min-height: 150px;
+  align-content: start;
+  justify-items: start;
+  text-align: left;
+}
+
+.quick-action-grid button:hover,
+.service-category-grid button:hover {
   border-color: rgba(229, 200, 121, 0.5);
   background: rgba(201, 164, 92, 0.1);
 }
 
-.quick-action-grid svg {
+.quick-action-grid svg,
+.service-category-grid svg {
   color: var(--gold-bright);
+}
+
+.service-category-grid span {
+  font-size: 1rem;
+}
+
+.service-category-grid small {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .vehicle-card,
@@ -1640,6 +1678,25 @@ textarea:focus {
   text-align: center;
 }
 
+.account-settings-panel {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.account-settings-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.account-settings-header h2 {
+  margin-bottom: 0.15rem;
+}
+
+.account-settings-header p {
+  margin: 0;
+}
+
 .account-avatar {
   display: grid;
   place-items: center;
@@ -1649,6 +1706,59 @@ textarea:focus {
   border: 1px solid rgba(229, 200, 121, 0.45);
   border-radius: 50%;
   color: var(--gold-bright);
+}
+
+.settings-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-form input[readonly] {
+  color: var(--muted);
+}
+
+.notification-settings {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.notification-settings legend {
+  padding: 0 0.45rem;
+  color: var(--gold-bright);
+  font-weight: 900;
+}
+
+.notification-settings label {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--soft);
+  font-weight: 800;
+}
+
+.notification-settings input {
+  width: 1rem;
+  height: 1rem;
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.success-alert {
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(107, 220, 160, 0.45);
+  border-radius: var(--radius);
+  background: rgba(41, 138, 87, 0.16);
+  color: #d9ffe9;
+  font-weight: 900;
 }
 
 .next-list {
@@ -1798,11 +1908,17 @@ textarea:focus {
   .feed-preview-grid,
   .garage-list.compact,
   .quick-action-grid,
+  .service-category-grid,
   .app-form-grid,
   .vehicle-stat-grid,
   .tracker-summary-grid,
-  .profile-grid {
+  .profile-grid,
+  .notification-settings {
     grid-template-columns: 1fr;
+  }
+
+  .account-settings-header {
+    align-items: flex-start;
   }
 
   .vehicle-card {

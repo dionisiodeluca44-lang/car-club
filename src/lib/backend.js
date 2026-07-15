@@ -7,6 +7,13 @@ export const isBackendConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
 export const supabase = isBackendConfigured ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
+const defaultNotifications = {
+  bookingUpdates: true,
+  feedActivity: true,
+  offers: true,
+  serviceReminders: true,
+};
+
 function getAuthRedirectUrl() {
   if (typeof window === "undefined") return undefined;
   return window.location.origin;
@@ -26,12 +33,14 @@ export async function getCurrentMember() {
     name: profile?.full_name || user.user_metadata?.full_name || user.email,
     email: user.email,
     plan: profile?.plan || user.user_metadata?.plan || "Club Drive",
+    username: profile?.username || user.user_metadata?.username || "",
+    notifications: profile?.notifications || defaultNotifications,
   };
 }
 
-export async function createAccount({ email, name, password, plan }) {
+export async function createAccount({ email, name, password, plan, username }) {
   if (!supabase) {
-    return { email, name, plan };
+    return { email, name, plan, username, notifications: defaultNotifications };
   }
 
   const { data, error } = await supabase.auth.signUp({
@@ -41,6 +50,7 @@ export async function createAccount({ email, name, password, plan }) {
       emailRedirectTo: getAuthRedirectUrl(),
       data: {
         full_name: name,
+        username,
         plan,
       },
     },
@@ -63,6 +73,8 @@ export async function createAccount({ email, name, password, plan }) {
     email,
     name,
     plan,
+    username,
+    notifications: defaultNotifications,
   });
 
   return {
@@ -70,6 +82,8 @@ export async function createAccount({ email, name, password, plan }) {
     email,
     name,
     plan,
+    username,
+    notifications: defaultNotifications,
   };
 }
 
@@ -88,7 +102,7 @@ export async function resendConfirmationEmail(email) {
 
 export async function signIn({ email, password }) {
   if (!supabase) {
-    return { email, name: email.split("@")[0] || "Member", plan: "Club Drive" };
+    return { email, name: email.split("@")[0] || "Member", plan: "Club Drive", username: "", notifications: defaultNotifications };
   }
 
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -102,6 +116,8 @@ export async function signIn({ email, password }) {
     name: profile?.full_name || data.user.user_metadata?.full_name || data.user.email,
     email: data.user.email,
     plan: profile?.plan || data.user.user_metadata?.plan || "Club Drive",
+    username: profile?.username || data.user.user_metadata?.username || "",
+    notifications: profile?.notifications || defaultNotifications,
   };
 }
 
@@ -110,16 +126,37 @@ export async function signOut() {
   await supabase.auth.signOut();
 }
 
-export async function upsertProfile({ email, id, name, plan }) {
+export async function upsertProfile({ email, id, name, notifications, plan, username }) {
   if (!supabase || !id) return;
 
   const { error } = await supabase.from("profiles").upsert({
     id,
     email,
     full_name: name,
+    username: username || null,
     plan,
+    notifications: notifications || defaultNotifications,
   });
 
+  if (error) throw error;
+}
+
+export async function updateMemberProfile({ email, id, name, notifications, plan, username }) {
+  await upsertProfile({ email, id, name, notifications, plan, username });
+  return {
+    id,
+    email,
+    name,
+    notifications: notifications || defaultNotifications,
+    plan,
+    username: username || "",
+  };
+}
+
+export async function updateMemberPassword(password) {
+  if (!supabase || !password) return;
+
+  const { error } = await supabase.auth.updateUser({ password });
   if (error) throw error;
 }
 

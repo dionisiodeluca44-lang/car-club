@@ -1,7 +1,6 @@
 import React, { Component, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
-  Bell,
   CalendarCheck,
   Car,
   Check,
@@ -15,6 +14,7 @@ import {
   MapPin,
   Menu,
   Plus,
+  Settings,
   ShieldCheck,
   Sparkles,
   Upload,
@@ -36,6 +36,8 @@ import {
   resendConfirmationEmail,
   signIn,
   signOut,
+  updateMemberPassword,
+  updateMemberProfile,
   updateVehicleRecord,
 } from "./lib/backend";
 
@@ -49,6 +51,11 @@ const services = [
     icon: Wrench,
     title: "Maintenance Concierge",
     items: ["Oil changes", "Tires", "Brakes", "Diagnostics", "Warranty work"],
+  },
+  {
+    icon: Gauge,
+    title: "Modification & Tuning",
+    items: ["Performance tuning", "Exhaust", "Wheels", "Suspension", "Track prep"],
   },
   {
     icon: Sparkles,
@@ -245,6 +252,21 @@ function canBookService(plan, serviceLabel) {
   return getAvailableServices(plan).some((service) => service.label === serviceLabel);
 }
 
+function hasCollectionPackage(plan) {
+  return plan === "Collector";
+}
+
+function canAddGarageVehicle(plan, garageCount) {
+  return hasCollectionPackage(plan) || garageCount < 1;
+}
+
+const defaultNotificationSettings = {
+  bookingUpdates: true,
+  feedActivity: true,
+  offers: true,
+  serviceReminders: true,
+};
+
 const benefits = [
   "Save time",
   "Protect vehicle value",
@@ -389,6 +411,16 @@ function normalizeVehicle(vehicle, index = 0) {
     preferredDealer: safeVehicle.preferredDealer || readNoteValue(notes, "Preferred dealership"),
     pickupLocation: safeVehicle.pickupLocation || readNoteValue(notes, "Preferred pickup"),
     nextService: safeVehicle.nextService || readNoteValue(notes, "Next service") || "Service timing pending",
+    lastOilChange: safeVehicle.lastOilChange || readNoteValue(notes, "Last oil change"),
+    lastDetail: safeVehicle.lastDetail || readNoteValue(notes, "Last detail"),
+    brakeService: safeVehicle.brakeService || readNoteValue(notes, "Brake service"),
+    recallStatus: safeVehicle.recallStatus || readNoteValue(notes, "Recall status"),
+    serviceInterval: safeVehicle.serviceInterval || readNoteValue(notes, "Service interval"),
+    tireSeason: safeVehicle.tireSeason || readNoteValue(notes, "Tire season"),
+    color: safeVehicle.color || readNoteValue(notes, "Color"),
+    plate: safeVehicle.plate || readNoteValue(notes, "Plate"),
+    condition: safeVehicle.condition || readNoteValue(notes, "Condition"),
+    storageNeeds: safeVehicle.storageNeeds || readNoteValue(notes, "Storage needs"),
     tireAge: safeVehicle.tireAge || readNoteValue(notes, "Tire age") || "Tire age pending",
     batteryAge: safeVehicle.batteryAge || readNoteValue(notes, "Battery age") || "Battery age pending",
     registration: safeVehicle.registration || readNoteValue(notes, "Registration") || "Registration pending",
@@ -401,14 +433,14 @@ function vehicleTrackingItems(vehicle) {
   const tracked = {
     "Oil change": vehicle.nextService || "Service timing pending",
     "Tire swap": vehicle.tireAge || "Tire age pending",
-    "Brake inspection": vehicle.status || "Inspection pending",
+    "Brake inspection": vehicle.brakeService || vehicle.status || "Inspection pending",
     "Battery age": vehicle.batteryAge || "Battery age pending",
     "Warranty work": vehicle.warranty || "Warranty pending",
-    "Recalls": "Check with preferred dealer",
+    "Recalls": vehicle.recallStatus || "Check with preferred dealer",
     "Annual inspection": "Inspection schedule pending",
     "Registration renewal": vehicle.registration || "Registration pending",
     Insurance: vehicle.insurance || "Insurance pending",
-    "Storage check": vehicle.use === "Collection" || vehicle.use === "Seasonal" ? "Monthly check recommended" : "Not currently required",
+    "Storage check": vehicle.storageNeeds || (vehicle.use === "Collection" || vehicle.use === "Seasonal" ? "Monthly check recommended" : "Not currently required"),
     "Vehicle exercise": vehicle.use === "Collection" || vehicle.use === "Seasonal" ? "Exercise schedule pending" : "Driven regularly",
     Transportation: vehicle.pickupLocation || "Pickup location pending",
     Documents: vehicle.vin ? "VIN on file" : "VIN needed",
@@ -739,7 +771,53 @@ function App() {
     setMode("site");
   }
 
+  async function handleUpdateMember(settings) {
+    const nextPlan = settings.plan || member?.plan || "Club Drive";
+
+    if (!canAddGarageVehicle(nextPlan, garage.length) && garage.length > 1) {
+      throw new Error("This package supports one garage vehicle. Keep Collector active to manage multiple vehicles.");
+    }
+
+    const nextMember = {
+      ...member,
+      name: settings.name?.trim() || member?.name || "Member",
+      username: settings.username?.trim() || "",
+      plan: nextPlan,
+      notifications: {
+        ...defaultNotificationSettings,
+        ...(member?.notifications || {}),
+        ...(settings.notifications || {}),
+      },
+    };
+
+    if (isBackendConfigured && member?.id) {
+      const savedMember = await updateMemberProfile({
+        id: member.id,
+        email: member.email,
+        name: nextMember.name,
+        username: nextMember.username,
+        plan: nextMember.plan,
+        notifications: nextMember.notifications,
+      });
+
+      if (settings.password) {
+        await updateMemberPassword(settings.password);
+      }
+
+      setMember((currentMember) => ({ ...currentMember, ...savedMember }));
+      return savedMember;
+    }
+
+    localStorage.setItem("carClubMember", JSON.stringify(nextMember));
+    setMember(nextMember);
+    return nextMember;
+  }
+
   async function addVehicle(vehicle) {
+    if (!canAddGarageVehicle(member?.plan, garage.length)) {
+      throw new Error("Your current package includes one garage vehicle. Upgrade to the Collector package to manage multiple cars.");
+    }
+
     if (isBackendConfigured && member?.id) {
       const savedVehicle = await createVehicle(member.id, { ...vehicle, status: "New vehicle added" });
       setGarage((currentGarage) => [savedVehicle, ...currentGarage]);
@@ -825,7 +903,7 @@ function App() {
   }
 
   if (mode === "app" && member) {
-    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onLogout={handleLogout} onUpdateVehicle={updateVehicle} />;
+    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onLogout={handleLogout} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} />;
   }
 
   if (mode === "app") {
@@ -1222,7 +1300,7 @@ function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
   );
 }
 
-function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, onAddFeedPost, onAddVehicle, onLogout, onUpdateVehicle }) {
+function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, onAddFeedPost, onAddVehicle, onLogout, onUpdateMember, onUpdateVehicle }) {
   const [activeTab, setActiveTab] = useState("home");
   const [completion, setCompletion] = useState(null);
   const garageList = ensureList(garage).map(normalizeVehicle);
@@ -1256,8 +1334,8 @@ function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, 
             <p className="eyebrow">Member app</p>
             <h1>{completion ? "Successfully Updated" : activeTab === "home" ? `Welcome, ${firstName}` : tabTitle(activeTab)}</h1>
           </div>
-          <button className="icon-button" type="button" aria-label="Notifications">
-            <Bell size={20} />
+          <button className="icon-button profile-settings-button" type="button" aria-label="Profile settings" onClick={() => navigateToTab("account")}>
+            <Settings size={20} />
           </button>
         </header>
 
@@ -1270,7 +1348,6 @@ function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, 
               member={member}
               onAddAppointment={onAddAppointment}
               onAddFeedPost={onAddFeedPost}
-              onAddVehicle={onAddVehicle}
               setActiveTab={setActiveTab}
               onComplete={setCompletion}
               feedPosts={feedPosts}
@@ -1279,7 +1356,7 @@ function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, 
           {!completion && activeTab === "garage" && <GarageScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={setCompletion} />}
           {!completion && activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onComplete={setCompletion} vehicleOptions={vehicleOptions} />}
           {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedPost={onAddFeedPost} vehicleOptions={vehicleOptions} />}
-          {!completion && activeTab === "account" && <AccountScreen member={member} onLogout={onLogout} />}
+          {!completion && activeTab === "account" && <AccountScreen garageCount={garageList.length} member={member} onLogout={onLogout} onUpdateMember={onUpdateMember} />}
         </MemberPanelErrorBoundary>
       </main>
 
@@ -1334,12 +1411,7 @@ function CompletionScreen({ completion, onNavigate }) {
   );
 }
 
-function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, onAddFeedPost, onAddVehicle, onComplete, setActiveTab }) {
-  const [showVehicleForm, setShowVehicleForm] = useState(false);
-  const needsInfoCount = garage.reduce(
-    (total, vehicle) => total + vehicleTrackingItems(vehicle).filter((item) => item.status === "Needs info").length,
-    0,
-  );
+function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, onAddFeedPost, onComplete, setActiveTab }) {
   const serviceReminders = buildServiceReminders(garage, member.plan);
 
   async function sendReminderRequest(reminder) {
@@ -1424,42 +1496,18 @@ function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, 
 
       <section className="app-section">
         <div className="app-section-title">
-          <h2>Your Garage</h2>
-          <button type="button" onClick={() => setShowVehicleForm((open) => !open)}>
-            {showVehicleForm ? "Close" : "Add Vehicle"}
-          </button>
-        </div>
-        {showVehicleForm && <VehicleForm onAddVehicle={onAddVehicle} onClose={() => setShowVehicleForm(false)} onComplete={onComplete} />}
-        {garage.length === 0 ? (
-          <div className="empty-state">
-            <Car size={26} />
-            <h3>No vehicles added yet</h3>
-            <p>Add your first vehicle to unlock market value tracking, car details, work history, service requests, and offer requests.</p>
-            <button className="button primary compact-button" type="button" onClick={() => setShowVehicleForm(true)}>
-              <Plus size={18} /> Upload Your Car
-            </button>
-          </div>
-        ) : (
-          <div className="garage-list compact">
-            {garage.slice(0, 2).map((vehicle) => (
-              <VehicleCard key={vehicle.id} onSelect={() => setActiveTab("garage")} vehicle={vehicle} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="app-section">
-        <div className="app-section-title">
           <div>
-            <h2>Quick Actions</h2>
-            <p>Maintenance, detailing, transport, storage, buying, selling, and emergency help in one place.</p>
+            <h2>Services</h2>
+            <p>Every membership is built around clear concierge categories. Select a service when you are ready to book.</p>
           </div>
+          <button type="button" onClick={() => setActiveTab("schedule")}>Book</button>
         </div>
-        <div className="quick-action-grid">
-          {conciergeActions.slice(0, 8).map(({ icon: Icon, label }) => (
-            <button key={label} type="button" onClick={() => setActiveTab("schedule")}>
+        <div className="service-category-grid">
+          {services.map(({ icon: Icon, items, title }) => (
+            <button key={title} type="button" onClick={() => setActiveTab("schedule")}>
               <Icon size={20} />
-              <span>{label}</span>
+              <span>{title}</span>
+              <small>{items.slice(0, 3).join(" / ")}</small>
             </button>
           ))}
         </div>
@@ -1467,9 +1515,9 @@ function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, 
 
       <section className="app-metrics">
         <article>
-          <Car size={22} />
-          <strong>{garage.length}</strong>
-          <span>Garage vehicles</span>
+          <CalendarCheck size={22} />
+          <strong>{serviceReminders.length}</strong>
+          <span>Upcoming reminders</span>
         </article>
         <article>
           <Clock size={22} />
@@ -1478,8 +1526,8 @@ function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, 
         </article>
         <article>
           <ShieldCheck size={22} />
-          <strong>{needsInfoCount}</strong>
-          <span>Details to complete</span>
+          <strong>{getAvailableServices(member.plan).length}</strong>
+          <span>Package services</span>
         </article>
       </section>
 
@@ -1501,6 +1549,7 @@ function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, 
 function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVehicle, onUpdateVehicle, onComplete }) {
   const garageList = ensureList(garage);
   const serviceReminders = useMemo(() => buildServiceReminders(garageList, member.plan), [garageList, member.plan]);
+  const canAddVehicle = canAddGarageVehicle(member.plan, garageList.length);
   const [showForm, setShowForm] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const selectedVehicle = garageList.find((vehicle) => vehicle.id === selectedVehicleId);
@@ -1550,11 +1599,16 @@ function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVeh
             <h2>Your Cars</h2>
             <p>Select a vehicle to see market value, prior services, photos, horsepower, notes, and offer requests.</p>
           </div>
-          <button className="button primary compact-button" type="button" onClick={() => setShowForm((open) => !open)}>
+          <button className="button primary compact-button" type="button" disabled={!canAddVehicle} onClick={() => setShowForm((open) => !open)}>
             <Plus size={18} /> Add Car
           </button>
         </div>
-        {showForm && <VehicleForm onAddVehicle={onAddVehicle} onClose={() => setShowForm(false)} onComplete={onComplete} />}
+        {!canAddVehicle && (
+          <div className="package-limit-note">
+            Your {member.plan} package includes one garage vehicle. The Collector package unlocks collection management for multiple cars.
+          </div>
+        )}
+        {showForm && canAddVehicle && <VehicleForm onAddVehicle={onAddVehicle} onClose={() => setShowForm(false)} onComplete={onComplete} />}
         {!showForm && garageList.length === 0 && (
           <div className="empty-state">
             <Car size={26} />
@@ -1904,21 +1958,125 @@ function FeedUploadForm({ onAddFeedPost, onComplete, vehicleOptions }) {
   );
 }
 
-function AccountScreen({ member, onLogout }) {
+function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
   const includedServices = getAvailableServices(member.plan);
+  const [settingsError, setSettingsError] = useState("");
+  const [settingsNotice, setSettingsNotice] = useState("");
+  const [savingSettings, setSavingSettings] = useState(false);
+  const notifications = {
+    ...defaultNotificationSettings,
+    ...(member.notifications || {}),
+  };
+
+  async function submitSettings(event) {
+    event.preventDefault();
+    setSettingsError("");
+    setSettingsNotice("");
+    setSavingSettings(true);
+
+    const formData = new FormData(event.currentTarget);
+    const nextNotifications = {
+      bookingUpdates: formData.has("bookingUpdates"),
+      feedActivity: formData.has("feedActivity"),
+      offers: formData.has("offers"),
+      serviceReminders: formData.has("serviceReminders"),
+    };
+
+    try {
+      await onUpdateMember({
+        name: formData.get("name"),
+        username: formData.get("username"),
+        plan: formData.get("plan"),
+        notifications: nextNotifications,
+        password: formData.get("password"),
+      });
+      event.currentTarget.password.value = "";
+      setSettingsNotice("Profile settings successfully updated.");
+    } catch (error) {
+      setSettingsError(error.message || "Could not update profile settings.");
+    } finally {
+      setSavingSettings(false);
+    }
+  }
 
   return (
     <div className="app-stack">
-      <section className="app-section account-panel">
-        <div className="account-avatar">
-          <User size={32} />
+      <section className="app-section account-settings-panel">
+        <div className="account-settings-header">
+          <div className="account-avatar">
+            <User size={32} />
+          </div>
+          <div>
+            <p className="eyebrow">Profile Settings</p>
+            <h2>{member.name}</h2>
+            <p>{member.email}</p>
+            <span>{member.plan} membership</span>
+          </div>
         </div>
-        <h2>{member.name}</h2>
-        <p>{member.email}</p>
-        <span>{member.plan} membership</span>
-        <button className="button secondary submit" type="button" onClick={onLogout}>
-          <LogOut size={18} /> Log out
-        </button>
+
+        <form className="settings-form" onSubmit={submitSettings}>
+          {settingsError && <div className="form-alert">{settingsError}</div>}
+          {settingsNotice && <div className="success-alert">{settingsNotice}</div>}
+          <div className="app-form-grid">
+            <label>
+              Full name
+              <input name="name" type="text" defaultValue={member.name || ""} required />
+            </label>
+            <label>
+              Username
+              <input name="username" type="text" defaultValue={member.username || ""} placeholder="preferred member name" />
+            </label>
+            <label>
+              Email
+              <input type="email" value={member.email || ""} readOnly />
+            </label>
+            <label>
+              Package
+              <select name="plan" defaultValue={member.plan || "Club Drive"}>
+                {plans.map((plan) => (
+                  <option key={plan.name} value={plan.name}>{plan.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              New password
+              <input name="password" type="password" minLength="6" placeholder="Leave blank to keep current password" />
+            </label>
+            <label>
+              Garage access
+              <input type="text" value={hasCollectionPackage(member.plan) ? `${garageCount} vehicles allowed` : `${garageCount}/1 vehicle used`} readOnly />
+            </label>
+          </div>
+
+          <fieldset className="notification-settings">
+            <legend>Notifications</legend>
+            <label>
+              <input name="serviceReminders" type="checkbox" defaultChecked={notifications.serviceReminders} />
+              Service reminders
+            </label>
+            <label>
+              <input name="bookingUpdates" type="checkbox" defaultChecked={notifications.bookingUpdates} />
+              Booking updates
+            </label>
+            <label>
+              <input name="feedActivity" type="checkbox" defaultChecked={notifications.feedActivity} />
+              Feed activity
+            </label>
+            <label>
+              <input name="offers" type="checkbox" defaultChecked={notifications.offers} />
+              Vehicle offers
+            </label>
+          </fieldset>
+
+          <div className="settings-actions">
+            <button className="button primary" type="submit" disabled={savingSettings}>
+              {savingSettings ? "Saving..." : "Save Settings"}
+            </button>
+            <button className="button secondary" type="button" onClick={onLogout}>
+              <LogOut size={18} /> Log out
+            </button>
+          </div>
+        </form>
       </section>
       <section className="app-section">
         <h2>Included In Your Package</h2>
@@ -1966,6 +2124,16 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
       formData.get("preferredDealer") && `Preferred dealership: ${formData.get("preferredDealer")}`,
       formData.get("pickupLocation") && `Preferred pickup: ${formData.get("pickupLocation")}`,
       formData.get("nextService") && `Next service: ${formData.get("nextService")}`,
+      formData.get("lastOilChange") && `Last oil change: ${formData.get("lastOilChange")}`,
+      formData.get("lastDetail") && `Last detail: ${formData.get("lastDetail")}`,
+      formData.get("brakeService") && `Brake service: ${formData.get("brakeService")}`,
+      formData.get("recallStatus") && `Recall status: ${formData.get("recallStatus")}`,
+      formData.get("serviceInterval") && `Service interval: ${formData.get("serviceInterval")}`,
+      formData.get("tireSeason") && `Tire season: ${formData.get("tireSeason")}`,
+      formData.get("color") && `Color: ${formData.get("color")}`,
+      formData.get("plate") && `Plate: ${formData.get("plate")}`,
+      formData.get("condition") && `Condition: ${formData.get("condition")}`,
+      formData.get("storageNeeds") && `Storage needs: ${formData.get("storageNeeds")}`,
       formData.get("tireAge") && `Tire age: ${formData.get("tireAge")}`,
       formData.get("batteryAge") && `Battery age: ${formData.get("batteryAge")}`,
       formData.get("registration") && `Registration: ${formData.get("registration")}`,
@@ -1985,6 +2153,16 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         preferredDealer: formData.get("preferredDealer"),
         pickupLocation: formData.get("pickupLocation"),
         nextService: formData.get("nextService"),
+        lastOilChange: formData.get("lastOilChange"),
+        lastDetail: formData.get("lastDetail"),
+        brakeService: formData.get("brakeService"),
+        recallStatus: formData.get("recallStatus"),
+        serviceInterval: formData.get("serviceInterval"),
+        tireSeason: formData.get("tireSeason"),
+        color: formData.get("color"),
+        plate: formData.get("plate"),
+        condition: formData.get("condition"),
+        storageNeeds: formData.get("storageNeeds"),
         tireAge: formData.get("tireAge"),
         batteryAge: formData.get("batteryAge"),
         registration: formData.get("registration"),
@@ -2053,6 +2231,14 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
           <input name="vin" type="text" placeholder="WP0AB2A9..." />
         </label>
         <label>
+          License plate
+          <input name="plate" type="text" placeholder="ABC 123" />
+        </label>
+        <label>
+          Color
+          <input name="color" type="text" placeholder="Guards Red" />
+        </label>
+        <label>
           Vehicle location
           <input name="location" type="text" placeholder="Montreal, QC" />
         </label>
@@ -2090,8 +2276,47 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
           <input name="pickupLocation" type="text" placeholder="Home, office, storage facility" />
         </label>
         <label>
+          Condition
+          <select name="condition">
+            <option>Excellent</option>
+            <option>Good</option>
+            <option>Needs attention</option>
+            <option>Not running</option>
+          </select>
+        </label>
+        <label>
           Next service
           <input name="nextService" type="text" placeholder="Oil change in 42 days" />
+        </label>
+        <label>
+          Last oil change
+          <input name="lastOilChange" type="text" placeholder="May 2026 or 8,000 km ago" />
+        </label>
+        <label>
+          Service interval
+          <input name="serviceInterval" type="text" placeholder="Every 6 months or 8,000 km" />
+        </label>
+        <label>
+          Last detail
+          <input name="lastDetail" type="text" placeholder="Spring 2026" />
+        </label>
+        <label>
+          Brake service
+          <input name="brakeService" type="text" placeholder="Pads checked June 2026" />
+        </label>
+        <label>
+          Recall status
+          <input name="recallStatus" type="text" placeholder="Checked / needs dealer check" />
+        </label>
+        <label>
+          Tire season
+          <select name="tireSeason">
+            <option>All season</option>
+            <option>Summer</option>
+            <option>Winter</option>
+            <option>Track</option>
+            <option>Not sure</option>
+          </select>
         </label>
         <label>
           Tire age
@@ -2106,6 +2331,10 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
           <input name="registration" type="text" placeholder="Active or renewal date" />
         </label>
       </div>
+      <label>
+        Storage needs
+        <textarea name="storageNeeds" rows="2" placeholder="Indoor storage, battery tender, climate control, monthly start, fuel stabilizer..." />
+      </label>
       <label>
         What has been done to the car?
         <textarea name="workDone" rows="3" placeholder="Ceramic coating, exhaust, wheels, tune, wrap..." />
@@ -2280,11 +2509,18 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onGetOffer, onU
   const trackingItems = vehicleTrackingItems(vehicle);
   const ownershipProfile = [
     ["VIN", vehicle.vin || "Needed"],
+    ["Plate", vehicle.plate || "Needed"],
+    ["Color", vehicle.color || "Needed"],
+    ["Condition", vehicle.condition || "Needed"],
     ["Location", vehicle.location || "Needed"],
     ["Insurance", vehicle.insurance || "Needed"],
     ["Warranty", vehicle.warranty || "Needed"],
     ["Preferred dealership", vehicle.preferredDealer || "Needed"],
     ["Preferred pickup", vehicle.pickupLocation || "Needed"],
+    ["Service interval", vehicle.serviceInterval || "Needed"],
+    ["Last oil change", vehicle.lastOilChange || "Needed"],
+    ["Last detail", vehicle.lastDetail || "Needed"],
+    ["Recall status", vehicle.recallStatus || "Needed"],
   ];
   const handleImageError = (event) => {
     event.currentTarget.src = fallbackVehicleImage;
@@ -2305,12 +2541,22 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onGetOffer, onU
     const ownershipNotes = [
       formData.get("notes") || vehicle.notes,
       formData.get("vin") && `VIN: ${formData.get("vin")}`,
+      formData.get("plate") && `Plate: ${formData.get("plate")}`,
+      formData.get("color") && `Color: ${formData.get("color")}`,
+      formData.get("condition") && `Condition: ${formData.get("condition")}`,
       formData.get("location") && `Location: ${formData.get("location")}`,
       formData.get("insurance") && `Insurance: ${formData.get("insurance")}`,
       formData.get("warranty") && `Warranty: ${formData.get("warranty")}`,
       formData.get("preferredDealer") && `Preferred dealership: ${formData.get("preferredDealer")}`,
       formData.get("pickupLocation") && `Preferred pickup: ${formData.get("pickupLocation")}`,
       formData.get("nextService") && `Next service: ${formData.get("nextService")}`,
+      formData.get("lastOilChange") && `Last oil change: ${formData.get("lastOilChange")}`,
+      formData.get("lastDetail") && `Last detail: ${formData.get("lastDetail")}`,
+      formData.get("brakeService") && `Brake service: ${formData.get("brakeService")}`,
+      formData.get("recallStatus") && `Recall status: ${formData.get("recallStatus")}`,
+      formData.get("serviceInterval") && `Service interval: ${formData.get("serviceInterval")}`,
+      formData.get("tireSeason") && `Tire season: ${formData.get("tireSeason")}`,
+      formData.get("storageNeeds") && `Storage needs: ${formData.get("storageNeeds")}`,
       formData.get("tireAge") && `Tire age: ${formData.get("tireAge")}`,
       formData.get("batteryAge") && `Battery age: ${formData.get("batteryAge")}`,
       formData.get("registration") && `Registration: ${formData.get("registration")}`,
@@ -2323,12 +2569,22 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onGetOffer, onU
         mileage: formData.get("mileage") || vehicle.mileage,
         status: formData.get("status") || vehicle.status,
         vin: formData.get("vin") || vehicle.vin,
+        plate: formData.get("plate") || vehicle.plate,
+        color: formData.get("color") || vehicle.color,
+        condition: formData.get("condition") || vehicle.condition,
         location: formData.get("location") || vehicle.location,
         insurance: formData.get("insurance") || vehicle.insurance,
         warranty: formData.get("warranty") || vehicle.warranty,
         preferredDealer: formData.get("preferredDealer") || vehicle.preferredDealer,
         pickupLocation: formData.get("pickupLocation") || vehicle.pickupLocation,
         nextService: formData.get("nextService") || vehicle.nextService,
+        lastOilChange: formData.get("lastOilChange") || vehicle.lastOilChange,
+        lastDetail: formData.get("lastDetail") || vehicle.lastDetail,
+        brakeService: formData.get("brakeService") || vehicle.brakeService,
+        recallStatus: formData.get("recallStatus") || vehicle.recallStatus,
+        serviceInterval: formData.get("serviceInterval") || vehicle.serviceInterval,
+        tireSeason: formData.get("tireSeason") || vehicle.tireSeason,
+        storageNeeds: formData.get("storageNeeds") || vehicle.storageNeeds,
         tireAge: formData.get("tireAge") || vehicle.tireAge,
         batteryAge: formData.get("batteryAge") || vehicle.batteryAge,
         registration: formData.get("registration") || vehicle.registration,
@@ -2547,6 +2803,18 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onGetOffer, onU
               <input defaultValue={vehicle.vin || ""} name="vin" placeholder="WP0AB2A9..." type="text" />
             </label>
             <label>
+              License plate
+              <input defaultValue={vehicle.plate || ""} name="plate" placeholder="ABC 123" type="text" />
+            </label>
+            <label>
+              Color
+              <input defaultValue={vehicle.color || ""} name="color" placeholder="Guards Red" type="text" />
+            </label>
+            <label>
+              Condition
+              <input defaultValue={vehicle.condition || ""} name="condition" placeholder="Excellent, good, needs attention" type="text" />
+            </label>
+            <label>
               Location
               <input defaultValue={vehicle.location || ""} name="location" placeholder="Home, office, storage" type="text" />
             </label>
@@ -2571,6 +2839,30 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onGetOffer, onU
               <input defaultValue={vehicle.nextService || ""} name="nextService" placeholder="Oil change in 42 days" type="text" />
             </label>
             <label>
+              Last oil change
+              <input defaultValue={vehicle.lastOilChange || ""} name="lastOilChange" placeholder="May 2026 or 8,000 km ago" type="text" />
+            </label>
+            <label>
+              Service interval
+              <input defaultValue={vehicle.serviceInterval || ""} name="serviceInterval" placeholder="Every 6 months or 8,000 km" type="text" />
+            </label>
+            <label>
+              Last detail
+              <input defaultValue={vehicle.lastDetail || ""} name="lastDetail" placeholder="Spring 2026" type="text" />
+            </label>
+            <label>
+              Brake service
+              <input defaultValue={vehicle.brakeService || ""} name="brakeService" placeholder="Pads checked June 2026" type="text" />
+            </label>
+            <label>
+              Recall status
+              <input defaultValue={vehicle.recallStatus || ""} name="recallStatus" placeholder="Checked / needs dealer check" type="text" />
+            </label>
+            <label>
+              Tire season
+              <input defaultValue={vehicle.tireSeason || ""} name="tireSeason" placeholder="Summer, winter, all season" type="text" />
+            </label>
+            <label>
               Tire age
               <input defaultValue={vehicle.tireAge || ""} name="tireAge" placeholder="2 years" type="text" />
             </label>
@@ -2583,6 +2875,10 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onGetOffer, onU
               <input defaultValue={vehicle.registration || ""} name="registration" placeholder="Active or renewal date" type="text" />
             </label>
           </div>
+          <label>
+            Storage needs
+            <textarea defaultValue={vehicle.storageNeeds || ""} name="storageNeeds" rows="2" placeholder="Indoor storage, battery tender, monthly start, fuel stabilizer..." />
+          </label>
           <label>
             Internal notes
             <textarea defaultValue={vehicle.notes || ""} name="notes" rows="3" placeholder="Concierge notes, document status, owner preferences..." />

@@ -7,7 +7,9 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
   full_name text not null,
+  username text,
   plan text not null default 'Club Drive',
+  notifications jsonb not null default '{"bookingUpdates": true, "feedActivity": true, "offers": true, "serviceReminders": true}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -60,17 +62,19 @@ language plpgsql
 security definer set search_path = public
 as $$
 begin
-  insert into public.profiles (id, email, full_name, plan)
+  insert into public.profiles (id, email, full_name, username, plan)
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data->>'full_name', 'Member'),
+    new.raw_user_meta_data->>'username',
     coalesce(new.raw_user_meta_data->>'plan', 'Club Drive')
   )
   on conflict (id) do update
   set
     email = excluded.email,
     full_name = excluded.full_name,
+    username = excluded.username,
     plan = excluded.plan,
     updated_at = now();
 
