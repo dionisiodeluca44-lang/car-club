@@ -1609,6 +1609,75 @@ textarea:focus {
   color: var(--gold-bright);
 }
 
+.saved-vehicle-selector {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.85rem;
+}
+
+.saved-vehicle-selector button,
+.selected-vehicle-summary {
+  display: grid;
+  grid-template-columns: 76px 1fr auto;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--ink);
+  text-align: left;
+}
+
+.saved-vehicle-selector button {
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.saved-vehicle-selector button:hover,
+.saved-vehicle-selector button.selected-vehicle-card {
+  transform: translateY(-2px);
+  border-color: rgba(229, 200, 121, 0.62);
+  background: rgba(201, 164, 92, 0.12);
+}
+
+.saved-vehicle-selector img,
+.selected-vehicle-summary img {
+  width: 76px;
+  height: 58px;
+  border-radius: var(--radius);
+  object-fit: cover;
+}
+
+.saved-vehicle-selector span,
+.selected-vehicle-summary span {
+  color: var(--gold-bright);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.saved-vehicle-selector h3,
+.selected-vehicle-summary h3 {
+  margin: 0.15rem 0 0.2rem;
+}
+
+.saved-vehicle-selector p,
+.selected-vehicle-summary p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.selected-vehicle-summary button {
+  width: max-content;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius);
+  color: var(--gold-bright);
+  font-weight: 900;
+}
+
 .schedule-service-grid button {
   display: grid;
   align-content: space-between;
@@ -1743,6 +1812,34 @@ textarea:focus {
 
 .full-payment-card {
   border-color: rgba(117, 214, 166, 0.28);
+}
+
+.service-question-list {
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.service-question-list span {
+  color: var(--gold-bright);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.service-question-list p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.service-question-list p::before {
+  content: "- ";
+  color: var(--gold-bright);
 }
 
 .app-service-list article {

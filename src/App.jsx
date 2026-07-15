@@ -296,8 +296,232 @@ const defaultDepositTerms = {
   title: "Security deposit",
 };
 
-function paymentTermsForService(serviceLabel) {
+const bookingServiceCatalog = {
+  "Detail my car": {
+    category: "Appearance",
+    options: [
+      { name: "Maintenance Wash", prices: { car: 70, suv: 100, truck: 100, van: 100 } },
+      { name: "Full Detailing", prices: { car: 150, suv: 200, truck: 250, van: 250 } },
+      { name: "Custom / Not Sure", deposit: 100 },
+    ],
+    questions: ["Interior, exterior, or both", "Condition: light, moderate, or heavy", "Pet hair, odour, stains, or special photos"],
+  },
+  Brakes: {
+    category: "Maintenance & Repair",
+    deposit: 100,
+    options: ["Brake Pads", "Brake Discs / Rotors", "Pads and Discs / Rotors", "Brake Inspection", "Not Sure What I Need"],
+    questions: ["Front, rear, or not sure", "Grinding, squeaking, vibration, warning light, or reduced braking"],
+  },
+  "Oil change": {
+    category: "Maintenance & Repair",
+    deposit: 50,
+    options: ["Conventional Oil", "Synthetic Blend", "Full Synthetic", "Diesel Oil Change", "Not Sure"],
+    questions: ["Current mileage update", "Warning or maintenance message", "Filter or extra service notes"],
+  },
+  Tires: {
+    category: "Tires & Wheels",
+    deposit: 75,
+    options: ["Seasonal Change - Tires on Rims", "Seasonal Change - Tires off Rims", "Mount and Balance", "Flat Tire Repair", "Buy New Tires", "Tire Storage", "Not Sure"],
+    questions: ["Tire size if known", "Quantity", "On rims or off rims", "Need storage"],
+  },
+  Diagnostics: {
+    category: "Maintenance & Repair",
+    deposit: 100,
+    options: ["Warning Light", "Noise or Vibration", "No-Start / Starting Issue", "Performance Issue", "Electrical Issue", "General Inspection", "Not Sure"],
+  },
+  "Battery service": {
+    category: "Maintenance & Repair",
+    deposit: 75,
+    options: ["Battery Test", "Battery Replacement", "Boost / Jump Start", "Charging System Check", "Not Sure"],
+  },
+  "Recall or warranty work": {
+    category: "Concierge",
+    deposit: 75,
+    options: ["Check for Open Recalls", "Book Dealer Appointment", "Vehicle Drop-off and Pick-up", "Warranty Claim Assistance", "Not Sure"],
+  },
+  "Ceramic coating": {
+    category: "Protection",
+    deposit: 200,
+    options: ["Ceramic Coating"],
+    basePrices: { car: 800, suv: 900, truck: 900, van: 900 },
+    note: "Base price. Paint correction or extra preparation may increase the final price.",
+  },
+  "Paint protection film": {
+    category: "Protection",
+    deposit: 250,
+    options: ["Partial Front", "Full Front", "Rocker Panels", "Door Cups / Door Edges", "Full Vehicle", "Custom / Not Sure"],
+  },
+  "Window tint": {
+    category: "Appearance",
+    deposit: 100,
+    options: ["Front Two Windows", "Rear Section", "Full Vehicle", "Windshield Sun Strip", "Remove and Replace Existing Tint", "Custom / Not Sure"],
+  },
+  "Rim or windshield repair": {
+    category: "Repair",
+    deposit: 100,
+    options: ["Cosmetic Rim Repair", "Bent Rim Repair", "Cracked Rim Repair", "Windshield Chip Repair", "Windshield Crack / Replacement", "Not Sure"],
+  },
+  "Need repairs": {
+    category: "Maintenance & Repair",
+    deposit: 100,
+    options: ["Engine", "Transmission", "Suspension / Steering", "Exhaust", "Electrical", "Heating / A/C", "Body Repair", "Not Sure"],
+  },
+  "Pickup and delivery": {
+    category: "Transport",
+    options: [
+      { name: "Montreal Island", price: 175 },
+      { name: "Outside Montreal Island - Nearby", displayPrice: "From $225 CAD" },
+      { name: "Outside Montreal Island - Extended Distance", displayPrice: "From $250 CAD" },
+      { name: "Custom Distance / Not Sure", deposit: 100 },
+    ],
+  },
+  "Vehicle offer request": {
+    category: "Buying & Selling",
+    options: [{ name: "Sell My Vehicle", price: 0 }, { name: "Trade-In Appraisal", price: 0 }, { name: "Market Value Estimate", price: 0 }],
+  },
+  "Buy a vehicle": {
+    category: "Buying & Selling",
+    deposit: 250,
+    options: ["Find a Specific Vehicle", "Help Me Choose", "Pre-Purchase Inspection", "Negotiation Assistance", "Full Buying Concierge"],
+  },
+  "Sell my vehicle": {
+    category: "Buying & Selling",
+    options: [{ name: "Request an Offer", price: 0 }, { name: "Consignment / Sell It for Me", deposit: 250 }, { name: "Listing and Advertising Help", deposit: 100 }, { name: "Full Selling Concierge", deposit: 250 }],
+  },
+  "Insurance help": {
+    category: "Administration",
+    deposit: 75,
+    options: ["New Policy Assistance", "Insurance Claim Assistance", "Document Help", "Not Sure"],
+  },
+  "Registration renewal": {
+    category: "Administration",
+    deposit: 75,
+    options: ["Registration Renewal", "Ownership Transfer", "Plate / Permit Help", "Not Sure"],
+    note: "Government fees are separate and charged at cost.",
+  },
+  "Vehicle storage": {
+    category: "Storage",
+    deposit: 150,
+    options: ["Indoor Storage", "Outdoor Storage", "Short-Term Storage", "Seasonal Storage", "Long-Term Storage"],
+  },
+  "Tuning / modifications": {
+    category: "Customization",
+    deposit: 150,
+    options: ["Performance Upgrade", "Suspension / Lowering", "Wheels / Fitment", "Exhaust Upgrade", "Lighting / Electronics", "Custom / Not Sure"],
+  },
+  "Emergency concierge": {
+    category: "Emergency",
+    deposit: 150,
+    options: ["Vehicle Stranded", "Accident Assistance", "Urgent Repair Coordination", "Urgent Vehicle Transport", "Other Emergency"],
+  },
+  "Roadside assistance": {
+    category: "Emergency",
+    deposit: 100,
+    options: ["Battery Boost", "Flat Tire", "Lockout", "Fuel Delivery", "Tow", "Not Sure"],
+  },
+};
+
+function serviceCatalogForLabel(serviceLabel) {
+  if (serviceLabel === "Tire change / storage") return bookingServiceCatalog.Tires;
+  if (serviceLabel === "Documents and paperwork") return bookingServiceCatalog["Insurance help"];
+  if (serviceLabel === "Collection management") return { category: "Collection", deposit: 250, options: ["Monthly Collection Review", "Storage Oversight", "Condition Report", "Full Collection Management"] };
+  if (serviceLabel === "Fleet management") return { category: "Fleet", deposit: 250, options: ["Fleet Review", "Preventive Schedule", "Vendor Coordination", "Full Fleet Management"] };
+  if (serviceLabel === "Schedule maintenance") return { category: "Maintenance & Repair", deposit: 75, options: ["Recommended Service", "Preventive Maintenance", "Not Sure"] };
+  return bookingServiceCatalog[serviceLabel] || null;
+}
+
+function serviceOptionsForBooking(serviceLabel) {
+  const catalog = serviceCatalogForLabel(serviceLabel);
+  if (!catalog?.options?.length) return ["Not Sure"];
+  return catalog.options.map((option) => (typeof option === "string" ? option : option.name));
+}
+
+function serviceQuestionsForBooking(serviceLabel) {
+  return serviceCatalogForLabel(serviceLabel)?.questions || [];
+}
+
+function formatCad(amount) {
+  return `$${amount} CAD`;
+}
+
+function vehicleClassFromVehicle(vehicle = {}) {
+  const combined = `${vehicle.vehicleType || ""} ${vehicle.type || ""} ${vehicle.use || ""} ${vehicle.model || ""}`.toLowerCase();
+  if (/truck|pickup|f-150|silverado|ram|sierra|tacoma|tundra/.test(combined)) return "truck";
+  if (/van|minivan|sprinter|sienna|odyssey|caravan/.test(combined)) return "van";
+  if (/suv|crossover|x5|x3|gle|glc|range rover|cayenne|macan|urus|q5|q7|rav4|cr-v|highlander|escalade|yukon|tahoe/.test(combined)) return "suv";
+  return "car";
+}
+
+function paymentTermsForService(serviceLabel, vehicle, selectedOptionName) {
+  const catalog = serviceCatalogForLabel(serviceLabel);
+  const vehicleClass = vehicleClassFromVehicle(vehicle);
+  const selectedOption = catalog?.options?.find((option) => (typeof option === "string" ? option : option.name) === selectedOptionName);
+  const option = typeof selectedOption === "string" ? {} : selectedOption || {};
+
+  if (option.price === 0) {
+    return {
+      amount: "Free request",
+      mode: "free",
+      note: "White Glove will review the request and follow up with next steps.",
+      title: "No payment due now",
+    };
+  }
+
+  if (option.prices?.[vehicleClass]) {
+    return {
+      amount: `${formatCad(option.prices[vehicleClass])} plus taxes at checkout`,
+      mode: "full",
+      note: "This service has fixed pricing based on the selected Garage vehicle.",
+      title: "Pay in full",
+    };
+  }
+
+  if (option.price) {
+    return {
+      amount: `${formatCad(option.price)} plus taxes at checkout`,
+      mode: "full",
+      note: "This service has a clear fixed price for the selected option.",
+      title: "Pay in full",
+    };
+  }
+
+  if (option.displayPrice) {
+    return {
+      amount: `${option.displayPrice} plus taxes at checkout`,
+      mode: "full",
+      note: "Final price is based on distance and logistics confirmation.",
+      title: "Starting price",
+    };
+  }
+
+  if (catalog?.basePrices?.[vehicleClass]) {
+    return {
+      amount: `${formatCad(catalog.deposit || 100)} deposit today. Estimated base price: ${formatCad(catalog.basePrices[vehicleClass])} plus taxes`,
+      mode: "deposit",
+      note: catalog.note || "The deposit is applied to the final invoice after the vehicle is reviewed.",
+      title: "Security deposit",
+    };
+  }
+
+  const depositAmount = option.deposit || option.deposit_amount || catalog?.deposit;
+  if (depositAmount) {
+    return {
+      amount: `${formatCad(depositAmount)} deposit today`,
+      mode: "deposit",
+      note: catalog?.note || "Final price will be confirmed after reviewing the vehicle and requested work. Your deposit is applied to the final invoice.",
+      title: "Security deposit",
+    };
+  }
+
   return servicePaymentRules[serviceLabel] || defaultDepositTerms;
+}
+
+function vehicleLabel(vehicle = {}) {
+  return `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
+}
+
+function vehicleMeta(vehicle = {}) {
+  return [vehicle.color, vehicle.plate, vehicle.nickname].filter(Boolean).join(" • ") || "Garage vehicle";
 }
 
 function getAvailableServices(plan) {
@@ -507,10 +731,6 @@ function vehicleTrackingItems(vehicle) {
     detail: tracked[label] || "Track on request",
     status: tracked[label] && !String(tracked[label]).toLowerCase().includes("pending") ? "Tracked" : "Needs info",
   }));
-}
-
-function vehicleLabel(vehicle) {
-  return `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
 }
 
 function estimateMarketValue(vehicle) {
@@ -1412,7 +1632,7 @@ function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, 
             />
           )}
           {!completion && activeTab === "garage" && <GarageScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={setCompletion} />}
-          {!completion && activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onComplete={setCompletion} vehicleOptions={vehicleOptions} />}
+          {!completion && activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onComplete={setCompletion} setActiveTab={setActiveTab} vehicleOptions={vehicleOptions} />}
           {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedPost={onAddFeedPost} vehicleOptions={vehicleOptions} />}
           {!completion && activeTab === "account" && <AccountScreen garageCount={garageList.length} member={member} onLogout={onLogout} onUpdateMember={onUpdateMember} />}
         </MemberPanelErrorBoundary>
@@ -1693,11 +1913,15 @@ function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVeh
   );
 }
 
-function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComplete, vehicleOptions }) {
+function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComplete, setActiveTab, vehicleOptions }) {
   const includedServices = useMemo(() => getAvailableServices(member.plan), [member.plan]);
   const serviceReminders = useMemo(() => buildServiceReminders(garage, member.plan), [garage, member.plan]);
   const [selectedService, setSelectedService] = useState(includedServices[0]?.label || "");
+  const [selectedServiceOption, setSelectedServiceOption] = useState(serviceOptionsForBooking(includedServices[0]?.label)[0] || "Not Sure");
+  const [selectedVehicleId, setSelectedVehicleId] = useState(garage[0]?.id || "");
+  const selectedVehicle = garage.find((vehicle) => vehicle.id === selectedVehicleId) || garage[0] || null;
   const formSectionRef = useRef(null);
+  const vehicleSectionRef = useRef(null);
 
   useEffect(() => {
     if (!includedServices.some((service) => service.label === selectedService)) {
@@ -1705,9 +1929,27 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
     }
   }, [includedServices, selectedService]);
 
+  useEffect(() => {
+    if (!garage.length) {
+      setSelectedVehicleId("");
+      return;
+    }
+    if (!garage.some((vehicle) => vehicle.id === selectedVehicleId)) {
+      setSelectedVehicleId(garage[0]?.id || "");
+    }
+  }, [garage, selectedVehicleId]);
+
+  useEffect(() => {
+    const options = serviceOptionsForBooking(selectedService);
+    if (!options.includes(selectedServiceOption)) {
+      setSelectedServiceOption(options[0] || "Not Sure");
+    }
+  }, [selectedService, selectedServiceOption]);
+
   function chooseService(serviceLabel) {
     if (!canBookService(member.plan, serviceLabel)) return;
     setSelectedService(serviceLabel);
+    setSelectedServiceOption(serviceOptionsForBooking(serviceLabel)[0] || "Not Sure");
     window.requestAnimationFrame(() => {
       formSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
@@ -1739,11 +1981,26 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
 
   return (
     <div className="app-stack">
+      <section className="app-section" ref={vehicleSectionRef}>
+        <div className="app-section-title">
+          <div>
+            <h2>Select Your Vehicle</h2>
+            <p>Choose one saved Garage vehicle. We use its saved information for pricing, service history, VIN, mileage, and concierge coordination.</p>
+          </div>
+          <button type="button" onClick={() => setActiveTab("garage")}>Add Vehicle</button>
+        </div>
+        <SavedVehicleSelector
+          vehicles={garage}
+          selectedVehicleId={selectedVehicle?.id || ""}
+          onVehicleSelect={setSelectedVehicleId}
+        />
+      </section>
+
       <section className="app-section">
         <div className="app-section-title">
           <div>
             <h2>Book A Service</h2>
-            <p>Select a service, then fill out the appointment details below. Included services are ready to book; locked services show which package unlocks them.</p>
+            <p>Select a service after choosing a saved vehicle. Included services are ready to book; locked services show which package unlocks them.</p>
           </div>
           <span>{serviceOptions.length} services</span>
         </div>
@@ -1762,7 +2019,9 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
           {serviceOptions.map((service) => {
             const selected = selectedService === service.label;
             const included = service.allowedPlans.includes(member.plan);
-            const paymentTerms = paymentTermsForService(service.label);
+            const previewOption = serviceOptionsForBooking(service.label)[0];
+            const paymentTerms = paymentTermsForService(service.label, selectedVehicle, previewOption);
+            const paymentLabel = paymentTerms.mode === "full" || paymentTerms.mode === "free" ? paymentTerms.title : "Deposit required";
             return (
               <button
                 className={`${selected ? "selected-service" : ""} ${included ? "" : "locked-schedule-service"}`.trim()}
@@ -1780,8 +2039,8 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
                   <p>{included ? "Included in your package. Tap to book." : `Requires ${service.allowedPlans[0]} or higher.`}</p>
                 </div>
                 {included && (
-                  <span className={paymentTerms.mode === "full" ? "payment-chip full-payment" : "payment-chip deposit-payment"}>
-                    {paymentTerms.mode === "full" ? "Pay in full" : "Deposit required"}
+                  <span className={paymentTerms.mode === "deposit" ? "payment-chip deposit-payment" : "payment-chip full-payment"}>
+                    {paymentLabel}
                   </span>
                 )}
                 <span className="schedule-service-cta">{included ? selected ? "Selected" : "Book" : "Locked"}</span>
@@ -1795,16 +2054,20 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
         <div className="app-section-title">
           <div>
             <h2>Appointment Details</h2>
-            <p>{selectedService ? `${selectedService} is selected. Add the vehicle, preferred timing, and notes.` : "Select an included service above to start booking."}</p>
+            <p>{selectedVehicle ? `${vehicleLabel(selectedVehicle)} is selected. Choose the service option, timing, and notes.` : "Add a vehicle in your Garage before booking."}</p>
           </div>
         </div>
         <ScheduleForm
+          garage={garage}
           member={member}
           onAddAppointment={onAddAppointment}
           onComplete={onComplete}
+          onChangeVehicle={() => vehicleSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
           selectedService={selectedService}
+          selectedServiceOption={selectedServiceOption}
+          selectedVehicle={selectedVehicle}
           setSelectedService={setSelectedService}
-          vehicleOptions={vehicleOptions}
+          setSelectedServiceOption={setSelectedServiceOption}
         />
       </section>
       <section className="app-section">
@@ -1866,6 +2129,43 @@ function ServicesScreen({ member, setActiveTab }) {
           })}
         </div>
       </section>
+    </div>
+  );
+}
+
+function SavedVehicleSelector({ onVehicleSelect, selectedVehicleId, vehicles }) {
+  if (!vehicles.length) {
+    return (
+      <div className="empty-state compact-empty">
+        <Car size={24} />
+        <h3>No vehicle found in your Garage</h3>
+        <p>Add a vehicle before booking this service. The booking flow will use saved Garage details instead of asking you to re-enter them.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="saved-vehicle-selector">
+      {vehicles.map((vehicle, index) => {
+        const selected = selectedVehicleId === vehicle.id;
+        const label = vehicleLabel(vehicle);
+        return (
+          <button
+            className={selected ? "selected-vehicle-card" : ""}
+            key={vehicle.id || `${label}-${index}`}
+            type="button"
+            onClick={() => onVehicleSelect(vehicle.id)}
+          >
+            <img alt={label} src={vehicle.image || fallbackVehicleImage} />
+            <div>
+              <span>{selected ? "Selected vehicle" : "Saved Garage vehicle"}</span>
+              <h3>{label}</h3>
+              <p>{vehicleMeta(vehicle)}</p>
+            </div>
+            {selected ? <Check size={22} /> : <ChevronRight size={22} />}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -2417,12 +2717,15 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
   );
 }
 
-function ScheduleForm({ member, onAddAppointment, onComplete, selectedService, setSelectedService, vehicleOptions }) {
+function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onComplete, selectedService, selectedServiceOption, selectedVehicle, setSelectedService, setSelectedServiceOption }) {
   const [requestSubmitted, setRequestSubmitted] = useState(false);
   const [requestError, setRequestError] = useState("");
   const availableServices = getAvailableServices(member.plan);
-  const hasVehicles = vehicleOptions.length > 0;
-  const selectedPaymentTerms = paymentTermsForService(selectedService);
+  const serviceSubOptions = serviceOptionsForBooking(selectedService);
+  const serviceQuestions = serviceQuestionsForBooking(selectedService);
+  const hasVehicles = garage.length > 0 && Boolean(selectedVehicle);
+  const selectedPaymentTerms = paymentTermsForService(selectedService, selectedVehicle, selectedServiceOption);
+  const selectedVehicleClass = vehicleClassFromVehicle(selectedVehicle);
 
   async function submitAppointment(event) {
     event.preventDefault();
@@ -2432,11 +2735,17 @@ function ScheduleForm({ member, onAddAppointment, onComplete, selectedService, s
     const form = event.currentTarget;
     const formData = new FormData(event.currentTarget);
     const appointment = {
-      vehicle: formData.get("vehicle"),
+      vehicle: selectedVehicle ? vehicleLabel(selectedVehicle) : "",
+      vehicleId: selectedVehicle?.id || "",
+      vehicleClass: selectedVehicleClass,
       service: formData.get("service"),
+      serviceOption: formData.get("serviceOption"),
       date: formData.get("date"),
       time: formData.get("time"),
       notes: [
+        `Vehicle ID: ${selectedVehicle?.id || "not selected"}`,
+        `Vehicle class: ${selectedVehicleClass}`,
+        `Service option: ${formData.get("serviceOption")}`,
         formData.get("notes"),
         `Payment: ${selectedPaymentTerms.title} - ${selectedPaymentTerms.amount}. ${selectedPaymentTerms.note}`,
       ].filter(Boolean).join("\n\n"),
@@ -2449,6 +2758,9 @@ function ScheduleForm({ member, onAddAppointment, onComplete, selectedService, s
     formData.set("form-name", "service-request");
     formData.set("memberName", member.name);
     formData.set("memberEmail", member.email);
+    formData.set("vehicle", appointment.vehicle);
+    formData.set("vehicleId", appointment.vehicleId);
+    formData.set("vehicleClass", appointment.vehicleClass);
     formData.set("paymentMode", selectedPaymentTerms.mode);
     formData.set("paymentTitle", selectedPaymentTerms.title);
     formData.set("paymentAmount", selectedPaymentTerms.amount);
@@ -2484,6 +2796,7 @@ function ScheduleForm({ member, onAddAppointment, onComplete, selectedService, s
         actionTab: "schedule",
         details: [
           ["Service", savedRequest?.service || appointment.service],
+          ["Option", appointment.serviceOption],
           ["Vehicle", savedRequest?.vehicle || appointment.vehicle],
           ["Preferred date", savedRequest?.date || appointment.date || "Date pending"],
           ["Payment", appointment.paymentTitle],
@@ -2503,6 +2816,9 @@ function ScheduleForm({ member, onAddAppointment, onComplete, selectedService, s
       <input type="hidden" name="form-name" value="service-request" />
       <input type="hidden" name="memberName" value={member.name} />
       <input type="hidden" name="memberEmail" value={member.email} />
+      <input type="hidden" name="vehicle" value={selectedVehicle ? vehicleLabel(selectedVehicle) : ""} />
+      <input type="hidden" name="vehicleId" value={selectedVehicle?.id || ""} />
+      <input type="hidden" name="vehicleClass" value={selectedVehicleClass} />
       <input type="hidden" name="paymentMode" value={selectedPaymentTerms.mode} />
       <input type="hidden" name="paymentTitle" value={selectedPaymentTerms.title} />
       <input type="hidden" name="paymentAmount" value={selectedPaymentTerms.amount} />
@@ -2526,21 +2842,31 @@ function ScheduleForm({ member, onAddAppointment, onComplete, selectedService, s
           Add a vehicle to your garage before requesting service.
         </div>
       )}
-      <label>
-        Vehicle
-        <select name="vehicle" required disabled={!hasVehicles}>
-          {!hasVehicles && <option>No vehicles added yet</option>}
-          {vehicleOptions.map((vehicle) => (
-            <option key={vehicle}>{vehicle}</option>
-          ))}
-        </select>
-      </label>
+      {selectedVehicle && (
+        <div className="selected-vehicle-summary">
+          <img alt={vehicleLabel(selectedVehicle)} src={selectedVehicle.image || fallbackVehicleImage} />
+          <div>
+            <span>Your vehicle</span>
+            <h3>{vehicleLabel(selectedVehicle)}</h3>
+            <p>{vehicleMeta(selectedVehicle)} • {selectedVehicleClass.toUpperCase()}</p>
+          </div>
+          <button type="button" onClick={onChangeVehicle}>Change vehicle</button>
+        </div>
+      )}
       <div className="app-form-grid">
         <label>
           Service
           <select name="service" onChange={(event) => setSelectedService(event.target.value)} required value={selectedService}>
             {availableServices.map((service) => (
               <option key={service.label} value={service.label}>{service.label}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Service option
+          <select name="serviceOption" onChange={(event) => setSelectedServiceOption(event.target.value)} required value={selectedServiceOption}>
+            {serviceSubOptions.map((option) => (
+              <option key={option} value={option}>{option}</option>
             ))}
           </select>
         </label>
@@ -2557,10 +2883,18 @@ function ScheduleForm({ member, onAddAppointment, onComplete, selectedService, s
         <div className={selectedPaymentTerms.mode === "full" ? "payment-terms full-payment-card" : "payment-terms deposit-payment-card"}>
           <CreditCard size={22} />
           <div>
-            <span>{selectedPaymentTerms.mode === "full" ? "Accurate price service" : "Quote or diagnosis needed"}</span>
+            <span>{selectedPaymentTerms.mode === "free" ? "Free request" : selectedPaymentTerms.mode === "full" ? "Accurate price service" : "Quote or diagnosis needed"}</span>
             <h3>{selectedPaymentTerms.title}</h3>
             <p>{selectedPaymentTerms.amount}. {selectedPaymentTerms.note}</p>
           </div>
+        </div>
+      )}
+      {serviceQuestions.length > 0 && (
+        <div className="service-question-list">
+          <span>Details to include</span>
+          {serviceQuestions.map((question) => (
+            <p key={question}>{question}</p>
+          ))}
         </div>
       )}
       <label>
