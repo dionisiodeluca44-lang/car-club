@@ -656,6 +656,9 @@ textarea:focus {
 }
 
 .nav-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   color: var(--soft);
   padding: 0;
 }

@@ -14,7 +14,6 @@ import {
   MapPin,
   Menu,
   Plus,
-  Settings,
   ShieldCheck,
   Sparkles,
   Upload,
@@ -930,7 +929,9 @@ function App() {
         <nav className={menuOpen ? "nav-links open" : "nav-links"} aria-label="Primary navigation">
           <a href="#services" onClick={closeMenu}>Services</a>
           <a href="#memberships" onClick={closeMenu}>Memberships</a>
-          <button className="nav-button" type="button" onClick={() => setMode(member ? "app" : "login")}>Member App</button>
+          <button className="nav-button profile-nav-button" type="button" onClick={() => setMode(member ? "app" : "login")}>
+            <User size={18} /> Member App
+          </button>
           <a href="#apply" onClick={closeMenu}>Apply</a>
         </nav>
       </header>
@@ -1335,7 +1336,7 @@ function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, 
             <h1>{completion ? "Successfully Updated" : activeTab === "home" ? `Welcome, ${firstName}` : tabTitle(activeTab)}</h1>
           </div>
           <button className="icon-button profile-settings-button" type="button" aria-label="Profile settings" onClick={() => navigateToTab("account")}>
-            <Settings size={20} />
+            <User size={20} />
           </button>
         </header>
 
