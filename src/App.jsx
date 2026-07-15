@@ -7,6 +7,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   Clock,
+  CreditCard,
   Gauge,
   Home,
   KeyRound,
@@ -242,6 +243,62 @@ const serviceOptions = [
     allowedPlans: ["Collector"],
   },
 ];
+
+const servicePaymentRules = {
+  "Oil change": {
+    amount: "Full amount when price is confirmed",
+    mode: "full",
+    note: "Best for a known service with a clear shop quote.",
+    title: "Pay in full",
+  },
+  "Battery service": {
+    amount: "Full amount when price is confirmed",
+    mode: "full",
+    note: "Used when the battery, labor, and provider quote are clear.",
+    title: "Pay in full",
+  },
+  "Detail my car": {
+    amount: "Full amount when package is selected",
+    mode: "full",
+    note: "Used for standard wash, detail, and care packages with known pricing.",
+    title: "Pay in full",
+  },
+  "Window tint": {
+    amount: "Full amount when film and vehicle are confirmed",
+    mode: "full",
+    note: "Used when the tint package and vehicle details create a firm quote.",
+    title: "Pay in full",
+  },
+  "Pickup and delivery": {
+    amount: "Full amount when route is confirmed",
+    mode: "full",
+    note: "Used when pickup, delivery, and distance are known.",
+    title: "Pay in full",
+  },
+  "Registration renewal": {
+    amount: "Full amount when fees are confirmed",
+    mode: "full",
+    note: "Used when government fees and concierge handling are known.",
+    title: "Pay in full",
+  },
+  "Documents and paperwork": {
+    amount: "Full amount when scope is confirmed",
+    mode: "full",
+    note: "Used when the paperwork request is clear and fixed.",
+    title: "Pay in full",
+  },
+};
+
+const defaultDepositTerms = {
+  amount: "Security deposit before coordination starts",
+  mode: "deposit",
+  note: "Used when White Glove needs to inspect, diagnose, quote, compare providers, or confirm the exact scope before final pricing.",
+  title: "Security deposit",
+};
+
+function paymentTermsForService(serviceLabel) {
+  return servicePaymentRules[serviceLabel] || defaultDepositTerms;
+}
 
 function getAvailableServices(plan) {
   return serviceOptions.filter((service) => service.allowedPlans.includes(plan));
@@ -1705,6 +1762,7 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
           {serviceOptions.map((service) => {
             const selected = selectedService === service.label;
             const included = service.allowedPlans.includes(member.plan);
+            const paymentTerms = paymentTermsForService(service.label);
             return (
               <button
                 className={`${selected ? "selected-service" : ""} ${included ? "" : "locked-schedule-service"}`.trim()}
@@ -1721,6 +1779,11 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
                   <h3>{service.label}</h3>
                   <p>{included ? "Included in your package. Tap to book." : `Requires ${service.allowedPlans[0]} or higher.`}</p>
                 </div>
+                {included && (
+                  <span className={paymentTerms.mode === "full" ? "payment-chip full-payment" : "payment-chip deposit-payment"}>
+                    {paymentTerms.mode === "full" ? "Pay in full" : "Deposit required"}
+                  </span>
+                )}
                 <span className="schedule-service-cta">{included ? selected ? "Selected" : "Book" : "Locked"}</span>
               </button>
             );
@@ -2359,6 +2422,7 @@ function ScheduleForm({ member, onAddAppointment, onComplete, selectedService, s
   const [requestError, setRequestError] = useState("");
   const availableServices = getAvailableServices(member.plan);
   const hasVehicles = vehicleOptions.length > 0;
+  const selectedPaymentTerms = paymentTermsForService(selectedService);
 
   async function submitAppointment(event) {
     event.preventDefault();
@@ -2372,12 +2436,24 @@ function ScheduleForm({ member, onAddAppointment, onComplete, selectedService, s
       service: formData.get("service"),
       date: formData.get("date"),
       time: formData.get("time"),
-      notes: formData.get("notes"),
+      notes: [
+        formData.get("notes"),
+        `Payment: ${selectedPaymentTerms.title} - ${selectedPaymentTerms.amount}. ${selectedPaymentTerms.note}`,
+      ].filter(Boolean).join("\n\n"),
+      paymentAmount: selectedPaymentTerms.amount,
+      paymentMode: selectedPaymentTerms.mode,
+      paymentNote: selectedPaymentTerms.note,
+      paymentTitle: selectedPaymentTerms.title,
     };
 
     formData.set("form-name", "service-request");
     formData.set("memberName", member.name);
     formData.set("memberEmail", member.email);
+    formData.set("paymentMode", selectedPaymentTerms.mode);
+    formData.set("paymentTitle", selectedPaymentTerms.title);
+    formData.set("paymentAmount", selectedPaymentTerms.amount);
+    formData.set("paymentNote", selectedPaymentTerms.note);
+    formData.set("notes", appointment.notes);
 
     try {
       if (!hasVehicles) {
@@ -2410,8 +2486,9 @@ function ScheduleForm({ member, onAddAppointment, onComplete, selectedService, s
           ["Service", savedRequest?.service || appointment.service],
           ["Vehicle", savedRequest?.vehicle || appointment.vehicle],
           ["Preferred date", savedRequest?.date || appointment.date || "Date pending"],
+          ["Payment", appointment.paymentTitle],
         ],
-        message: "Your concierge request has been sent. We will coordinate provider availability, pricing, transportation, and next steps.",
+        message: `${appointment.paymentTitle} is required for this request. Your concierge team will confirm the exact amount and next payment step before work begins.`,
         secondaryLabel: "Back Home",
         secondaryTab: "home",
         title: "Service booking successfully updated.",
@@ -2426,6 +2503,10 @@ function ScheduleForm({ member, onAddAppointment, onComplete, selectedService, s
       <input type="hidden" name="form-name" value="service-request" />
       <input type="hidden" name="memberName" value={member.name} />
       <input type="hidden" name="memberEmail" value={member.email} />
+      <input type="hidden" name="paymentMode" value={selectedPaymentTerms.mode} />
+      <input type="hidden" name="paymentTitle" value={selectedPaymentTerms.title} />
+      <input type="hidden" name="paymentAmount" value={selectedPaymentTerms.amount} />
+      <input type="hidden" name="paymentNote" value={selectedPaymentTerms.note} />
       <label className="hidden-field">
         Do not fill this out
         <input name="bot-field" tabIndex="-1" autoComplete="off" />
@@ -2472,6 +2553,16 @@ function ScheduleForm({ member, onAddAppointment, onComplete, selectedService, s
           <input name="time" required type="time" />
         </label>
       </div>
+      {selectedService && (
+        <div className={selectedPaymentTerms.mode === "full" ? "payment-terms full-payment-card" : "payment-terms deposit-payment-card"}>
+          <CreditCard size={22} />
+          <div>
+            <span>{selectedPaymentTerms.mode === "full" ? "Accurate price service" : "Quote or diagnosis needed"}</span>
+            <h3>{selectedPaymentTerms.title}</h3>
+            <p>{selectedPaymentTerms.amount}. {selectedPaymentTerms.note}</p>
+          </div>
+        </div>
+      )}
       <label>
         Notes
         <textarea name="notes" rows="3" placeholder="Tell the concierge what you need handled." />
@@ -2913,12 +3004,15 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onGetOffer, onU
 }
 
 function ServiceRequestCard({ appointment }) {
+  const paymentSummary = appointment.paymentTitle || appointment.notes?.match(/Payment:\s*([^-.\n]+)/i)?.[1]?.trim();
+
   return (
     <article className="request-card">
       <div>
         <span>{appointment.status}</span>
         <h3>{appointment.service}</h3>
         <p>{appointment.vehicle}</p>
+        {paymentSummary && <small>{paymentSummary}</small>}
       </div>
       <div className="request-date">
         <strong>{appointment.date || "Date pending"}</strong>
