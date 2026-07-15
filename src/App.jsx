@@ -1352,7 +1352,6 @@ function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, 
               onAddAppointment={onAddAppointment}
               setActiveTab={setActiveTab}
               onComplete={setCompletion}
-              feedPosts={feedPosts}
             />
           )}
           {!completion && activeTab === "garage" && <GarageScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={setCompletion} />}
@@ -1413,7 +1412,7 @@ function CompletionScreen({ completion, onNavigate }) {
   );
 }
 
-function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, onComplete, setActiveTab }) {
+function Dashboard({ appointments, garage, member, onAddAppointment, onComplete, setActiveTab }) {
   const serviceReminders = buildServiceReminders(garage, member.plan);
 
   async function sendReminderRequest(reminder) {
@@ -1466,35 +1465,6 @@ function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, 
                   <p>{reminder.message}</p>
                 </div>
                 <button type="button" onClick={() => sendReminderRequest(reminder)}>Send Request</button>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="app-section home-priority">
-        <div className="app-section-title">
-          <div>
-            <h2>Member Feed</h2>
-            <p>See vehicle photos, detail results, delivery shots, storage updates, and collection highlights from members.</p>
-          </div>
-          <button type="button" onClick={() => setActiveTab("feed")}>View Feed</button>
-        </div>
-        {feedPosts.length === 0 ? (
-          <div className="empty-state compact-empty">
-            <Upload size={24} />
-            <h3>No feed posts yet</h3>
-            <p>The shared member feed will appear here once members start posting vehicle updates.</p>
-          </div>
-        ) : (
-          <div className="feed-preview-grid">
-            {feedPosts.slice(0, 3).map((post) => (
-              <article key={post.id}>
-                <img alt={post.caption || "Feed post"} src={post.image} />
-                <div>
-                  <strong>{post.vehicle || "Garage update"}</strong>
-                  <span>{post.caption || "White Glove member feed"}</span>
-                </div>
               </article>
             ))}
           </div>
