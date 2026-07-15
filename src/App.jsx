@@ -25,10 +25,12 @@ import {
 } from "lucide-react";
 import {
   createAccount,
+  createFeedPost,
   createServiceRequest,
   createVehicle,
   getCurrentMember,
   isBackendConfigured,
+  loadFeedPosts,
   loadServiceRequests,
   loadVehicles,
   resendConfirmationEmail,
@@ -611,15 +613,17 @@ function App() {
           return;
         }
 
-        const [savedGarage, savedAppointments] = await Promise.all([
+        const [savedGarage, savedAppointments, savedFeedPosts] = await Promise.all([
           loadVehicles(currentMember.id),
           loadServiceRequests(currentMember.id),
+          loadFeedPosts(),
         ]);
 
         if (!active) return;
         setMember(currentMember);
         setGarage(ensureList(savedGarage));
         setAppointments(ensureList(savedAppointments));
+        setFeedPosts(ensureList(savedFeedPosts));
         setMode("app");
       } catch (error) {
         if (active) setAppError(error.message || "Could not load your account.");
@@ -675,14 +679,16 @@ function App() {
         return;
       }
 
-      const [savedGarage, savedAppointments] = await Promise.all([
+      const [savedGarage, savedAppointments, savedFeedPosts] = await Promise.all([
         loadVehicles(signedInMember.id),
         loadServiceRequests(signedInMember.id),
+        loadFeedPosts(),
       ]);
 
       setMember(signedInMember);
       setGarage(ensureList(savedGarage));
       setAppointments(ensureList(savedAppointments));
+      setFeedPosts(ensureList(savedFeedPosts));
       setMode("app");
       return;
     }
@@ -745,6 +751,12 @@ function App() {
   }
 
   async function addFeedPost(post) {
+    if (isBackendConfigured && member?.id) {
+      const savedPost = await createFeedPost(member.id, post, member.name);
+      setFeedPosts((currentPosts) => [savedPost, ...currentPosts]);
+      return savedPost;
+    }
+
     const nextPost = {
       ...post,
       id: crypto.randomUUID(),
@@ -1494,9 +1506,34 @@ function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, 
 
 function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVehicle, onUpdateVehicle, onComplete }) {
   const garageList = ensureList(garage);
+  const serviceReminders = useMemo(() => buildServiceReminders(garageList, member.plan), [garageList, member.plan]);
   const [showForm, setShowForm] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const selectedVehicle = garageList.find((vehicle) => vehicle.id === selectedVehicleId);
+
+  async function sendReminderRequest(reminder) {
+    const savedRequest = await onAddAppointment({
+      vehicle: reminder.vehicle,
+      service: reminder.service,
+      date: "",
+      time: "",
+      notes: `${reminder.title}. ${reminder.message}`,
+    });
+
+    onComplete?.({
+      actionLabel: "View Requests",
+      actionTab: "schedule",
+      details: [
+        ["Service", savedRequest?.service || reminder.service],
+        ["Vehicle", savedRequest?.vehicle || reminder.vehicle],
+        ["Status", savedRequest?.status || "Requested"],
+      ],
+      message: "Your concierge request has been sent from the garage reminder. White Glove will coordinate the appointment details.",
+      secondaryLabel: "Back to Garage",
+      secondaryTab: "garage",
+      title: "Service request successfully sent.",
+    });
+  }
 
   if (selectedVehicle) {
     return (

@@ -192,6 +192,43 @@ export async function createServiceRequest(userId, request) {
   return fromRequestRow(data);
 }
 
+export async function loadFeedPosts() {
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from("feed_posts")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (error) {
+    console.warn("Could not load member feed posts.", error);
+    return [];
+  }
+
+  return data.map(fromFeedPostRow);
+}
+
+export async function createFeedPost(userId, post, authorName = "Member") {
+  if (!supabase || !userId) return post;
+
+  const imageUrl = await safeUploadFeedImage(userId, post.image);
+  const { data, error } = await supabase
+    .from("feed_posts")
+    .insert({
+      user_id: userId,
+      author_name: authorName || "Member",
+      vehicle_label: post.vehicle || "",
+      caption: post.caption || "",
+      image_url: imageUrl || reusableImageUrl(post.image),
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new Error(`Could not post to feed: ${error.message}`);
+  return fromFeedPostRow(data);
+}
+
 async function uploadVehicleImage(userId, image) {
   if (!supabase || !image || !String(image).startsWith("data:")) return "";
 
@@ -219,6 +256,34 @@ async function safeUploadVehicleImage(userId, image) {
     console.warn("Vehicle photo upload failed. Saving vehicle without the uploaded photo.", error);
     return "";
   }
+}
+
+async function safeUploadFeedImage(userId, image) {
+  try {
+    return await uploadStorageImage("vehicle-photos", `${userId}/feed`, image);
+  } catch (error) {
+    console.warn("Feed photo upload failed. Saving feed post without the uploaded photo.", error);
+    return "";
+  }
+}
+
+async function uploadStorageImage(bucket, folder, image) {
+  if (!supabase || !image || !String(image).startsWith("data:")) return "";
+
+  const response = await fetch(image);
+  const blob = await response.blob();
+  const extension = blob.type.split("/")[1] || "jpg";
+  const path = `${folder}/${crypto.randomUUID()}.${extension}`;
+
+  const { error } = await supabase.storage.from(bucket).upload(path, blob, {
+    contentType: blob.type,
+    upsert: false,
+  });
+
+  if (error) throw error;
+
+  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+  return data.publicUrl;
 }
 
 function reusableImageUrl(image) {
@@ -281,5 +346,16 @@ function fromRequestRow(row) {
     time: row.preferred_time || "",
     notes: row.notes || "",
     status: row.status || "Requested",
+  };
+}
+
+function fromFeedPostRow(row) {
+  return {
+    id: row.id,
+    author: row.author_name || "Member",
+    caption: row.caption || "",
+    createdAt: row.created_at,
+    image: row.image_url || "",
+    vehicle: row.vehicle_label || "",
   };
 }
