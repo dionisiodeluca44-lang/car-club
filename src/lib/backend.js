@@ -34,13 +34,14 @@ export async function getCurrentMember() {
     email: user.email,
     plan: profile?.plan || user.user_metadata?.plan || "Club Drive",
     username: profile?.username || user.user_metadata?.username || "",
+    avatarUrl: profile?.avatar_url || user.user_metadata?.avatar_url || "",
     notifications: profile?.notifications || defaultNotifications,
   };
 }
 
 export async function createAccount({ email, name, password, plan, username }) {
   if (!supabase) {
-    return { email, name, plan, username, notifications: defaultNotifications };
+    return { avatarUrl: "", email, name, plan, username, notifications: defaultNotifications };
   }
 
   const { data, error } = await supabase.auth.signUp({
@@ -74,6 +75,7 @@ export async function createAccount({ email, name, password, plan, username }) {
     name,
     plan,
     username,
+    avatarUrl: "",
     notifications: defaultNotifications,
   });
 
@@ -83,6 +85,7 @@ export async function createAccount({ email, name, password, plan, username }) {
     name,
     plan,
     username,
+    avatarUrl: "",
     notifications: defaultNotifications,
   };
 }
@@ -102,7 +105,7 @@ export async function resendConfirmationEmail(email) {
 
 export async function signIn({ email, password }) {
   if (!supabase) {
-    return { email, name: email.split("@")[0] || "Member", plan: "Club Drive", username: "", notifications: defaultNotifications };
+    return { avatarUrl: "", email, name: email.split("@")[0] || "Member", plan: "Club Drive", username: "", notifications: defaultNotifications };
   }
 
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -117,6 +120,7 @@ export async function signIn({ email, password }) {
     email: data.user.email,
     plan: profile?.plan || data.user.user_metadata?.plan || "Club Drive",
     username: profile?.username || data.user.user_metadata?.username || "",
+    avatarUrl: profile?.avatar_url || data.user.user_metadata?.avatar_url || "",
     notifications: profile?.notifications || defaultNotifications,
   };
 }
@@ -126,7 +130,7 @@ export async function signOut() {
   await supabase.auth.signOut();
 }
 
-export async function upsertProfile({ email, id, name, notifications, plan, username }) {
+export async function upsertProfile({ avatarUrl, email, id, name, notifications, plan, username }) {
   if (!supabase || !id) return;
 
   const { error } = await supabase.from("profiles").upsert({
@@ -134,6 +138,7 @@ export async function upsertProfile({ email, id, name, notifications, plan, user
     email,
     full_name: name,
     username: username || null,
+    avatar_url: avatarUrl || null,
     plan,
     notifications: notifications || defaultNotifications,
   });
@@ -141,10 +146,11 @@ export async function upsertProfile({ email, id, name, notifications, plan, user
   if (error) throw error;
 }
 
-export async function updateMemberProfile({ email, id, name, notifications, plan, username }) {
-  await upsertProfile({ email, id, name, notifications, plan, username });
+export async function updateMemberProfile({ avatarUrl, email, id, name, notifications, plan, username }) {
+  await upsertProfile({ avatarUrl, email, id, name, notifications, plan, username });
   return {
     id,
+    avatarUrl: avatarUrl || "",
     email,
     name,
     notifications: notifications || defaultNotifications,

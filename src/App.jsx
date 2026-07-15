@@ -779,6 +779,7 @@ function App() {
 
     const nextMember = {
       ...member,
+      avatarUrl: settings.avatarUrl || member?.avatarUrl || "",
       name: settings.name?.trim() || member?.name || "Member",
       username: settings.username?.trim() || "",
       plan: nextPlan,
@@ -792,6 +793,7 @@ function App() {
     if (isBackendConfigured && member?.id) {
       const savedMember = await updateMemberProfile({
         id: member.id,
+        avatarUrl: nextMember.avatarUrl,
         email: member.email,
         name: nextMember.name,
         username: nextMember.username,
@@ -930,7 +932,7 @@ function App() {
           <a href="#services" onClick={closeMenu}>Services</a>
           <a href="#memberships" onClick={closeMenu}>Memberships</a>
           <button className="nav-button profile-nav-button" type="button" onClick={() => setMode(member ? "app" : "login")}>
-            <User size={18} /> Member App
+            <ProfileAvatar member={member} size={24} /> Member App
           </button>
           <a href="#apply" onClick={closeMenu}>Apply</a>
         </nav>
@@ -1336,7 +1338,7 @@ function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, 
             <h1>{completion ? "Successfully Updated" : activeTab === "home" ? `Welcome, ${firstName}` : tabTitle(activeTab)}</h1>
           </div>
           <button className="icon-button profile-settings-button" type="button" aria-label="Profile settings" onClick={() => navigateToTab("account")}>
-            <User size={20} />
+            <ProfileAvatar member={member} size={32} />
           </button>
         </header>
 
@@ -1959,8 +1961,20 @@ function FeedUploadForm({ onAddFeedPost, onComplete, vehicleOptions }) {
   );
 }
 
+function ProfileAvatar({ member, size = 32 }) {
+  const avatarUrl = member?.avatarUrl;
+  const style = { "--profile-avatar-size": `${size}px` };
+
+  return (
+    <span className={avatarUrl ? "profile-avatar has-photo" : "profile-avatar"} style={style}>
+      {avatarUrl ? <img alt={`${member?.name || "Member"} profile`} src={avatarUrl} /> : <User size={Math.max(18, Math.round(size * 0.58))} />}
+    </span>
+  );
+}
+
 function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
   const includedServices = getAvailableServices(member.plan);
+  const [avatarPreview, setAvatarPreview] = useState(member.avatarUrl || "");
   const [settingsError, setSettingsError] = useState("");
   const [settingsNotice, setSettingsNotice] = useState("");
   const [savingSettings, setSavingSettings] = useState(false);
@@ -1968,6 +1982,15 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
     ...defaultNotificationSettings,
     ...(member.notifications || {}),
   };
+
+  function handleAvatarUpload(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => setAvatarPreview(reader.result);
+    reader.readAsDataURL(file);
+  }
 
   async function submitSettings(event) {
     event.preventDefault();
@@ -1985,6 +2008,7 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
 
     try {
       await onUpdateMember({
+        avatarUrl: avatarPreview,
         name: formData.get("name"),
         username: formData.get("username"),
         plan: formData.get("plan"),
@@ -2005,7 +2029,7 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
       <section className="app-section account-settings-panel">
         <div className="account-settings-header">
           <div className="account-avatar">
-            <User size={32} />
+            <ProfileAvatar member={{ ...member, avatarUrl: avatarPreview }} size={76} />
           </div>
           <div>
             <p className="eyebrow">Profile Settings</p>
@@ -2018,6 +2042,13 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
         <form className="settings-form" onSubmit={submitSettings}>
           {settingsError && <div className="form-alert">{settingsError}</div>}
           {settingsNotice && <div className="success-alert">{settingsNotice}</div>}
+          <label className="profile-photo-field">
+            <span>Profile picture</span>
+            <div>
+              <ProfileAvatar member={{ ...member, avatarUrl: avatarPreview }} size={54} />
+              <input accept="image/*" type="file" onChange={handleAvatarUpload} />
+            </div>
+          </label>
           <div className="app-form-grid">
             <label>
               Full name

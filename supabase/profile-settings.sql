@@ -5,6 +5,9 @@ alter table public.profiles
   add column if not exists username text;
 
 alter table public.profiles
+  add column if not exists avatar_url text;
+
+alter table public.profiles
   add column if not exists notifications jsonb not null default
     '{"bookingUpdates": true, "feedActivity": true, "offers": true, "serviceReminders": true}'::jsonb;
 
@@ -14,12 +17,13 @@ language plpgsql
 security definer set search_path = public
 as $$
 begin
-  insert into public.profiles (id, email, full_name, username, plan)
+  insert into public.profiles (id, email, full_name, username, avatar_url, plan)
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data->>'full_name', 'Member'),
     new.raw_user_meta_data->>'username',
+    new.raw_user_meta_data->>'avatar_url',
     coalesce(new.raw_user_meta_data->>'plan', 'Club Drive')
   )
   on conflict (id) do update
@@ -27,6 +31,7 @@ begin
     email = excluded.email,
     full_name = excluded.full_name,
     username = excluded.username,
+    avatar_url = excluded.avatar_url,
     plan = excluded.plan,
     updated_at = now();
 
