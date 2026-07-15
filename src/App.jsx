@@ -1350,7 +1350,6 @@ function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, 
               garage={garageList}
               member={member}
               onAddAppointment={onAddAppointment}
-              onAddFeedPost={onAddFeedPost}
               setActiveTab={setActiveTab}
               onComplete={setCompletion}
               feedPosts={feedPosts}
@@ -1414,7 +1413,7 @@ function CompletionScreen({ completion, onNavigate }) {
   );
 }
 
-function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, onAddFeedPost, onComplete, setActiveTab }) {
+function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, onComplete, setActiveTab }) {
   const serviceReminders = buildServiceReminders(garage, member.plan);
 
   async function sendReminderRequest(reminder) {
@@ -1476,13 +1475,18 @@ function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, 
       <section className="app-section home-priority">
         <div className="app-section-title">
           <div>
-            <h2>Upload To Feed</h2>
-            <p>Upload garage photos, detail results, delivery shots, storage updates, and collection highlights.</p>
+            <h2>Member Feed</h2>
+            <p>See vehicle photos, detail results, delivery shots, storage updates, and collection highlights from members.</p>
           </div>
           <button type="button" onClick={() => setActiveTab("feed")}>View Feed</button>
         </div>
-        <FeedUploadForm onAddFeedPost={onAddFeedPost} onComplete={onComplete} vehicleOptions={garage.map(vehicleLabel)} />
-        {feedPosts.length > 0 && (
+        {feedPosts.length === 0 ? (
+          <div className="empty-state compact-empty">
+            <Upload size={24} />
+            <h3>No feed posts yet</h3>
+            <p>The shared member feed will appear here once members start posting vehicle updates.</p>
+          </div>
+        ) : (
           <div className="feed-preview-grid">
             {feedPosts.slice(0, 3).map((post) => (
               <article key={post.id}>
@@ -1840,7 +1844,7 @@ function FeedScreen({ feedPosts, member, onAddFeedPost, vehicleOptions }) {
         <div className="app-section-title">
           <div>
             <h2>Member Feed</h2>
-            <p>Share vehicle photos, service updates, detail results, delivery moments, and collection highlights.</p>
+            <p>Share vehicle photos, service updates, detail results, delivery moments, and collection highlights with every member.</p>
           </div>
           <span>{feedPosts.length} posts</span>
         </div>
@@ -1851,14 +1855,14 @@ function FeedScreen({ feedPosts, member, onAddFeedPost, vehicleOptions }) {
         <div className="app-section-title">
           <div>
             <h2>Garage Feed</h2>
-            <p>Photos uploaded by {member.name?.split(" ")[0] || "members"} appear here.</p>
+            <p>All member posts appear here so the community can see each other&apos;s vehicles and updates.</p>
           </div>
         </div>
         {feedPosts.length === 0 ? (
           <div className="empty-state">
             <Upload size={26} />
             <h3>No feed posts yet</h3>
-            <p>Upload your first car photo from Home or this Feed screen.</p>
+            <p>Upload the first car photo from this Feed screen.</p>
           </div>
         ) : (
           <div className="feed-grid">
