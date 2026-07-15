@@ -425,6 +425,38 @@ function vehicleLabel(vehicle) {
   return `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
 }
 
+function estimateMarketValue(vehicle) {
+  const year = Number.parseInt(vehicle.year, 10);
+  const makeModel = `${vehicle.make || ""} ${vehicle.model || ""}`.toLowerCase();
+  let baseValue = 42000;
+
+  if (makeModel.match(/ferrari|lamborghini|mclaren|bentley|rolls|aston/)) baseValue = 245000;
+  else if (makeModel.match(/porsche|911|gt3|range rover|g wagon|amg|bmw m|rs6|rs7/)) baseValue = 112000;
+  else if (makeModel.match(/mercedes|bmw|audi|lexus|cadillac|corvette/)) baseValue = 62000;
+  else if (makeModel.match(/tesla|ford|chevrolet|gmc|toyota|honda|hyundai|kia|mazda|subaru|volkswagen/)) baseValue = 34000;
+
+  if (year) {
+    const age = Math.max(0, new Date().getFullYear() - year);
+    const depreciation = makeModel.match(/ferrari|lamborghini|mclaren|gt3|911/) ? Math.min(age * 0.025, 0.2) : Math.min(age * 0.065, 0.62);
+    baseValue *= 1 - depreciation;
+  }
+
+  const mileage = Number.parseInt(String(vehicle.mileage || "").replace(/\D/g, ""), 10);
+  if (mileage > 100000) baseValue *= 0.74;
+  else if (mileage > 60000) baseValue *= 0.84;
+  else if (mileage > 30000) baseValue *= 0.92;
+  else if (mileage && mileage < 10000) baseValue *= 1.06;
+
+  const rounded = Math.max(6000, Math.round(baseValue / 1000) * 1000);
+  return `Estimated $${rounded.toLocaleString()}`;
+}
+
+function vehicleMarketValue(vehicle) {
+  const value = vehicle.marketValue || "";
+  if (value && !value.toLowerCase().includes("pending")) return value;
+  return estimateMarketValue(vehicle);
+}
+
 function parseDueDays(value) {
   const match = String(value || "").match(/(\d+)\s*days?/i);
   return match ? Number(match[1]) : null;
@@ -1304,7 +1336,6 @@ function CompletionScreen({ completion, onNavigate }) {
 
 function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, onAddFeedPost, onAddVehicle, onComplete, setActiveTab }) {
   const [showVehicleForm, setShowVehicleForm] = useState(false);
-  const trackerCount = garage.reduce((total, vehicle) => total + vehicleTrackingItems(vehicle).length, 0);
   const needsInfoCount = garage.reduce(
     (total, vehicle) => total + vehicleTrackingItems(vehicle).filter((item) => item.status === "Needs info").length,
     0,
@@ -1337,61 +1368,10 @@ function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, 
 
   return (
     <div className="app-stack">
-      <section className="member-hero">
-        <div>
-          <span>{member.plan} member</span>
-          <h2>{garage.length} vehicles under care</h2>
-          <p>One app, one phone number, and one concierge team for every automotive need.</p>
-        </div>
-        <button className="button primary" type="button" onClick={() => setActiveTab("schedule")}>Need Something?</button>
-      </section>
-
-      <section className="app-metrics">
-        <article>
-          <Car size={22} />
-          <strong>{garage.length}</strong>
-          <span>Garage vehicles</span>
-        </article>
-        <article>
-          <Clock size={22} />
-          <strong>{appointments.length}</strong>
-          <span>Service requests</span>
-        </article>
-        <article>
-          <ShieldCheck size={22} />
-          <strong>{trackerCount || "Ready"}</strong>
-          <span>Tracked ownership items</span>
-        </article>
-      </section>
-
-      <section className="app-section">
+      <section className="app-section home-priority">
         <div className="app-section-title">
           <div>
-            <h2>Ownership Tracker</h2>
-            <p>We track the maintenance, documents, warranty, recalls, transport, storage, and emergency needs across your garage.</p>
-          </div>
-          <button type="button" onClick={() => setActiveTab("garage")}>Review garage</button>
-        </div>
-        <div className="tracker-summary-grid">
-          <article>
-            <strong>{garage.length}</strong>
-            <span>Vehicles managed</span>
-          </article>
-          <article>
-            <strong>{trackerCount}</strong>
-            <span>Ownership items watched</span>
-          </article>
-          <article>
-            <strong>{needsInfoCount}</strong>
-            <span>Items needing details</span>
-          </article>
-        </div>
-      </section>
-
-      <section className="app-section">
-        <div className="app-section-title">
-          <div>
-            <h2>Service Reminders</h2>
+            <h2>Upcoming Services</h2>
             <p>White Glove watches your garage and prompts the next useful request before it becomes a problem.</p>
           </div>
           <button type="button" onClick={() => setActiveTab("schedule")}>Schedule</button>
@@ -1418,10 +1398,10 @@ function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, 
         )}
       </section>
 
-      <section className="app-section">
+      <section className="app-section home-priority">
         <div className="app-section-title">
           <div>
-            <h2>Post To Feed</h2>
+            <h2>Upload To Feed</h2>
             <p>Upload garage photos, detail results, delivery shots, storage updates, and collection highlights.</p>
           </div>
           <button type="button" onClick={() => setActiveTab("feed")}>View Feed</button>
@@ -1444,40 +1424,7 @@ function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, 
 
       <section className="app-section">
         <div className="app-section-title">
-          <div>
-            <h2>Need Something?</h2>
-            <p>Tell your concierge what you need handled. We compare providers, coordinate transportation, and manage the request.</p>
-          </div>
-        </div>
-        <div className="app-service-list">
-          {conciergeActions.map(({ icon: Icon, label }) => (
-            <article key={label}>
-              <Icon size={22} />
-              <div>
-                <h3>{label}</h3>
-                <p>Send this request to your concierge team.</p>
-              </div>
-              <button type="button" onClick={() => setActiveTab("schedule")} aria-label={`Request ${label}`}>
-                <ChevronRight size={20} />
-              </button>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="app-section">
-        <div className="app-section-title">
-          <h2>Next Requests</h2>
-          <button type="button" onClick={() => setActiveTab("schedule")}>View all</button>
-        </div>
-        {appointments.slice(0, 3).map((appointment) => (
-          <ServiceRequestCard appointment={appointment} key={appointment.id} />
-        ))}
-      </section>
-
-      <section className="app-section">
-        <div className="app-section-title">
-          <h2>Garage Preview</h2>
+          <h2>Your Garage</h2>
           <button type="button" onClick={() => setShowVehicleForm((open) => !open)}>
             {showVehicleForm ? "Close" : "Add Vehicle"}
           </button>
@@ -1500,6 +1447,53 @@ function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, 
           </div>
         )}
       </section>
+
+      <section className="app-section">
+        <div className="app-section-title">
+          <div>
+            <h2>Quick Actions</h2>
+            <p>Maintenance, detailing, transport, storage, buying, selling, and emergency help in one place.</p>
+          </div>
+        </div>
+        <div className="quick-action-grid">
+          {conciergeActions.slice(0, 8).map(({ icon: Icon, label }) => (
+            <button key={label} type="button" onClick={() => setActiveTab("schedule")}>
+              <Icon size={20} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="app-metrics">
+        <article>
+          <Car size={22} />
+          <strong>{garage.length}</strong>
+          <span>Garage vehicles</span>
+        </article>
+        <article>
+          <Clock size={22} />
+          <strong>{appointments.length}</strong>
+          <span>Open requests</span>
+        </article>
+        <article>
+          <ShieldCheck size={22} />
+          <strong>{needsInfoCount}</strong>
+          <span>Details to complete</span>
+        </article>
+      </section>
+
+      {appointments.length > 0 && (
+        <section className="app-section">
+          <div className="app-section-title">
+            <h2>Recent Requests</h2>
+            <button type="button" onClick={() => setActiveTab("schedule")}>View all</button>
+          </div>
+          {appointments.slice(0, 3).map((appointment) => (
+            <ServiceRequestCard appointment={appointment} key={appointment.id} />
+          ))}
+        </section>
+      )}
     </div>
   );
 }
@@ -1553,6 +1547,34 @@ function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVeh
       <section className="app-section">
         <div className="app-section-title">
           <div>
+            <h2>Your Cars</h2>
+            <p>Select a vehicle to see market value, prior services, photos, horsepower, notes, and offer requests.</p>
+          </div>
+          <button className="button primary compact-button" type="button" onClick={() => setShowForm((open) => !open)}>
+            <Plus size={18} /> Add Car
+          </button>
+        </div>
+        {showForm && <VehicleForm onAddVehicle={onAddVehicle} onClose={() => setShowForm(false)} onComplete={onComplete} />}
+        {!showForm && garageList.length === 0 && (
+          <div className="empty-state">
+            <Car size={26} />
+            <h3>No vehicles in your garage yet</h3>
+            <p>Add your first car to track market value, horsepower, photos, work history, and offer requests.</p>
+            <button className="button primary compact-button" type="button" onClick={() => setShowForm(true)}>
+              <Plus size={18} /> Add First Car
+            </button>
+          </div>
+        )}
+        <div className="garage-list">
+          {garageList.map((vehicle, index) => (
+            <VehicleCard key={vehicle.id || `${vehicle.make}-${vehicle.model}-${index}`} onSelect={() => setSelectedVehicleId(vehicle.id)} vehicle={vehicle} />
+          ))}
+        </div>
+      </section>
+
+      <section className="app-section">
+        <div className="app-section-title">
+          <div>
             <h2>Recommended Next</h2>
             <p>These prompts come from each vehicle's service timing, status, battery age, tire age, and care profile.</p>
           </div>
@@ -1578,34 +1600,6 @@ function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVeh
             ))}
           </div>
         )}
-      </section>
-
-      <section className="app-section">
-        <div className="app-section-title">
-          <div>
-            <h2>Your Garage</h2>
-            <p>Upload your car collection with photos, mileage, notes, and usage type.</p>
-          </div>
-          <button className="button primary compact-button" type="button" onClick={() => setShowForm((open) => !open)}>
-            <Plus size={18} /> Add Car
-          </button>
-        </div>
-        {showForm && <VehicleForm onAddVehicle={onAddVehicle} onClose={() => setShowForm(false)} onComplete={onComplete} />}
-        {!showForm && garageList.length === 0 && (
-          <div className="empty-state">
-            <Car size={26} />
-            <h3>No vehicles in your garage yet</h3>
-            <p>Add your first car to track market value, horsepower, photos, work history, and offer requests.</p>
-            <button className="button primary compact-button" type="button" onClick={() => setShowForm(true)}>
-              <Plus size={18} /> Add First Car
-            </button>
-          </div>
-        )}
-        <div className="garage-list">
-          {garageList.map((vehicle, index) => (
-            <VehicleCard key={vehicle.id || `${vehicle.make}-${vehicle.model}-${index}`} onSelect={() => setSelectedVehicleId(vehicle.id)} vehicle={vehicle} />
-          ))}
-        </div>
       </section>
     </div>
   );
@@ -1995,7 +1989,12 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         batteryAge: formData.get("batteryAge"),
         registration: formData.get("registration"),
         notes: ownershipNotes,
-        marketValue: formData.get("marketValue") || "Value pending",
+        marketValue: formData.get("marketValue") || estimateMarketValue({
+          year: formData.get("year"),
+          make: formData.get("make"),
+          model: formData.get("model"),
+          mileage: formData.get("mileage"),
+        }),
         horsepower: formData.get("horsepower") || "HP pending",
         workDone: splitWorkList(formData.get("workDone")),
         image: imagePreview || "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=85",
@@ -2008,7 +2007,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         actionTab: "garage",
         details: [
           ["Vehicle", `${savedVehicle?.year || formData.get("year")} ${savedVehicle?.make || formData.get("make")} ${savedVehicle?.model || formData.get("model")}`.trim()],
-          ["Market value", savedVehicle?.marketValue || formData.get("marketValue") || "Value pending"],
+          ["Market value", savedVehicle?.marketValue || formData.get("marketValue") || vehicleMarketValue(savedVehicle || {})],
           ["Status", savedVehicle?.status || "New vehicle added"],
         ],
         message: "Your garage has been updated. White Glove can now track this vehicle, its records, service needs, market value, and offer requests.",
@@ -2250,6 +2249,7 @@ function ScheduleForm({ member, onAddAppointment, onComplete, selectedService, s
 function VehicleCard({ onSelect, vehicle }) {
   const label = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
   const mileage = vehicle.mileage ? `${vehicle.mileage} miles` : "Mileage pending";
+  const marketValue = vehicleMarketValue(vehicle);
   const handleImageError = (event) => {
     event.currentTarget.src = fallbackVehicleImage;
   };
@@ -2261,7 +2261,7 @@ function VehicleCard({ onSelect, vehicle }) {
         <span>{vehicle.use || "Collection"}</span>
         <h3>{label}</h3>
         <p>{mileage}</p>
-        <strong className="vehicle-value">{vehicle.marketValue || "Value pending"}</strong>
+        <strong className="vehicle-value">{marketValue}</strong>
       </div>
       <strong>{vehicle.status || "Active"}</strong>
     </button>
@@ -2275,6 +2275,7 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onGetOffer, onU
   const workHistory = ensureList(vehicle.workDone);
   const workDone = workHistory.length ? workHistory : ["No work logged yet"];
   const vehicleLabel = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
+  const marketValue = vehicleMarketValue(vehicle);
   const serviceHistory = serviceHistoryForVehicle(vehicle, appointments);
   const trackingItems = vehicleTrackingItems(vehicle);
   const ownershipProfile = [
@@ -2340,7 +2341,7 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onGetOffer, onU
         actionTab: "garage",
         details: [
           ["Vehicle", vehicleLabel],
-          ["Market value", savedVehicle?.marketValue || formData.get("marketValue") || vehicle.marketValue || "Value pending"],
+          ["Market value", savedVehicle?.marketValue || formData.get("marketValue") || marketValue],
           ["Status", savedVehicle?.status || formData.get("status") || vehicle.status || "Active"],
         ],
         message: "Your concierge profile for this vehicle has been updated. We will use these details for service, tracking, transport, and offer requests.",
@@ -2379,7 +2380,7 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onGetOffer, onU
         service: "Vehicle offer request",
         date: "",
         time: "",
-        notes: `Member requested an offer. Current market value: ${vehicle.marketValue || "Value pending"}. Mileage: ${vehicle.mileage || "Mileage pending"}. VIN: ${vehicle.vin || "Needed"}. Location: ${vehicle.location || "Needed"}. Horsepower: ${vehicle.horsepower || "HP pending"}.`,
+        notes: `Member requested an offer. Current market value: ${marketValue}. Mileage: ${vehicle.mileage || "Mileage pending"}. VIN: ${vehicle.vin || "Needed"}. Location: ${vehicle.location || "Needed"}. Horsepower: ${vehicle.horsepower || "HP pending"}.`,
       });
       setOfferRequested(true);
       onComplete?.({
@@ -2388,7 +2389,7 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onGetOffer, onU
         details: [
           ["Request", savedRequest?.service || "Vehicle offer request"],
           ["Vehicle", savedRequest?.vehicle || vehicleLabel],
-          ["Market value", vehicle.marketValue || "Value pending"],
+          ["Market value", marketValue],
         ],
         message: "Your offer request has been sent. White Glove will review the vehicle details and prepare the next step.",
         secondaryLabel: "Back to Garage",
@@ -2408,13 +2409,13 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onGetOffer, onU
         <div>
           <span>{vehicle.use || "Collection"}</span>
           <h2>{vehicleLabel}</h2>
-          <p>{vehicle.status || "Active"}</p>
+          <p>{vehicle.status || "Active"} · {marketValue}</p>
         </div>
       </section>
 
       <section className="vehicle-stat-grid">
         <article>
-          <strong>{vehicle.marketValue || "Value pending"}</strong>
+          <strong>{marketValue}</strong>
           <span>Current market value</span>
         </article>
         <article>

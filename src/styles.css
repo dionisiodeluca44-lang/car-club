@@ -997,6 +997,13 @@ textarea:focus {
   padding: clamp(1rem, 3vw, 1.5rem);
 }
 
+.home-priority {
+  border-color: rgba(229, 200, 121, 0.28);
+  background:
+    linear-gradient(180deg, rgba(201, 164, 92, 0.08), rgba(255, 255, 255, 0.04)),
+    rgba(255, 255, 255, 0.045);
+}
+
 .app-section-title {
   display: flex;
   align-items: flex-start;
@@ -1046,6 +1053,37 @@ textarea:focus {
 
 .garage-list.compact {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.quick-action-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.quick-action-grid button {
+  min-height: 112px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 0.55rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--ink);
+  font-weight: 900;
+  text-align: center;
+  cursor: pointer;
+}
+
+.quick-action-grid button:hover {
+  border-color: rgba(229, 200, 121, 0.5);
+  background: rgba(201, 164, 92, 0.1);
+}
+
+.quick-action-grid svg {
+  color: var(--gold-bright);
 }
 
 .vehicle-card,
@@ -1759,6 +1797,7 @@ textarea:focus {
   .completion-details,
   .feed-preview-grid,
   .garage-list.compact,
+  .quick-action-grid,
   .app-form-grid,
   .vehicle-stat-grid,
   .tracker-summary-grid,
