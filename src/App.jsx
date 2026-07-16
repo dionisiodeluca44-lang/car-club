@@ -523,6 +523,13 @@ function paymentMethodLabel(method) {
   return "Card on file";
 }
 
+function paymentAmountCents(paymentTerms) {
+  if (Number.isFinite(paymentTerms?.amountCents)) return paymentTerms.amountCents;
+  const match = String(paymentTerms?.amount || "").match(/\$([\d,]+(?:\.\d{2})?)/);
+  if (!match) return 0;
+  return Math.round(Number(match[1].replace(/,/g, "")) * 100);
+}
+
 function vehicleLabel(vehicle = {}) {
   return `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
 }
@@ -918,6 +925,8 @@ function App() {
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [appError, setAppError] = useState("");
+  const [checkoutCompletion, setCheckoutCompletion] = useState(null);
+  const [adminMode, setAdminMode] = useState(() => window.location.hash === "#admin");
   const [runtimeError, setRuntimeError] = useState("");
   const [loadingAccount, setLoadingAccount] = useState(isBackendConfigured);
   const [member, setMember] = useState(() => {
@@ -937,6 +946,15 @@ function App() {
   const closeMenu = () => setMenuOpen(false);
 
   useEffect(() => {
+    function readAdminHash() {
+      setAdminMode(window.location.hash === "#admin");
+    }
+
+    window.addEventListener("hashchange", readAdminHash);
+    return () => window.removeEventListener("hashchange", readAdminHash);
+  }, []);
+
+  useEffect(() => {
     function reportRuntimeError(event) {
       if (event.target && event.target !== window) return;
       setRuntimeError(event.reason?.message || event.error?.message || event.message || "The app hit an unexpected error.");
@@ -949,6 +967,34 @@ function App() {
       window.removeEventListener("error", reportRuntimeError);
       window.removeEventListener("unhandledrejection", reportRuntimeError);
     };
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const bookingStatus = params.get("booking");
+
+    if (bookingStatus === "success") {
+      setCheckoutCompletion({
+        actionLabel: "View Requests",
+        actionTab: "schedule",
+        details: [
+          ["Payment", "Processed through Stripe"],
+          ["Email", "Booking confirmation sent"],
+        ],
+        message: "Your booking is confirmed. A confirmation email has been sent, and your service demand is now in the backend portal.",
+        secondaryLabel: "Back Home",
+        secondaryTab: "home",
+        title: "Booking confirmed.",
+      });
+      setMode("app");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
+    if (bookingStatus === "cancelled") {
+      setAppError("Payment was cancelled. Your booking was not confirmed.");
+      setMode("app");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }, []);
 
   useEffect(() => {
@@ -1192,6 +1238,10 @@ function App() {
     return <RuntimeErrorScreen message={runtimeError} onReset={() => { setRuntimeError(""); setMode("site"); }} />;
   }
 
+  if (adminMode) {
+    return <AdminPortal onBack={() => { window.location.hash = ""; setAdminMode(false); }} />;
+  }
+
   if (loadingAccount) {
     return (
       <main className="login-screen">
@@ -1208,7 +1258,7 @@ function App() {
   }
 
   if (mode === "app" && member) {
-    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteVehicle={deleteVehicle} onLogout={handleLogout} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} />;
+    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteVehicle={deleteVehicle} onLogout={handleLogout} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} />;
   }
 
   if (mode === "app") {
@@ -1491,6 +1541,149 @@ function RuntimeErrorScreen({ message, onReset }) {
   );
 }
 
+function AdminPortal({ onBack }) {
+  const [adminToken, setAdminToken] = useState(() => localStorage.getItem("whiteGloveAdminToken") || "");
+  const [draftToken, setDraftToken] = useState(adminToken);
+  const [adminError, setAdminError] = useState("");
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  const [serviceRequests, setServiceRequests] = useState([]);
+
+  async function loadAdminRequests(token = adminToken) {
+    if (!token) return;
+    setAdminError("");
+    setLoadingRequests(true);
+
+    try {
+      const response = await fetch("/.netlify/functions/admin-service-requests", {
+        headers: { "x-admin-token": token },
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Could not load service demands.");
+      }
+
+      setServiceRequests(payload.requests || []);
+    } catch (error) {
+      setAdminError(error.message || "Could not load service demands.");
+    } finally {
+      setLoadingRequests(false);
+    }
+  }
+
+  async function submitAdminLogin(event) {
+    event.preventDefault();
+    localStorage.setItem("whiteGloveAdminToken", draftToken);
+    setAdminToken(draftToken);
+    await loadAdminRequests(draftToken);
+  }
+
+  async function updateDemandStatus(id, status) {
+    setAdminError("");
+
+    try {
+      const response = await fetch("/.netlify/functions/admin-service-requests", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": adminToken,
+        },
+        body: JSON.stringify({ id, status }),
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Could not update the service demand.");
+      }
+
+      setServiceRequests((requests) => requests.map((request) => (request.id === id ? { ...request, status } : request)));
+    } catch (error) {
+      setAdminError(error.message || "Could not update the service demand.");
+    }
+  }
+
+  useEffect(() => {
+    if (adminToken) {
+      loadAdminRequests(adminToken);
+    }
+  }, []);
+
+  return (
+    <main className="admin-portal">
+      <section className="admin-shell">
+        <div className="admin-header">
+          <div>
+            <p className="eyebrow">White Glove backend</p>
+            <h1>Service Demand Portal</h1>
+            <p>Review paid bookings, member service requests, preferred timing, vehicle details, and concierge status.</p>
+          </div>
+          <button className="button secondary compact-button" type="button" onClick={onBack}>Back To Website</button>
+        </div>
+
+        <form className="admin-login-card" onSubmit={submitAdminLogin}>
+          <label>
+            Admin password
+            <input type="password" value={draftToken} onChange={(event) => setDraftToken(event.target.value)} placeholder="Enter backend portal password" />
+          </label>
+          <button className="button primary compact-button" type="submit">
+            <KeyRound size={18} /> Open Portal
+          </button>
+          <button className="button secondary compact-button" type="button" onClick={() => loadAdminRequests(adminToken)} disabled={!adminToken || loadingRequests}>
+            {loadingRequests ? "Loading..." : "Refresh"}
+          </button>
+        </form>
+
+        {adminError && <div className="error-message">{adminError}</div>}
+
+        <div className="admin-request-grid">
+          {serviceRequests.length === 0 ? (
+            <article className="admin-empty-card">
+              <h2>{adminToken ? "No service demands yet" : "Enter your admin password"}</h2>
+              <p>{adminToken ? "New bookings and service requests will appear here." : "Set ADMIN_PORTAL_PASSWORD in Netlify, then use that password here."}</p>
+            </article>
+          ) : (
+            serviceRequests.map((request) => (
+              <article className="admin-request-card" key={request.id}>
+                <div>
+                  <span>{request.status || "Requested"}</span>
+                  <h2>{request.service_type}</h2>
+                  <p>{request.vehicle_label}</p>
+                </div>
+                <dl>
+                  <div>
+                    <dt>Member</dt>
+                    <dd>{request.member?.full_name || "Member"} · {request.member?.email || "Email pending"}</dd>
+                  </div>
+                  <div>
+                    <dt>Package</dt>
+                    <dd>{request.member?.plan || "Unknown"}</dd>
+                  </div>
+                  <div>
+                    <dt>Preferred time</dt>
+                    <dd>{request.preferred_date || "Date pending"} {request.preferred_time || ""}</dd>
+                  </div>
+                  <div>
+                    <dt>Received</dt>
+                    <dd>{request.created_at ? new Date(request.created_at).toLocaleString() : "Just now"}</dd>
+                  </div>
+                </dl>
+                {request.notes && <pre>{request.notes}</pre>}
+                <div className="admin-status-actions">
+                  {["Requested", "In Review", "Booked", "Paid / Confirmed", "Completed"].map((status) => (
+                    <button key={status} type="button" onClick={() => updateDemandStatus(request.id, status)}>
+                      {status}
+                    </button>
+                  ))}
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
@@ -1607,7 +1800,7 @@ function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
   );
 }
 
-function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteVehicle, onLogout, onUpdateMember, onUpdateVehicle }) {
+function MemberApp({ appointments, feedPosts, garage, initialCompletion, member, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteVehicle, onLogout, onUpdateMember, onUpdateVehicle }) {
   const [activeTab, setActiveTab] = useState("home");
   const [completion, setCompletion] = useState(null);
   const garageList = ensureList(garage).map(normalizeVehicle);
@@ -1618,6 +1811,13 @@ function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, 
     setCompletion(null);
     setActiveTab(tab);
   };
+
+  useEffect(() => {
+    if (initialCompletion) {
+      setCompletion(initialCompletion);
+      setActiveTab(initialCompletion.actionTab || "schedule");
+    }
+  }, [initialCompletion]);
 
   return (
     <div className="mobile-app-shell">
@@ -2838,9 +3038,8 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
     }
 
     const paymentLabel = paymentMethodLabel(paymentMethod);
-    const cardFormData = new FormData(event.currentTarget);
-    const cardEnding = paymentMethod === "new-card" ? String(cardFormData.get("cardNumber") || "").replace(/\D/g, "").slice(-4) : "";
-    const paymentSummary = cardEnding ? `${paymentLabel} ending ${cardEnding}` : paymentLabel;
+    const amountCents = paymentAmountCents({ amount: pendingBooking.appointment.paymentAmount });
+    const paymentSummary = paymentLabel;
     const appointment = {
       ...pendingBooking.appointment,
       notes: [
@@ -2859,6 +3058,31 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
 
     try {
       setProcessingPayment(true);
+
+      if (amountCents > 0 && window.location.hostname !== "127.0.0.1" && window.location.hostname !== "localhost") {
+        const response = await fetch("/.netlify/functions/create-checkout-session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...netlifyFormData,
+            amountCents,
+            description: `${appointment.serviceOption} for ${appointment.vehicle}`,
+            memberEmail: member.email,
+            memberName: member.name,
+            paymentMethod: paymentSummary,
+            serviceLabel: `${appointment.service} - ${appointment.serviceOption}`,
+            userId: member.id,
+          }),
+        });
+
+        const checkout = await response.json().catch(() => ({}));
+        if (!response.ok || !checkout.url) {
+          throw new Error(checkout.error || "Could not start secure payment checkout.");
+        }
+
+        window.location.assign(checkout.url);
+        return;
+      }
 
       if (window.location.hostname !== "127.0.0.1" && window.location.hostname !== "localhost") {
         const response = await fetch("/", {
@@ -2935,23 +3159,13 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
           ))}
         </div>
         {paymentMethod === "new-card" && (
-          <div className="app-form-grid">
-            <label>
-              Card number
-              <input name="cardNumber" inputMode="numeric" placeholder="4242 4242 4242 4242" required />
-            </label>
-            <label>
-              Name on card
-              <input name="cardName" placeholder={member.name || "Cardholder name"} required />
-            </label>
-            <label>
-              Expiry
-              <input name="cardExpiry" placeholder="MM / YY" required />
-            </label>
-            <label>
-              CVC
-              <input name="cardCvc" inputMode="numeric" placeholder="123" required />
-            </label>
+          <div className="payment-terms full-payment-card">
+            <CreditCard size={22} />
+            <div>
+              <span>Secure checkout</span>
+              <h3>Enter card details on Stripe</h3>
+              <p>Your card details are entered on Stripe's secure payment page after you confirm this booking.</p>
+            </div>
           </div>
         )}
         {paymentMethod === "apple-pay" && (
@@ -2960,7 +3174,7 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
             <div>
               <span>Apple Pay selected</span>
               <h3>Ready to confirm</h3>
-              <p>Apple Pay will be connected to this step when live payment processing is activated.</p>
+              <p>Apple Pay appears automatically on Stripe Checkout when it is supported by the device and browser.</p>
             </div>
           </div>
         )}

@@ -2095,6 +2095,182 @@ textarea:focus {
   display: none;
 }
 
+.admin-portal {
+  min-height: 100vh;
+  padding: clamp(1rem, 3vw, 2.5rem);
+  background:
+    radial-gradient(circle at 18% 0%, rgba(201, 164, 92, 0.15), transparent 28rem),
+    linear-gradient(180deg, #050505 0%, #101010 100%);
+  color: var(--ink);
+}
+
+.admin-shell {
+  display: grid;
+  gap: 1rem;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.admin-header,
+.admin-login-card,
+.admin-request-card,
+.admin-empty-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.045);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.28);
+}
+
+.admin-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: clamp(1rem, 3vw, 1.6rem);
+}
+
+.admin-header h1 {
+  margin-bottom: 0.6rem;
+  font-size: clamp(2rem, 5vw, 4rem);
+}
+
+.admin-header p:not(.eyebrow),
+.admin-empty-card p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.admin-login-card {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: end;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.admin-login-card label {
+  display: grid;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.admin-login-card input {
+  width: 100%;
+  min-height: 3rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.36);
+  color: var(--ink);
+  padding: 0.8rem 0.95rem;
+}
+
+.admin-request-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-empty-card {
+  padding: clamp(1rem, 3vw, 1.4rem);
+}
+
+.admin-request-card {
+  display: grid;
+  gap: 1rem;
+  padding: clamp(1rem, 3vw, 1.4rem);
+}
+
+.admin-request-card > div:first-child {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-request-card span {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgba(229, 200, 121, 0.32);
+  border-radius: var(--radius);
+  color: var(--gold-bright);
+  background: rgba(201, 164, 92, 0.1);
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-request-card h2 {
+  margin: 0.55rem 0 0.25rem;
+  font-size: clamp(1.4rem, 3vw, 2.2rem);
+}
+
+.admin-request-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.admin-request-card dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.8rem;
+  margin: 0;
+}
+
+.admin-request-card dt {
+  margin-bottom: 0.25rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-request-card dd {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.admin-request-card pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.34);
+  color: var(--muted);
+  font-family: inherit;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.admin-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.admin-status-actions button {
+  min-height: 2.4rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid rgba(229, 200, 121, 0.26);
+  border-radius: var(--radius);
+  background: rgba(201, 164, 92, 0.08);
+  color: var(--gold-bright);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.admin-status-actions button:hover {
+  border-color: rgba(229, 200, 121, 0.55);
+  background: rgba(201, 164, 92, 0.15);
+}
+
 @media (max-width: 1100px) {
   .service-grid,
   .plan-grid {
@@ -2279,6 +2455,18 @@ textarea:focus {
   }
 
   .completion-actions .button {
+    width: 100%;
+  }
+
+  .admin-header,
+  .admin-login-card,
+  .admin-request-card > div:first-child {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .admin-login-card .button,
+  .admin-header .button {
     width: 100%;
   }
 
