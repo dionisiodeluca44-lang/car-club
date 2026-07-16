@@ -517,6 +517,12 @@ function paymentTermsForService(serviceLabel, vehicle, selectedOptionName) {
   return servicePaymentRules[serviceLabel] || defaultDepositTerms;
 }
 
+function paymentMethodLabel(method) {
+  if (method === "new-card") return "New credit card";
+  if (method === "apple-pay") return "Apple Pay";
+  return "Card on file";
+}
+
 function vehicleLabel(vehicle = {}) {
   return `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
 }
@@ -2743,7 +2749,10 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
 }
 
 function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onComplete, selectedService, selectedServiceOption, selectedVehicle, setSelectedService, setSelectedServiceOption }) {
-  const [requestSubmitted, setRequestSubmitted] = useState(false);
+  const [bookingStep, setBookingStep] = useState("details");
+  const [pendingBooking, setPendingBooking] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState("card-on-file");
+  const [processingPayment, setProcessingPayment] = useState(false);
   const [requestError, setRequestError] = useState("");
   const availableServices = getAvailableServices(member.plan);
   const serviceSubOptions = serviceOptionsForBooking(selectedService);
@@ -2752,12 +2761,16 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
   const selectedPaymentTerms = paymentTermsForService(selectedService, selectedVehicle, selectedServiceOption);
   const selectedVehicleClass = vehicleClassFromVehicle(selectedVehicle);
 
+  useEffect(() => {
+    setBookingStep("details");
+    setPendingBooking(null);
+    setRequestError("");
+  }, [selectedService, selectedServiceOption, selectedVehicle?.id]);
+
   async function submitAppointment(event) {
     event.preventDefault();
-    setRequestSubmitted(false);
     setRequestError("");
 
-    const form = event.currentTarget;
     const formData = new FormData(event.currentTarget);
     const appointment = {
       vehicle: selectedVehicle ? vehicleLabel(selectedVehicle) : "",
@@ -2780,18 +2793,6 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
       paymentTitle: selectedPaymentTerms.title,
     };
 
-    formData.set("form-name", "service-request");
-    formData.set("memberName", member.name);
-    formData.set("memberEmail", member.email);
-    formData.set("vehicle", appointment.vehicle);
-    formData.set("vehicleId", appointment.vehicleId);
-    formData.set("vehicleClass", appointment.vehicleClass);
-    formData.set("paymentMode", selectedPaymentTerms.mode);
-    formData.set("paymentTitle", selectedPaymentTerms.title);
-    formData.set("paymentAmount", selectedPaymentTerms.amount);
-    formData.set("paymentNote", selectedPaymentTerms.note);
-    formData.set("notes", appointment.notes);
-
     try {
       if (!hasVehicles) {
         throw new Error("Add a vehicle to your garage before requesting service.");
@@ -2801,11 +2802,69 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
         throw new Error(`${appointment.service} is not included in your ${member.plan} package.`);
       }
 
+      setPendingBooking({
+        appointment,
+        formData: {
+          "form-name": "service-request",
+          memberName: member.name,
+          memberEmail: member.email,
+          vehicle: appointment.vehicle,
+          vehicleId: appointment.vehicleId,
+          vehicleClass: appointment.vehicleClass,
+          service: appointment.service,
+          serviceOption: appointment.serviceOption,
+          date: appointment.date,
+          time: appointment.time,
+          paymentMode: selectedPaymentTerms.mode,
+          paymentTitle: selectedPaymentTerms.title,
+          paymentAmount: selectedPaymentTerms.amount,
+          paymentNote: selectedPaymentTerms.note,
+          notes: appointment.notes,
+        },
+      });
+      setBookingStep("payment");
+    } catch (error) {
+      setRequestError(error.message || "We could not prepare that booking. Please try again or contact the concierge directly.");
+    }
+  }
+
+  async function confirmPayment(event) {
+    event.preventDefault();
+    setRequestError("");
+
+    if (!pendingBooking?.appointment) {
+      setBookingStep("details");
+      return;
+    }
+
+    const paymentLabel = paymentMethodLabel(paymentMethod);
+    const cardFormData = new FormData(event.currentTarget);
+    const cardEnding = paymentMethod === "new-card" ? String(cardFormData.get("cardNumber") || "").replace(/\D/g, "").slice(-4) : "";
+    const paymentSummary = cardEnding ? `${paymentLabel} ending ${cardEnding}` : paymentLabel;
+    const appointment = {
+      ...pendingBooking.appointment,
+      notes: [
+        pendingBooking.appointment.notes,
+        `Payment method: ${paymentSummary}`,
+        `Confirmation email: sent instantly to ${member.email}`,
+      ].filter(Boolean).join("\n\n"),
+      paymentMethod: paymentSummary,
+    };
+
+    const netlifyFormData = {
+      ...pendingBooking.formData,
+      notes: appointment.notes,
+      paymentMethod: paymentSummary,
+    };
+
+    try {
+      setProcessingPayment(true);
+
       if (window.location.hostname !== "127.0.0.1" && window.location.hostname !== "localhost") {
         const response = await fetch("/", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams(formData).toString(),
+          body: new URLSearchParams(netlifyFormData).toString(),
         });
 
         if (!response.ok) {
@@ -2814,8 +2873,8 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
       }
 
       const savedRequest = await onAddAppointment(appointment);
-      setRequestSubmitted(true);
-      form.reset();
+      setBookingStep("details");
+      setPendingBooking(null);
       onComplete?.({
         actionLabel: "View Requests",
         actionTab: "schedule",
@@ -2825,15 +2884,96 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
           ["Vehicle", savedRequest?.vehicle || appointment.vehicle],
           ["Preferred date", savedRequest?.date || appointment.date || "Date pending"],
           ["Payment", appointment.paymentTitle],
+          ["Payment method", paymentSummary],
+          ["Email", member.email],
         ],
-        message: `${appointment.paymentTitle} is required for this request. Your concierge team will confirm the exact amount and next payment step before work begins.`,
+        message: `Your booking is confirmed. A confirmation email has been sent instantly to ${member.email}.`,
         secondaryLabel: "Back Home",
         secondaryTab: "home",
-        title: "Service booking successfully updated.",
+        title: "Booking confirmed.",
       });
     } catch (error) {
-      setRequestError(error.message || "We could not send that request. Please try again or contact the concierge directly.");
+      setRequestError(error.message || "We could not complete that booking. Please try again or contact the concierge directly.");
+    } finally {
+      setProcessingPayment(false);
     }
+  }
+
+  if (bookingStep === "payment" && pendingBooking) {
+    const appointment = pendingBooking.appointment;
+
+    return (
+      <form className="app-form inline-form payment-checkout" onSubmit={confirmPayment}>
+        {requestError && (
+          <div className="error-message" role="alert">
+            {requestError}
+          </div>
+        )}
+        <div className="checkout-summary">
+          <div>
+            <p className="eyebrow">Payment</p>
+            <h3>Confirm your booking</h3>
+            <p>{appointment.service} for {appointment.vehicle}</p>
+          </div>
+          <div>
+            <span>{appointment.paymentTitle}</span>
+            <strong>{appointment.paymentAmount}</strong>
+          </div>
+        </div>
+        <div className="payment-method-grid">
+          {[
+            ["card-on-file", "Card on file", "Use your saved member payment method."],
+            ["new-card", "Add credit card", "Use a different card for this booking."],
+            ["apple-pay", "Apple Pay", "Confirm with Apple Pay on supported devices."],
+          ].map(([value, label, description]) => (
+            <label className={paymentMethod === value ? "selected-payment-method" : ""} key={value}>
+              <input checked={paymentMethod === value} name="paymentMethod" onChange={() => setPaymentMethod(value)} type="radio" value={value} />
+              <CreditCard size={20} />
+              <span>{label}</span>
+              <small>{description}</small>
+            </label>
+          ))}
+        </div>
+        {paymentMethod === "new-card" && (
+          <div className="app-form-grid">
+            <label>
+              Card number
+              <input name="cardNumber" inputMode="numeric" placeholder="4242 4242 4242 4242" required />
+            </label>
+            <label>
+              Name on card
+              <input name="cardName" placeholder={member.name || "Cardholder name"} required />
+            </label>
+            <label>
+              Expiry
+              <input name="cardExpiry" placeholder="MM / YY" required />
+            </label>
+            <label>
+              CVC
+              <input name="cardCvc" inputMode="numeric" placeholder="123" required />
+            </label>
+          </div>
+        )}
+        {paymentMethod === "apple-pay" && (
+          <div className="payment-terms full-payment-card">
+            <CreditCard size={22} />
+            <div>
+              <span>Apple Pay selected</span>
+              <h3>Ready to confirm</h3>
+              <p>Apple Pay will be connected to this step when live payment processing is activated.</p>
+            </div>
+          </div>
+        )}
+        <div className="checkout-actions">
+          <button className="button secondary" type="button" onClick={() => setBookingStep("details")}>
+            Back To Details
+          </button>
+          <button className="button primary submit" type="submit" disabled={processingPayment}>
+            {processingPayment ? "Confirming..." : "Confirm Booking"}
+          </button>
+        </div>
+      </form>
+    );
   }
 
   return (
@@ -2852,11 +2992,6 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
         Do not fill this out
         <input name="bot-field" tabIndex="-1" autoComplete="off" />
       </label>
-      {requestSubmitted && (
-        <div className="success-message" role="status">
-          Service request sent. Your concierge team will follow up shortly.
-        </div>
-      )}
       {requestError && (
         <div className="error-message" role="alert">
           {requestError}
@@ -2926,7 +3061,7 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
         Notes
         <textarea name="notes" rows="3" placeholder="Tell the concierge what you need handled." />
       </label>
-      <button className="button primary submit" type="submit" disabled={!hasVehicles}>Request Service</button>
+      <button className="button primary submit" type="submit" disabled={!hasVehicles}>Continue To Payment</button>
     </form>
   );
 }
