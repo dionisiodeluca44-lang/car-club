@@ -61,6 +61,8 @@ export async function handler(event) {
       preferred_time: metadata.time || null,
       status: "Paid / Confirmed",
       notes: [
+        `Payment source: ${metadata.source || "White Glove Concierge app"}`,
+        `Stripe project tag: ${metadata.project || "white_glove_concierge"}`,
         `Service option: ${metadata.serviceOption || "Not selected"}`,
         `Vehicle ID: ${metadata.vehicleId || "not provided"}`,
         `Vehicle class: ${metadata.vehicleClass || "not provided"}`,

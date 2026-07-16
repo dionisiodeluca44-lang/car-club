@@ -4,6 +4,7 @@ const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
 
 const siteUrl = process.env.URL || process.env.DEPLOY_PRIME_URL || "http://localhost:5173";
+const paymentSource = "white_glove_concierge";
 
 function json(statusCode, body) {
   return {
@@ -29,6 +30,27 @@ export async function handler(event) {
   try {
     const payload = JSON.parse(event.body || "{}");
     const amountCents = Number(payload.amountCents || 0);
+    const paymentDescription = clean(
+      `White Glove Concierge - ${payload.serviceLabel || payload.service || "Booking"} - ${payload.memberName || payload.memberEmail || "Member"}`,
+    );
+    const metadata = {
+      project: paymentSource,
+      source: "White Glove Concierge app",
+      memberEmail: clean(payload.memberEmail),
+      memberName: clean(payload.memberName, "Member"),
+      userId: clean(payload.userId),
+      vehicle: clean(payload.vehicle),
+      vehicleId: clean(payload.vehicleId),
+      vehicleClass: clean(payload.vehicleClass),
+      service: clean(payload.service),
+      serviceOption: clean(payload.serviceOption),
+      date: clean(payload.date),
+      time: clean(payload.time),
+      paymentTitle: clean(payload.paymentTitle),
+      paymentAmount: clean(payload.paymentAmount),
+      paymentMethod: clean(payload.paymentMethod),
+      notes: clean(payload.notes),
+    };
 
     if (!Number.isFinite(amountCents) || amountCents <= 0) {
       return json(400, { error: "A valid payment amount is required" });
@@ -39,6 +61,7 @@ export async function handler(event) {
       payment_method_types: ["card"],
       submit_type: "book",
       customer_email: clean(payload.memberEmail),
+      client_reference_id: clean(`white-glove-${payload.userId || payload.memberEmail || Date.now()}`),
       success_url: `${siteUrl}/?booking=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl}/?booking=cancelled`,
       line_items: [
@@ -50,25 +73,18 @@ export async function handler(event) {
             product_data: {
               name: clean(payload.serviceLabel || "White Glove Concierge booking"),
               description: clean(payload.description || payload.vehicle || "Concierge service request"),
+              metadata: {
+                project: paymentSource,
+                source: "White Glove Concierge app",
+              },
             },
           },
         },
       ],
-      metadata: {
-        memberEmail: clean(payload.memberEmail),
-        memberName: clean(payload.memberName, "Member"),
-        userId: clean(payload.userId),
-        vehicle: clean(payload.vehicle),
-        vehicleId: clean(payload.vehicleId),
-        vehicleClass: clean(payload.vehicleClass),
-        service: clean(payload.service),
-        serviceOption: clean(payload.serviceOption),
-        date: clean(payload.date),
-        time: clean(payload.time),
-        paymentTitle: clean(payload.paymentTitle),
-        paymentAmount: clean(payload.paymentAmount),
-        paymentMethod: clean(payload.paymentMethod),
-        notes: clean(payload.notes),
+      metadata,
+      payment_intent_data: {
+        description: paymentDescription,
+        metadata,
       },
     });
 
