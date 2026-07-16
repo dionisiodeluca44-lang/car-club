@@ -1,4 +1,4 @@
-import React, { Component, useEffect, useMemo, useRef, useState } from "react";
+import React, { Component, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   CalendarCheck,
@@ -37,6 +37,7 @@ import {
   resendConfirmationEmail,
   signIn,
   signOut,
+  subscribeToFeedPosts,
   updateMemberPassword,
   updateMemberProfile,
   updateVehicleRecord,
@@ -683,6 +684,20 @@ function ensureList(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function mergeFeedPosts(newPosts, currentPosts) {
+  const byId = new Map();
+  [...ensureList(newPosts), ...ensureList(currentPosts)].forEach((post) => {
+    if (!post) return;
+    byId.set(post.id || `${post.createdAt}-${post.image}`, post);
+  });
+
+  return Array.from(byId.values()).sort((a, b) => {
+    const aTime = new Date(a.createdAt || 0).getTime();
+    const bTime = new Date(b.createdAt || 0).getTime();
+    return bTime - aTime;
+  });
+}
+
 function readNoteValue(notes, label) {
   const line = String(notes || "")
     .split("\n")
@@ -955,6 +970,28 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!isBackendConfigured || !member?.id) return undefined;
+
+    const unsubscribe = subscribeToFeedPosts((newPost) => {
+      setFeedPosts((currentPosts) => mergeFeedPosts([newPost], currentPosts));
+    });
+
+    return unsubscribe;
+  }, [member?.id]);
+
+  const refreshFeedPosts = useCallback(async () => {
+    if (!isBackendConfigured) {
+      const storedPosts = ensureList(readStoredJson("carClubFeedPosts", []));
+      setFeedPosts(storedPosts);
+      return storedPosts;
+    }
+
+    const savedFeedPosts = await loadFeedPosts();
+    setFeedPosts(ensureList(savedFeedPosts));
+    return savedFeedPosts;
+  }, []);
+
+  useEffect(() => {
     function reportRuntimeError(event) {
       if (event.target && event.target !== window) return;
       setRuntimeError(event.reason?.message || event.error?.message || event.message || "The app hit an unexpected error.");
@@ -1214,7 +1251,7 @@ function App() {
   async function addFeedPost(post) {
     if (isBackendConfigured && member?.id) {
       const savedPost = await createFeedPost(member.id, post, member.name);
-      setFeedPosts((currentPosts) => [savedPost, ...currentPosts]);
+      setFeedPosts((currentPosts) => mergeFeedPosts([savedPost], currentPosts));
       return savedPost;
     }
 
@@ -1258,7 +1295,7 @@ function App() {
   }
 
   if (mode === "app" && member) {
-    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteVehicle={deleteVehicle} onLogout={handleLogout} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} />;
+    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteVehicle={deleteVehicle} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} />;
   }
 
   if (mode === "app") {
@@ -1800,7 +1837,7 @@ function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
   );
 }
 
-function MemberApp({ appointments, feedPosts, garage, initialCompletion, member, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteVehicle, onLogout, onUpdateMember, onUpdateVehicle }) {
+function MemberApp({ appointments, feedPosts, garage, initialCompletion, member, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteVehicle, onLogout, onRefreshFeedPosts, onUpdateMember, onUpdateVehicle }) {
   const [activeTab, setActiveTab] = useState("home");
   const [completion, setCompletion] = useState(null);
   const garageList = ensureList(garage).map(normalizeVehicle);
@@ -1818,6 +1855,12 @@ function MemberApp({ appointments, feedPosts, garage, initialCompletion, member,
       setActiveTab(initialCompletion.actionTab || "schedule");
     }
   }, [initialCompletion]);
+
+  useEffect(() => {
+    if (activeTab === "feed" && !completion) {
+      onRefreshFeedPosts?.().catch(() => {});
+    }
+  }, [activeTab, completion, onRefreshFeedPosts]);
 
   return (
     <div className="mobile-app-shell">
@@ -1860,7 +1903,7 @@ function MemberApp({ appointments, feedPosts, garage, initialCompletion, member,
           )}
           {!completion && activeTab === "garage" && <GarageScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={setCompletion} />}
           {!completion && activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onComplete={setCompletion} setActiveTab={setActiveTab} vehicleOptions={vehicleOptions} />}
-          {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedPost={onAddFeedPost} vehicleOptions={vehicleOptions} />}
+          {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedPost={onAddFeedPost} onComplete={setCompletion} onRefreshFeedPosts={onRefreshFeedPosts} vehicleOptions={vehicleOptions} />}
           {!completion && activeTab === "account" && <AccountScreen garageCount={garageList.length} member={member} onLogout={onLogout} onUpdateMember={onUpdateMember} />}
         </MemberPanelErrorBoundary>
       </main>
@@ -2401,7 +2444,22 @@ function SavedVehicleSelector({ onVehicleSelect, selectedVehicleId, vehicles }) 
   );
 }
 
-function FeedScreen({ feedPosts, member, onAddFeedPost, vehicleOptions }) {
+function FeedScreen({ feedPosts, member, onAddFeedPost, onComplete, onRefreshFeedPosts, vehicleOptions }) {
+  const [feedNotice, setFeedNotice] = useState("");
+  const [refreshingFeed, setRefreshingFeed] = useState(false);
+
+  async function refreshFeed() {
+    setFeedNotice("");
+    setRefreshingFeed(true);
+    try {
+      await onRefreshFeedPosts?.();
+    } catch (error) {
+      setFeedNotice(error.message || "Could not refresh the member feed.");
+    } finally {
+      setRefreshingFeed(false);
+    }
+  }
+
   return (
     <div className="app-stack">
       <section className="app-section">
@@ -2410,9 +2468,16 @@ function FeedScreen({ feedPosts, member, onAddFeedPost, vehicleOptions }) {
             <h2>Member Feed</h2>
             <p>Share vehicle photos, service updates, detail results, delivery moments, and collection highlights with every member.</p>
           </div>
-          <span>{feedPosts.length} posts</span>
+          <button type="button" onClick={refreshFeed} disabled={refreshingFeed}>
+            {refreshingFeed ? "Refreshing" : `${feedPosts.length} posts`}
+          </button>
         </div>
-        <FeedUploadForm onAddFeedPost={onAddFeedPost} vehicleOptions={vehicleOptions} />
+        {feedNotice && (
+          <div className="error-message" role="alert">
+            {feedNotice}
+          </div>
+        )}
+        <FeedUploadForm onAddFeedPost={onAddFeedPost} onComplete={onComplete} vehicleOptions={vehicleOptions} />
       </section>
 
       <section className="app-section">

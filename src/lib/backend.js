@@ -259,10 +259,39 @@ export async function loadFeedPosts() {
   return data.map(fromFeedPostRow);
 }
 
+export function subscribeToFeedPosts(onPostCreated) {
+  if (!supabase || typeof onPostCreated !== "function") return () => {};
+
+  const channel = supabase
+    .channel("member-feed-posts")
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "feed_posts",
+      },
+      (payload) => {
+        if (payload.new) {
+          onPostCreated(fromFeedPostRow(payload.new));
+        }
+      },
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 export async function createFeedPost(userId, post, authorName = "Member") {
   if (!supabase || !userId) return post;
 
   const imageUrl = await safeUploadFeedImage(userId, post.image);
+  if (!imageUrl && !reusableImageUrl(post.image)) {
+    throw new Error("Could not upload the photo. Please try again before posting to the feed.");
+  }
+
   const { data, error } = await supabase
     .from("feed_posts")
     .insert({
@@ -312,7 +341,7 @@ async function safeUploadFeedImage(userId, image) {
   try {
     return await uploadStorageImage("vehicle-photos", `${userId}/feed`, image);
   } catch (error) {
-    console.warn("Feed photo upload failed. Saving feed post without the uploaded photo.", error);
+    console.warn("Feed photo upload failed.", error);
     return "";
   }
 }

@@ -96,6 +96,32 @@ alter table public.vehicles enable row level security;
 alter table public.service_requests enable row level security;
 alter table public.feed_posts enable row level security;
 
+do $$
+begin
+  alter publication supabase_realtime add table public.feed_posts;
+exception
+  when duplicate_object then null;
+end;
+$$;
+
+drop policy if exists "Members can read own profile" on public.profiles;
+drop policy if exists "Members can insert own profile" on public.profiles;
+drop policy if exists "Members can update own profile" on public.profiles;
+drop policy if exists "Members can read own vehicles" on public.vehicles;
+drop policy if exists "Members can insert own vehicles" on public.vehicles;
+drop policy if exists "Members can update own vehicles" on public.vehicles;
+drop policy if exists "Members can delete own vehicles" on public.vehicles;
+drop policy if exists "Members can read own service requests" on public.service_requests;
+drop policy if exists "Members can insert own service requests" on public.service_requests;
+drop policy if exists "Members can update own service requests" on public.service_requests;
+drop policy if exists "Members can read all feed posts" on public.feed_posts;
+drop policy if exists "Members can create own feed posts" on public.feed_posts;
+drop policy if exists "Members can update own feed posts" on public.feed_posts;
+drop policy if exists "Members can delete own feed posts" on public.feed_posts;
+drop policy if exists "Members can upload vehicle photos" on storage.objects;
+drop policy if exists "Vehicle photos are public" on storage.objects;
+drop policy if exists "Members can update vehicle photos" on storage.objects;
+
 create policy "Members can read own profile"
   on public.profiles for select
   using (auth.uid() = id);
