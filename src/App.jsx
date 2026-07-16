@@ -123,7 +123,7 @@ const plans = [
     price: "$399",
     cadence: "/month",
     intro: "For owners who want complete white-glove vehicle management.",
-    features: ["Everything in Gold", "Monthly vehicle care", "Full maintenance concierge", "Emergency coordination", "Multi-car support"],
+    features: ["Everything in Gold", "Monthly vehicle care", "Full maintenance concierge", "Emergency coordination", "Premium care coordination"],
   },
   {
     name: "Collector",
@@ -537,8 +537,16 @@ function hasCollectionPackage(plan) {
   return plan === "Collector";
 }
 
+function garageVehicleLimit(plan) {
+  return hasCollectionPackage(plan) ? Infinity : 1;
+}
+
 function canAddGarageVehicle(plan, garageCount) {
-  return hasCollectionPackage(plan) || garageCount < 1;
+  return garageCount < garageVehicleLimit(plan);
+}
+
+function garageLimitLabel(plan) {
+  return hasCollectionPackage(plan) ? "Unlimited vehicles" : "1 vehicle";
 }
 
 const defaultNotificationSettings = {
@@ -1817,9 +1825,16 @@ function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVeh
   const garageList = ensureList(garage);
   const serviceReminders = useMemo(() => buildServiceReminders(garageList, member.plan), [garageList, member.plan]);
   const canAddVehicle = canAddGarageVehicle(member.plan, garageList.length);
+  const vehicleLimitText = garageLimitLabel(member.plan);
   const [showForm, setShowForm] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const selectedVehicle = garageList.find((vehicle) => vehicle.id === selectedVehicleId);
+
+  useEffect(() => {
+    if (!canAddVehicle && showForm) {
+      setShowForm(false);
+    }
+  }, [canAddVehicle, showForm]);
 
   async function sendReminderRequest(reminder) {
     const savedRequest = await onAddAppointment({
@@ -1865,15 +1880,17 @@ function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVeh
         <div className="app-section-title">
           <div>
             <h2>Your Cars</h2>
-            <p>Select a vehicle to see market value, prior services, photos, horsepower, notes, and offer requests.</p>
+            <p>Select a vehicle to see market value, prior services, photos, horsepower, notes, and offer requests. Your package allows {vehicleLimitText.toLowerCase()}.</p>
           </div>
-          <button className="button primary compact-button" type="button" disabled={!canAddVehicle} onClick={() => setShowForm((open) => !open)}>
-            <Plus size={18} /> Add Car
-          </button>
+          {canAddVehicle && (
+            <button className="button primary compact-button" type="button" onClick={() => setShowForm((open) => !open)}>
+              <Plus size={18} /> Add Car
+            </button>
+          )}
         </div>
         {!canAddVehicle && (
           <div className="package-limit-note">
-            Your {member.plan} package includes one garage vehicle. The Collector package unlocks collection management for multiple cars.
+            Your {member.plan} package includes {vehicleLimitText.toLowerCase()}. Upgrade to Collector to upload and manage multiple cars.
           </div>
         )}
         {showForm && canAddVehicle && <VehicleForm onAddVehicle={onAddVehicle} onClose={() => setShowForm(false)} onComplete={onComplete} />}
@@ -1882,9 +1899,11 @@ function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVeh
             <Car size={26} />
             <h3>No vehicles in your garage yet</h3>
             <p>Add your first car to track market value, horsepower, photos, work history, and offer requests.</p>
-            <button className="button primary compact-button" type="button" onClick={() => setShowForm(true)}>
-              <Plus size={18} /> Add First Car
-            </button>
+            {canAddVehicle && (
+              <button className="button primary compact-button" type="button" onClick={() => setShowForm(true)}>
+                <Plus size={18} /> Add First Car
+              </button>
+            )}
           </div>
         )}
         <div className="garage-list">
@@ -2419,7 +2438,7 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
             </label>
             <label>
               Garage access
-              <input type="text" value={hasCollectionPackage(member.plan) ? `${garageCount} vehicles allowed` : `${garageCount}/1 vehicle used`} readOnly />
+              <input type="text" value={hasCollectionPackage(member.plan) ? `${garageCount} vehicles saved · ${garageLimitLabel(member.plan)}` : `${garageCount}/1 vehicle used`} readOnly />
             </label>
           </div>
 
