@@ -2019,9 +2019,6 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
           {serviceOptions.map((service) => {
             const selected = selectedService === service.label;
             const included = service.allowedPlans.includes(member.plan);
-            const previewOption = serviceOptionsForBooking(service.label)[0];
-            const paymentTerms = paymentTermsForService(service.label, selectedVehicle, previewOption);
-            const paymentLabel = paymentTerms.mode === "full" || paymentTerms.mode === "free" ? paymentTerms.title : "Deposit required";
             return (
               <button
                 className={`${selected ? "selected-service" : ""} ${included ? "" : "locked-schedule-service"}`.trim()}
@@ -2038,11 +2035,6 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
                   <h3>{service.label}</h3>
                   <p>{included ? "Included in your package. Tap to book." : `Requires ${service.allowedPlans[0]} or higher.`}</p>
                 </div>
-                {included && (
-                  <span className={paymentTerms.mode === "deposit" ? "payment-chip deposit-payment" : "payment-chip full-payment"}>
-                    {paymentLabel}
-                  </span>
-                )}
                 <span className="schedule-service-cta">{included ? selected ? "Selected" : "Book" : "Locked"}</span>
               </button>
             );
