@@ -201,6 +201,13 @@ export async function updateVehicleRecord(vehicleId, updates) {
   return fromVehicleRow(data);
 }
 
+export async function deleteVehicleRecord(vehicleId) {
+  if (!supabase || !vehicleId) return;
+
+  const { error } = await supabase.from("vehicles").delete().eq("id", vehicleId);
+  if (error) throw new Error(`Could not delete vehicle: ${error.message}`);
+}
+
 export async function loadServiceRequests(userId) {
   if (!supabase || !userId) return [];
 

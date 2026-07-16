@@ -1263,6 +1263,18 @@ textarea:focus {
   backdrop-filter: blur(12px);
 }
 
+.vehicle-detail-hero .danger-text-button {
+  right: 1rem;
+  left: auto;
+  border-color: rgba(255, 115, 115, 0.42);
+  color: #ffb6b6;
+}
+
+.vehicle-detail-hero .danger-text-button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
 .vehicle-detail-hero span {
   color: var(--gold-bright);
   font-size: 0.78rem;

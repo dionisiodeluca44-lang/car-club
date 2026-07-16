@@ -28,6 +28,7 @@ import {
   createFeedPost,
   createServiceRequest,
   createVehicle,
+  deleteVehicleRecord,
   getCurrentMember,
   isBackendConfigured,
   loadFeedPosts,
@@ -1121,6 +1122,18 @@ function App() {
     return nextGarage.find((vehicle) => vehicle.id === vehicleId);
   }
 
+  async function deleteVehicle(vehicleId) {
+    if (isBackendConfigured && member?.id) {
+      await deleteVehicleRecord(vehicleId);
+      setGarage((currentGarage) => currentGarage.filter((vehicle) => vehicle.id !== vehicleId));
+      return;
+    }
+
+    const nextGarage = garage.filter((vehicle) => vehicle.id !== vehicleId);
+    localStorage.setItem("carClubGarage", JSON.stringify(nextGarage));
+    setGarage(nextGarage);
+  }
+
   async function addAppointment(appointment) {
     if (!canBookService(member?.plan, appointment.service)) {
       throw new Error(`${appointment.service} is not included in the ${member?.plan || "current"} package.`);
@@ -1181,7 +1194,7 @@ function App() {
   }
 
   if (mode === "app" && member) {
-    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onLogout={handleLogout} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} />;
+    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteVehicle={deleteVehicle} onLogout={handleLogout} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} />;
   }
 
   if (mode === "app") {
@@ -1580,7 +1593,7 @@ function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
   );
 }
 
-function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, onAddFeedPost, onAddVehicle, onLogout, onUpdateMember, onUpdateVehicle }) {
+function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteVehicle, onLogout, onUpdateMember, onUpdateVehicle }) {
   const [activeTab, setActiveTab] = useState("home");
   const [completion, setCompletion] = useState(null);
   const garageList = ensureList(garage).map(normalizeVehicle);
@@ -1631,7 +1644,7 @@ function MemberApp({ appointments, feedPosts, garage, member, onAddAppointment, 
               onComplete={setCompletion}
             />
           )}
-          {!completion && activeTab === "garage" && <GarageScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={setCompletion} />}
+          {!completion && activeTab === "garage" && <GarageScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={setCompletion} />}
           {!completion && activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onComplete={setCompletion} setActiveTab={setActiveTab} vehicleOptions={vehicleOptions} />}
           {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedPost={onAddFeedPost} vehicleOptions={vehicleOptions} />}
           {!completion && activeTab === "account" && <AccountScreen garageCount={garageList.length} member={member} onLogout={onLogout} onUpdateMember={onUpdateMember} />}
@@ -1800,7 +1813,7 @@ function Dashboard({ appointments, garage, member, onAddAppointment, onComplete,
   );
 }
 
-function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVehicle, onUpdateVehicle, onComplete }) {
+function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVehicle, onDeleteVehicle, onUpdateVehicle, onComplete }) {
   const garageList = ensureList(garage);
   const serviceReminders = useMemo(() => buildServiceReminders(garageList, member.plan), [garageList, member.plan]);
   const canAddVehicle = canAddGarageVehicle(member.plan, garageList.length);
@@ -1838,6 +1851,7 @@ function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVeh
         onBack={() => setSelectedVehicleId("")}
         appointments={appointments}
         onComplete={onComplete}
+        onDeleteVehicle={onDeleteVehicle}
         onGetOffer={onAddAppointment}
         onUpdateVehicle={onUpdateVehicle}
         vehicle={selectedVehicle}
@@ -2920,9 +2934,10 @@ function VehicleCard({ onSelect, vehicle }) {
   );
 }
 
-function VehicleDetailScreen({ appointments, onBack, onComplete, onGetOffer, onUpdateVehicle, vehicle }) {
+function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle, onGetOffer, onUpdateVehicle, vehicle }) {
   const [photoPreview, setPhotoPreview] = useState("");
   const [detailError, setDetailError] = useState("");
+  const [deletingVehicle, setDeletingVehicle] = useState(false);
   const [offerRequested, setOfferRequested] = useState(false);
   const workHistory = ensureList(vehicle.workDone);
   const workDone = workHistory.length ? workHistory : ["No work logged yet"];
@@ -3080,10 +3095,40 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onGetOffer, onU
     }
   }
 
+  async function deleteThisVehicle() {
+    setDetailError("");
+    const confirmed = window.confirm(`Delete ${vehicleLabel} from your Garage? This removes the vehicle from your account.`);
+    if (!confirmed) return;
+
+    try {
+      setDeletingVehicle(true);
+      await onDeleteVehicle(vehicle.id);
+      onComplete?.({
+        actionLabel: "Back to Garage",
+        actionTab: "garage",
+        details: [
+          ["Vehicle", vehicleLabel],
+          ["Status", "Deleted"],
+        ],
+        message: "This vehicle was removed from your Garage.",
+        secondaryLabel: "Book Service",
+        secondaryTab: "schedule",
+        title: "Vehicle removed from Garage.",
+      });
+    } catch (error) {
+      setDetailError(error.message || "Could not delete this vehicle.");
+    } finally {
+      setDeletingVehicle(false);
+    }
+  }
+
   return (
     <div className="app-stack">
       <section className="vehicle-detail-hero">
         <button className="text-button" type="button" onClick={onBack}>Back to Garage</button>
+        <button className="text-button danger-text-button" type="button" onClick={deleteThisVehicle} disabled={deletingVehicle}>
+          {deletingVehicle ? "Deleting..." : "Delete Car"}
+        </button>
         <img alt={vehicleLabel} onError={handleImageError} src={photoPreview || vehicle.image || fallbackVehicleImage} />
         <div>
           <span>{vehicle.use || "Collection"}</span>
