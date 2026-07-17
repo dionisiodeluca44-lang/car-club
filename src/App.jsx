@@ -531,6 +531,89 @@ function paymentAmountCents(paymentTerms) {
   return Math.round(Number(match[1].replace(/,/g, "")) * 100);
 }
 
+const transportChoices = [
+  {
+    amountCents: 0,
+    description: "You will bring the vehicle to the provider yourself.",
+    direction: "self-dropoff",
+    label: "I will drive / drop off",
+    value: "self-dropoff",
+  },
+  {
+    amountCents: 9500,
+    description: "White Glove schedules pickup to the provider.",
+    direction: "one-way",
+    label: "Schedule pickup",
+    value: "pickup-one-way",
+  },
+  {
+    amountCents: 17500,
+    description: "White Glove schedules pickup and return after service.",
+    direction: "two-way",
+    label: "Pickup and return",
+    value: "pickup-two-way",
+  },
+];
+
+const warrantyChoices = [
+  { label: "Not a warranty request", value: "not-warranty" },
+  { label: "Factory warranty", value: "factory-warranty" },
+  { label: "Extended warranty", value: "extended-warranty" },
+  { label: "Not sure, please check", value: "check-warranty" },
+];
+
+function bookingPaymentTerms(baseTerms, transportChoice, warrantyCoverage) {
+  const transport = transportChoice || transportChoices[0];
+  const transportCents = transport.amountCents || 0;
+  const warrantySelected = warrantyCoverage && warrantyCoverage !== "not-warranty";
+  const baseCents = warrantySelected ? 0 : paymentAmountCents(baseTerms);
+  const totalCents = baseCents + transportCents;
+  const warrantyLabel = warrantyChoices.find((choice) => choice.value === warrantyCoverage)?.label || "Not a warranty request";
+  const transportLabel = transport.amountCents > 0 ? `${transport.label} (${formatCad(transport.amountCents / 100)})` : transport.label;
+
+  if (warrantySelected) {
+    return {
+      amount: totalCents > 0 ? `${formatCad(totalCents / 100)} transportation charge today` : "Free warranty request",
+      amountCents: totalCents,
+      mode: totalCents > 0 ? "transport" : "free",
+      note: totalCents > 0
+        ? `Warranty-covered work has no service charge today. This covers ${transportLabel}.`
+        : "Warranty-covered work has no service charge today. White Glove will coordinate with the dealership or provider.",
+      title: totalCents > 0 ? "Transportation charge" : "Warranty request",
+      transportAmount: transportCents > 0 ? formatCad(transportCents / 100) : "No transport charge",
+      transportDirection: transport.direction,
+      transportLabel,
+      warrantyCoverage,
+      warrantyLabel,
+    };
+  }
+
+  if (transportCents > 0) {
+    return {
+      amount: `${formatCad(totalCents / 100)} today`,
+      amountCents: totalCents,
+      mode: baseTerms.mode === "free" ? "transport" : baseTerms.mode,
+      note: `${baseTerms.note} Transportation added: ${transportLabel}.`,
+      title: baseTerms.mode === "free" ? "Transportation charge" : baseTerms.title,
+      transportAmount: formatCad(transportCents / 100),
+      transportDirection: transport.direction,
+      transportLabel,
+      warrantyCoverage,
+      warrantyLabel,
+    };
+  }
+
+  return {
+    ...baseTerms,
+    amountCents: paymentAmountCents(baseTerms),
+    transportAmount: "No transport charge",
+    transportDirection: transport.direction,
+    transportLabel,
+    warrantyCoverage,
+    warrantyLabel,
+  };
+}
+
 function vehicleLabel(vehicle = {}) {
   return `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
 }
@@ -3017,13 +3100,17 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
   const [bookingStep, setBookingStep] = useState("details");
   const [pendingBooking, setPendingBooking] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("card-on-file");
+  const [transportChoice, setTransportChoice] = useState("self-dropoff");
+  const [warrantyCoverage, setWarrantyCoverage] = useState("not-warranty");
   const [processingPayment, setProcessingPayment] = useState(false);
   const [requestError, setRequestError] = useState("");
   const availableServices = getAvailableServices(member.plan);
   const serviceSubOptions = serviceOptionsForBooking(selectedService);
   const serviceQuestions = serviceQuestionsForBooking(selectedService);
   const hasVehicles = garage.length > 0 && Boolean(selectedVehicle);
-  const selectedPaymentTerms = paymentTermsForService(selectedService, selectedVehicle, selectedServiceOption);
+  const basePaymentTerms = paymentTermsForService(selectedService, selectedVehicle, selectedServiceOption);
+  const selectedTransportChoice = transportChoices.find((choice) => choice.value === transportChoice) || transportChoices[0];
+  const selectedPaymentTerms = bookingPaymentTerms(basePaymentTerms, selectedTransportChoice, warrantyCoverage);
   const selectedVehicleClass = vehicleClassFromVehicle(selectedVehicle);
 
   useEffect(() => {
@@ -3049,6 +3136,10 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
         `Vehicle ID: ${selectedVehicle?.id || "not selected"}`,
         `Vehicle class: ${selectedVehicleClass}`,
         `Service option: ${formData.get("serviceOption")}`,
+        `Drop-off / pickup: ${selectedPaymentTerms.transportLabel}`,
+        `Transportation direction: ${selectedPaymentTerms.transportDirection}`,
+        `Transportation charge: ${selectedPaymentTerms.transportAmount}`,
+        `Warranty: ${selectedPaymentTerms.warrantyLabel}`,
         formData.get("notes"),
         `Payment: ${selectedPaymentTerms.title} - ${selectedPaymentTerms.amount}. ${selectedPaymentTerms.note}`,
       ].filter(Boolean).join("\n\n"),
@@ -3083,7 +3174,13 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
           paymentMode: selectedPaymentTerms.mode,
           paymentTitle: selectedPaymentTerms.title,
           paymentAmount: selectedPaymentTerms.amount,
+          paymentAmountCents: selectedPaymentTerms.amountCents,
           paymentNote: selectedPaymentTerms.note,
+          transportAmount: selectedPaymentTerms.transportAmount,
+          transportChoice,
+          transportDirection: selectedPaymentTerms.transportDirection,
+          warrantyCoverage,
+          warrantyLabel: selectedPaymentTerms.warrantyLabel,
           notes: appointment.notes,
         },
       });
@@ -3103,7 +3200,7 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
     }
 
     const paymentLabel = paymentMethodLabel(paymentMethod);
-    const amountCents = paymentAmountCents({ amount: pendingBooking.appointment.paymentAmount });
+    const amountCents = paymentAmountCents({ amount: pendingBooking.appointment.paymentAmount, amountCents: pendingBooking.formData.paymentAmountCents });
     const paymentSummary = paymentLabel;
     const appointment = {
       ...pendingBooking.appointment,
@@ -3136,7 +3233,12 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
             memberName: member.name,
             paymentMethod: paymentSummary,
             serviceLabel: `${appointment.service} - ${appointment.serviceOption}`,
+            transportAmount: pendingBooking.formData.transportAmount,
+            transportChoice: pendingBooking.formData.transportChoice,
+            transportDirection: pendingBooking.formData.transportDirection,
             userId: member.id,
+            warrantyCoverage: pendingBooking.formData.warrantyCoverage,
+            warrantyLabel: pendingBooking.formData.warrantyLabel,
           }),
         });
 
@@ -3173,6 +3275,8 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
           ["Vehicle", savedRequest?.vehicle || appointment.vehicle],
           ["Preferred date", savedRequest?.date || appointment.date || "Date pending"],
           ["Payment", appointment.paymentTitle],
+          ["Transport", pendingBooking.formData.transportAmount],
+          ["Warranty", pendingBooking.formData.warrantyLabel],
           ["Payment method", paymentSummary],
           ["Email", member.email],
         ],
@@ -3267,6 +3371,11 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
       <input type="hidden" name="paymentTitle" value={selectedPaymentTerms.title} />
       <input type="hidden" name="paymentAmount" value={selectedPaymentTerms.amount} />
       <input type="hidden" name="paymentNote" value={selectedPaymentTerms.note} />
+      <input type="hidden" name="transportChoice" value={transportChoice} />
+      <input type="hidden" name="transportDirection" value={selectedPaymentTerms.transportDirection} />
+      <input type="hidden" name="transportAmount" value={selectedPaymentTerms.transportAmount} />
+      <input type="hidden" name="warrantyCoverage" value={warrantyCoverage} />
+      <input type="hidden" name="warrantyLabel" value={selectedPaymentTerms.warrantyLabel} />
       <label className="hidden-field">
         Do not fill this out
         <input name="bot-field" tabIndex="-1" autoComplete="off" />
@@ -3317,6 +3426,37 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
           Preferred time
           <input name="time" required type="time" />
         </label>
+      </div>
+      <div className="booking-choice-section">
+        <div>
+          <span className="eyebrow">Vehicle logistics</span>
+          <h3>How should the vehicle get there?</h3>
+        </div>
+        <div className="booking-choice-grid">
+          {transportChoices.map((choice) => (
+            <label className={transportChoice === choice.value ? "selected-booking-choice" : ""} key={choice.value}>
+              <input checked={transportChoice === choice.value} name="transportChoiceVisible" onChange={() => setTransportChoice(choice.value)} type="radio" value={choice.value} />
+              <span>{choice.label}</span>
+              <small>{choice.description}</small>
+              {choice.amountCents > 0 && <strong>{formatCad(choice.amountCents / 100)}</strong>}
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="booking-choice-section">
+        <div>
+          <span className="eyebrow">Warranty</span>
+          <h3>Is this covered by warranty?</h3>
+        </div>
+        <div className="booking-choice-grid warranty-choice-grid">
+          {warrantyChoices.map((choice) => (
+            <label className={warrantyCoverage === choice.value ? "selected-booking-choice" : ""} key={choice.value}>
+              <input checked={warrantyCoverage === choice.value} name="warrantyCoverageVisible" onChange={() => setWarrantyCoverage(choice.value)} type="radio" value={choice.value} />
+              <span>{choice.label}</span>
+              <small>{choice.value === "not-warranty" ? "Use normal service pricing." : "Warranty work is free today unless pickup is selected."}</small>
+            </label>
+          ))}
+        </div>
       </div>
       {selectedService && (
         <div className={selectedPaymentTerms.mode === "full" ? "payment-terms full-payment-card" : "payment-terms deposit-payment-card"}>

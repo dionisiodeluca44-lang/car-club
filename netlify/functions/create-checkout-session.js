@@ -49,6 +49,11 @@ export async function handler(event) {
       paymentTitle: clean(payload.paymentTitle),
       paymentAmount: clean(payload.paymentAmount),
       paymentMethod: clean(payload.paymentMethod),
+      transportAmount: clean(payload.transportAmount),
+      transportChoice: clean(payload.transportChoice),
+      transportDirection: clean(payload.transportDirection),
+      warrantyCoverage: clean(payload.warrantyCoverage),
+      warrantyLabel: clean(payload.warrantyLabel),
       notes: clean(payload.notes),
     };
 
