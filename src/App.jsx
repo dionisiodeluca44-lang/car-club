@@ -531,6 +531,101 @@ function paymentAmountCents(paymentTerms) {
   return Math.round(Number(match[1].replace(/,/g, "")) * 100);
 }
 
+let googlePlacesScriptPromise = null;
+
+function loadGooglePlacesScript(apiKey) {
+  if (!apiKey) return Promise.reject(new Error("Missing Google Maps API key"));
+  if (window.google?.maps?.places) return Promise.resolve(window.google);
+  if (googlePlacesScriptPromise) return googlePlacesScriptPromise;
+
+  googlePlacesScriptPromise = new Promise((resolve, reject) => {
+    const existingScript = document.querySelector("script[data-google-places='true']");
+
+    if (existingScript) {
+      existingScript.addEventListener("load", () => resolve(window.google));
+      existingScript.addEventListener("error", reject);
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.async = true;
+    script.defer = true;
+    script.dataset.googlePlaces = "true";
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places`;
+    script.onload = () => resolve(window.google);
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+
+  return googlePlacesScriptPromise;
+}
+
+function AddressAutocomplete({ label, name, onChange, placeholder, required, value }) {
+  const inputRef = useRef(null);
+  const [placesReady, setPlacesReady] = useState(false);
+  const [placesError, setPlacesError] = useState(false);
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+
+  useEffect(() => {
+    if (!apiKey || !inputRef.current) return undefined;
+
+    let autocomplete;
+    let listener;
+    let mounted = true;
+
+    loadGooglePlacesScript(apiKey)
+      .then((google) => {
+        if (!mounted || !inputRef.current) return;
+        autocomplete = new google.maps.places.Autocomplete(inputRef.current, {
+          componentRestrictions: { country: ["ca", "us"] },
+          fields: ["formatted_address", "geometry", "name"],
+          types: ["geocode", "establishment"],
+        });
+        listener = autocomplete.addListener("place_changed", () => {
+          const place = autocomplete.getPlace();
+          onChange(place.formatted_address || inputRef.current.value);
+        });
+        setPlacesReady(true);
+      })
+      .catch(() => {
+        if (mounted) setPlacesError(true);
+      });
+
+    return () => {
+      mounted = false;
+      if (listener?.remove) listener.remove();
+      if (autocomplete && window.google?.maps?.event) {
+        window.google.maps.event.clearInstanceListeners(autocomplete);
+      }
+    };
+  }, [apiKey, onChange]);
+
+  return (
+    <label className="address-autocomplete-field">
+      {label}
+      <input
+        ref={inputRef}
+        autoComplete="street-address"
+        name={name}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        required={required}
+        type="text"
+        value={value}
+      />
+      <small>
+        {apiKey
+          ? placesReady
+            ? "Start typing and choose the matching address."
+            : placesError
+              ? "Address suggestions are unavailable right now. You can still type the address."
+              : "Loading address suggestions..."
+          : "Type the full address. Add a Google Maps API key to turn on live address suggestions."}
+      </small>
+    </label>
+  );
+}
+
 const transportChoices = [
   {
     amountCents: 0,
@@ -3100,6 +3195,7 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
   const [bookingStep, setBookingStep] = useState("details");
   const [pendingBooking, setPendingBooking] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("card-on-file");
+  const [currentLocation, setCurrentLocation] = useState(selectedVehicle?.pickupLocation || selectedVehicle?.location || "");
   const [transportChoice, setTransportChoice] = useState("self-dropoff");
   const [warrantyCoverage, setWarrantyCoverage] = useState("not-warranty");
   const [processingPayment, setProcessingPayment] = useState(false);
@@ -3117,6 +3213,7 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
     setBookingStep("details");
     setPendingBooking(null);
     setRequestError("");
+    setCurrentLocation(selectedVehicle?.pickupLocation || selectedVehicle?.location || "");
   }, [selectedService, selectedServiceOption, selectedVehicle?.id]);
 
   async function submitAppointment(event) {
@@ -3136,6 +3233,7 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
         `Vehicle ID: ${selectedVehicle?.id || "not selected"}`,
         `Vehicle class: ${selectedVehicleClass}`,
         `Service option: ${formData.get("serviceOption")}`,
+        `Current vehicle location: ${formData.get("currentLocation")}`,
         `Drop-off / pickup: ${selectedPaymentTerms.transportLabel}`,
         `Transportation direction: ${selectedPaymentTerms.transportDirection}`,
         `Transportation charge: ${selectedPaymentTerms.transportAmount}`,
@@ -3147,6 +3245,7 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
       paymentMode: selectedPaymentTerms.mode,
       paymentNote: selectedPaymentTerms.note,
       paymentTitle: selectedPaymentTerms.title,
+      currentLocation: formData.get("currentLocation"),
     };
 
     try {
@@ -3169,6 +3268,7 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
           vehicleClass: appointment.vehicleClass,
           service: appointment.service,
           serviceOption: appointment.serviceOption,
+          currentLocation: appointment.currentLocation,
           date: appointment.date,
           time: appointment.time,
           paymentMode: selectedPaymentTerms.mode,
@@ -3233,6 +3333,7 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
             memberName: member.name,
             paymentMethod: paymentSummary,
             serviceLabel: `${appointment.service} - ${appointment.serviceOption}`,
+            currentLocation: appointment.currentLocation,
             transportAmount: pendingBooking.formData.transportAmount,
             transportChoice: pendingBooking.formData.transportChoice,
             transportDirection: pendingBooking.formData.transportDirection,
@@ -3273,6 +3374,7 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
           ["Service", savedRequest?.service || appointment.service],
           ["Option", appointment.serviceOption],
           ["Vehicle", savedRequest?.vehicle || appointment.vehicle],
+          ["Current location", appointment.currentLocation],
           ["Preferred date", savedRequest?.date || appointment.date || "Date pending"],
           ["Payment", appointment.paymentTitle],
           ["Transport", pendingBooking.formData.transportAmount],
@@ -3427,6 +3529,14 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
           <input name="time" required type="time" />
         </label>
       </div>
+      <AddressAutocomplete
+        label="Car's current location"
+        name="currentLocation"
+        onChange={setCurrentLocation}
+        placeholder="Start typing the pickup, home, office, storage, or dealership address"
+        required
+        value={currentLocation}
+      />
       <div className="booking-choice-section">
         <div>
           <span className="eyebrow">Vehicle logistics</span>

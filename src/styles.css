@@ -1504,6 +1504,16 @@ textarea:focus {
   gap: 1rem;
 }
 
+.address-autocomplete-field {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.address-autocomplete-field small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .upload-tile {
   min-height: 180px;
   place-items: center;

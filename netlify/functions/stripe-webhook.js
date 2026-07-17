@@ -66,6 +66,7 @@ export async function handler(event) {
         `Service option: ${metadata.serviceOption || "Not selected"}`,
         `Vehicle ID: ${metadata.vehicleId || "not provided"}`,
         `Vehicle class: ${metadata.vehicleClass || "not provided"}`,
+        `Current vehicle location: ${metadata.currentLocation || "not provided"}`,
         `Drop-off / pickup: ${metadata.transportChoice || "not provided"}`,
         `Transportation direction: ${metadata.transportDirection || "not provided"}`,
         `Transportation charge: ${metadata.transportAmount || "not provided"}`,

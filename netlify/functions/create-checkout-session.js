@@ -42,6 +42,7 @@ export async function handler(event) {
       vehicle: clean(payload.vehicle),
       vehicleId: clean(payload.vehicleId),
       vehicleClass: clean(payload.vehicleClass),
+      currentLocation: clean(payload.currentLocation),
       service: clean(payload.service),
       serviceOption: clean(payload.serviceOption),
       date: clean(payload.date),
