@@ -1756,6 +1756,86 @@ function RuntimeErrorScreen({ message, onReset }) {
   );
 }
 
+function AdminPaymentEditor({ onSave, request }) {
+  const [paymentMode, setPaymentMode] = useState("deposit");
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentNote, setPaymentNote] = useState("");
+  const [savingPayment, setSavingPayment] = useState(false);
+
+  async function submitPaymentUpdate(event) {
+    event.preventDefault();
+
+    if (paymentMode !== "no-payment" && !paymentAmount) {
+      return;
+    }
+
+    const paymentLabels = {
+      deposit: "Security deposit",
+      full: "Full amount",
+      "no-payment": "No payment due",
+      custom: "Custom payment",
+    };
+
+    setSavingPayment(true);
+    try {
+      await onSave(request.id, {
+        paymentMode,
+        paymentTitle: paymentLabels[paymentMode],
+        paymentAmount: paymentMode === "no-payment" ? "No payment due" : `$${Number(paymentAmount || 0).toFixed(2)} CAD`,
+        paymentNote,
+      });
+      setPaymentAmount("");
+      setPaymentNote("");
+    } finally {
+      setSavingPayment(false);
+    }
+  }
+
+  return (
+    <form className="admin-payment-editor" onSubmit={submitPaymentUpdate}>
+      <div className="admin-payment-heading">
+        <strong><CreditCard size={16} /> Payment adjustment</strong>
+        <p>Set what this member should pay for this booking request.</p>
+      </div>
+      <div className="admin-payment-grid">
+        <label>
+          Payment type
+          <select value={paymentMode} onChange={(event) => setPaymentMode(event.target.value)}>
+            <option value="deposit">Security deposit</option>
+            <option value="full">Full amount</option>
+            <option value="no-payment">No payment due</option>
+            <option value="custom">Custom payment</option>
+          </select>
+        </label>
+        <label>
+          Amount CAD
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={paymentAmount}
+            onChange={(event) => setPaymentAmount(event.target.value)}
+            placeholder="150.00"
+            disabled={paymentMode === "no-payment"}
+          />
+        </label>
+      </div>
+      <label>
+        Admin note
+        <textarea
+          rows="2"
+          value={paymentNote}
+          onChange={(event) => setPaymentNote(event.target.value)}
+          placeholder="Provider quote, reason for price change, or payment instructions..."
+        />
+      </label>
+      <button className="button secondary compact-button" type="submit" disabled={savingPayment || (paymentMode !== "no-payment" && !paymentAmount)}>
+        {savingPayment ? "Saving..." : "Save Payment Update"}
+      </button>
+    </form>
+  );
+}
+
 function AdminPortal({ onBack }) {
   const [adminToken, setAdminToken] = useState(() => localStorage.getItem("whiteGloveAdminToken") || "");
   const [draftToken, setDraftToken] = useState(adminToken);
@@ -1811,9 +1891,33 @@ function AdminPortal({ onBack }) {
         throw new Error(payload.error || "Could not update the service demand.");
       }
 
-      setServiceRequests((requests) => requests.map((request) => (request.id === id ? { ...request, status } : request)));
+      setServiceRequests((requests) => requests.map((request) => (request.id === id ? { ...request, ...payload.request } : request)));
     } catch (error) {
       setAdminError(error.message || "Could not update the service demand.");
+    }
+  }
+
+  async function updateDemandPayment(id, paymentUpdate) {
+    setAdminError("");
+
+    try {
+      const response = await fetch("/.netlify/functions/admin-service-requests", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": adminToken,
+        },
+        body: JSON.stringify({ id, ...paymentUpdate }),
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Could not update the booking payment.");
+      }
+
+      setServiceRequests((requests) => requests.map((request) => (request.id === id ? { ...request, ...payload.request } : request)));
+    } catch (error) {
+      setAdminError(error.message || "Could not update the booking payment.");
     }
   }
 
@@ -1882,6 +1986,7 @@ function AdminPortal({ onBack }) {
                     <dd>{request.created_at ? new Date(request.created_at).toLocaleString() : "Just now"}</dd>
                   </div>
                 </dl>
+                <AdminPaymentEditor request={request} onSave={updateDemandPayment} />
                 {request.notes && <pre>{request.notes}</pre>}
                 <div className="admin-status-actions">
                   {["Requested", "In Review", "Booked", "Paid / Confirmed", "Completed"].map((status) => (

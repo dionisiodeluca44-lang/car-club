@@ -68,17 +68,47 @@ export async function handler(event) {
 
   if (event.httpMethod === "PATCH") {
     const payload = JSON.parse(event.body || "{}");
-    const { id, status } = payload;
+    const { id, status, paymentAmount, paymentMode, paymentNote, paymentTitle } = payload;
 
-    if (!id || !status) {
-      return json(400, { error: "Request id and status are required" });
+    if (!id || (!status && !paymentAmount && !paymentMode && !paymentTitle && !paymentNote)) {
+      return json(400, { error: "Request id and update details are required" });
+    }
+
+    const update = { updated_at: new Date().toISOString() };
+
+    if (status) {
+      update.status = status;
+    }
+
+    if (paymentAmount || paymentMode || paymentTitle || paymentNote) {
+      const { data: existingRequest, error: loadError } = await supabase
+        .from("service_requests")
+        .select("notes")
+        .eq("id", id)
+        .single();
+
+      if (loadError) {
+        console.error("Could not load service request before payment update", loadError);
+        return json(500, { error: "Could not load service request before updating payment" });
+      }
+
+      const paymentBlock = [
+        "Admin payment update",
+        `Updated: ${new Date().toLocaleString("en-CA", { timeZone: "America/Toronto" })}`,
+        paymentTitle && `Payment type: ${paymentTitle}`,
+        paymentMode && `Payment mode: ${paymentMode}`,
+        paymentAmount && `Amount: ${paymentAmount}`,
+        paymentNote && `Note: ${paymentNote}`,
+      ].filter(Boolean).join("\n");
+
+      update.notes = [existingRequest?.notes, paymentBlock].filter(Boolean).join("\n\n---\n\n");
     }
 
     const { data, error } = await supabase
       .from("service_requests")
-      .update({ status, updated_at: new Date().toISOString() })
+      .update(update)
       .eq("id", id)
-      .select("id, status")
+      .select("id, notes, status")
       .single();
 
     if (error) {
