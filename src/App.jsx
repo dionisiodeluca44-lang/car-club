@@ -1895,9 +1895,9 @@ function AdminServicePricingEditor({ onSave, pricing }) {
     <section className="admin-pricing-card">
       <div className="admin-pricing-heading">
         <div>
-          <p className="eyebrow">Global pricing</p>
-          <h2>Service prices everyone will pay</h2>
-          <p>Change Brakes, Oil change, Detailing, Transport, or any service once here. Future bookings use the saved price for every member.</p>
+          <p className="eyebrow">Booking price settings</p>
+          <h2>Service request prices</h2>
+          <p>Change a service price once here. Every member will see the same deposit, full payment, or free request setting on future bookings.</p>
         </div>
         <span>{serviceOptions.length} services</span>
       </div>
@@ -1981,14 +1981,16 @@ function AdminServicePriceRow({ onSave, pricing, service }) {
 }
 
 function AdminPortal({ onBack }) {
-  const [adminToken, setAdminToken] = useState(() => localStorage.getItem("whiteGloveAdminToken") || "");
-  const [draftToken, setDraftToken] = useState(adminToken);
+  const [adminToken, setAdminToken] = useState("");
+  const [draftToken, setDraftToken] = useState(() => localStorage.getItem("whiteGloveAdminToken") || "");
   const [adminError, setAdminError] = useState("");
+  const [adminMenu, setAdminMenu] = useState("requests");
+  const [adminSidebarOpen, setAdminSidebarOpen] = useState(false);
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [servicePricing, setServicePricing] = useState({});
   const [serviceRequests, setServiceRequests] = useState([]);
 
-  async function loadAdminRequests(token = adminToken) {
+  async function loadAdminRequests(token = adminToken, options = {}) {
     if (!token) return;
     setAdminError("");
     setLoadingRequests(true);
@@ -2006,12 +2008,13 @@ function AdminPortal({ onBack }) {
       setServiceRequests(payload.requests || []);
     } catch (error) {
       setAdminError(error.message || "Could not load service demands.");
+      if (options.throwOnError) throw error;
     } finally {
       setLoadingRequests(false);
     }
   }
 
-  async function loadAdminPricing(token = adminToken) {
+  async function loadAdminPricing(token = adminToken, options = {}) {
     if (!token) return;
     setAdminError("");
 
@@ -2028,14 +2031,38 @@ function AdminPortal({ onBack }) {
       setServicePricing(normalizeServicePricingRows(payload.pricing || []));
     } catch (error) {
       setAdminError(error.message || "Could not load service pricing.");
+      if (options.throwOnError) throw error;
     }
   }
 
   async function submitAdminLogin(event) {
     event.preventDefault();
-    localStorage.setItem("whiteGloveAdminToken", draftToken);
-    setAdminToken(draftToken);
-    await Promise.all([loadAdminRequests(draftToken), loadAdminPricing(draftToken)]);
+    setAdminError("");
+
+    try {
+      await Promise.all([
+        loadAdminRequests(draftToken, { throwOnError: true }),
+        loadAdminPricing(draftToken, { throwOnError: true }),
+      ]);
+      localStorage.setItem("whiteGloveAdminToken", draftToken);
+      setAdminToken(draftToken);
+      setAdminMenu("requests");
+      setAdminSidebarOpen(false);
+    } catch (error) {
+      localStorage.removeItem("whiteGloveAdminToken");
+      setAdminToken("");
+      setAdminError(error.message || "That password did not open the admin portal.");
+    }
+  }
+
+  function closeAdminPortal() {
+    localStorage.removeItem("whiteGloveAdminToken");
+    setAdminToken("");
+    setDraftToken("");
+    setAdminMenu("requests");
+    setAdminSidebarOpen(false);
+    setServiceRequests([]);
+    setServicePricing({});
   }
 
   async function updateDemandStatus(id, status) {
@@ -2089,86 +2116,127 @@ function AdminPortal({ onBack }) {
     }
   }
 
-  useEffect(() => {
-    if (adminToken) {
-      loadAdminRequests(adminToken);
-      loadAdminPricing(adminToken);
-    }
-  }, []);
+  const adminNavigation = [
+    { id: "requests", label: "Service Requests" },
+    { id: "pricing", label: "Booking Price Settings" },
+  ];
+
+  if (!adminToken) {
+    return (
+      <main className="admin-portal admin-portal-locked">
+        <section className="admin-login-shell">
+          <div className="admin-login-intro">
+            <p className="eyebrow">White Glove backend</p>
+            <h1>Admin Portal</h1>
+            <p>Enter the admin password to view service requests, booking details, and price settings.</p>
+          </div>
+
+          <form className="admin-login-card admin-login-card-locked" onSubmit={submitAdminLogin}>
+            <label>
+              Admin password
+              <input type="password" value={draftToken} onChange={(event) => setDraftToken(event.target.value)} placeholder="Enter backend portal password" />
+            </label>
+            <button className="button primary compact-button" type="submit" disabled={loadingRequests || !draftToken.trim()}>
+              <KeyRound size={18} /> {loadingRequests ? "Opening..." : "Open Portal"}
+            </button>
+            <button className="button secondary compact-button" type="button" onClick={onBack}>Back To Website</button>
+          </form>
+
+          {adminError && <div className="error-message">{adminError}</div>}
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="admin-portal">
       <section className="admin-shell">
         <div className="admin-header">
+          <button className="admin-menu-button" type="button" onClick={() => setAdminSidebarOpen((isOpen) => !isOpen)} aria-label="Open admin menu">
+            {adminSidebarOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
           <div>
             <p className="eyebrow">White Glove backend</p>
-            <h1>Service Demand Portal</h1>
-            <p>Review paid bookings, member service requests, preferred timing, vehicle details, and concierge status.</p>
+            <h1>{adminMenu === "pricing" ? "Booking Price Settings" : "Service Requests"}</h1>
+            <p>{adminMenu === "pricing" ? "Set the same service request price for every member." : "Review paid bookings, member service requests, preferred timing, vehicle details, and concierge status."}</p>
           </div>
-          <button className="button secondary compact-button" type="button" onClick={onBack}>Back To Website</button>
+          <div className="admin-header-actions">
+            <button className="button secondary compact-button" type="button" onClick={() => { loadAdminRequests(adminToken); loadAdminPricing(adminToken); }} disabled={loadingRequests}>
+              {loadingRequests ? "Loading..." : "Refresh"}
+            </button>
+            <button className="button secondary compact-button" type="button" onClick={closeAdminPortal}>Log Out</button>
+            <button className="button secondary compact-button" type="button" onClick={onBack}>Back To Website</button>
+          </div>
         </div>
 
-        <form className="admin-login-card" onSubmit={submitAdminLogin}>
-          <label>
-            Admin password
-            <input type="password" value={draftToken} onChange={(event) => setDraftToken(event.target.value)} placeholder="Enter backend portal password" />
-          </label>
-          <button className="button primary compact-button" type="submit">
-            <KeyRound size={18} /> Open Portal
-          </button>
-          <button className="button secondary compact-button" type="button" onClick={() => { loadAdminRequests(adminToken); loadAdminPricing(adminToken); }} disabled={!adminToken || loadingRequests}>
-            {loadingRequests ? "Loading..." : "Refresh"}
-          </button>
-        </form>
+        {adminSidebarOpen && (
+          <aside className="admin-sidebar" aria-label="Admin menu">
+            {adminNavigation.map((item) => (
+              <button
+                className={adminMenu === item.id ? "active" : ""}
+                key={item.id}
+                onClick={() => {
+                  setAdminMenu(item.id);
+                  setAdminSidebarOpen(false);
+                }}
+                type="button"
+              >
+                {item.label}
+              </button>
+            ))}
+          </aside>
+        )}
 
         {adminError && <div className="error-message">{adminError}</div>}
 
-        {adminToken && <AdminServicePricingEditor onSave={updateServicePrice} pricing={servicePricing} />}
+        {adminMenu === "pricing" && <AdminServicePricingEditor onSave={updateServicePrice} pricing={servicePricing} />}
 
-        <div className="admin-request-grid">
-          {serviceRequests.length === 0 ? (
-            <article className="admin-empty-card">
-              <h2>{adminToken ? "No service demands yet" : "Enter your admin password"}</h2>
-              <p>{adminToken ? "New bookings and service requests will appear here." : "Set ADMIN_PORTAL_PASSWORD in Netlify, then use that password here."}</p>
-            </article>
-          ) : (
-            serviceRequests.map((request) => (
-              <article className="admin-request-card" key={request.id}>
-                <div>
-                  <span>{request.status || "Requested"}</span>
-                  <h2>{request.service_type}</h2>
-                  <p>{request.vehicle_label}</p>
-                </div>
-                <dl>
-                  <div>
-                    <dt>Member</dt>
-                    <dd>{request.member?.full_name || "Member"} · {request.member?.email || "Email pending"}</dd>
-                  </div>
-                  <div>
-                    <dt>Package</dt>
-                    <dd>{request.member?.plan || "Unknown"}</dd>
-                  </div>
-                  <div>
-                    <dt>Preferred time</dt>
-                    <dd>{request.preferred_date || "Date pending"} {request.preferred_time || ""}</dd>
-                  </div>
-                  <div>
-                    <dt>Received</dt>
-                    <dd>{request.created_at ? new Date(request.created_at).toLocaleString() : "Just now"}</dd>
-                  </div>
-                </dl>
-                {request.notes && <pre>{request.notes}</pre>}
-                <div className="admin-status-actions">
-                  {["Requested", "In Review", "Booked", "Paid / Confirmed", "Completed"].map((status) => (
-                    <button key={status} type="button" onClick={() => updateDemandStatus(request.id, status)}>
-                      {status}
-                    </button>
-                  ))}
-                </div>
+        {adminMenu === "requests" && (
+          <div className="admin-request-grid">
+            {serviceRequests.length === 0 ? (
+              <article className="admin-empty-card">
+                <h2>No service requests yet</h2>
+                <p>New bookings and service requests will appear here.</p>
               </article>
-            ))
-          )}
-        </div>
+            ) : (
+              serviceRequests.map((request) => (
+                <article className="admin-request-card" key={request.id}>
+                  <div>
+                    <span>{request.status || "Requested"}</span>
+                    <h2>{request.service_type}</h2>
+                    <p>{request.vehicle_label}</p>
+                  </div>
+                  <dl>
+                    <div>
+                      <dt>Member</dt>
+                      <dd>{request.member?.full_name || "Member"} · {request.member?.email || "Email pending"}</dd>
+                    </div>
+                    <div>
+                      <dt>Package</dt>
+                      <dd>{request.member?.plan || "Unknown"}</dd>
+                    </div>
+                    <div>
+                      <dt>Preferred time</dt>
+                      <dd>{request.preferred_date || "Date pending"} {request.preferred_time || ""}</dd>
+                    </div>
+                    <div>
+                      <dt>Received</dt>
+                      <dd>{request.created_at ? new Date(request.created_at).toLocaleString() : "Just now"}</dd>
+                    </div>
+                  </dl>
+                  {request.notes && <pre>{request.notes}</pre>}
+                  <div className="admin-status-actions">
+                    {["Requested", "In Review", "Booked", "Paid / Confirmed", "Completed"].map((status) => (
+                      <button key={status} type="button" onClick={() => updateDemandStatus(request.id, status)}>
+                        {status}
+                      </button>
+                    ))}
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+        )}
       </section>
     </main>
   );

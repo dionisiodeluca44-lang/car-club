@@ -2172,10 +2172,13 @@ textarea:focus {
   gap: 1rem;
   max-width: 1180px;
   margin: 0 auto;
+  position: relative;
 }
 
 .admin-header,
 .admin-login-card,
+.admin-login-intro,
+.admin-sidebar,
 .admin-pricing-card,
 .admin-request-card,
 .admin-empty-card {
@@ -2185,12 +2188,52 @@ textarea:focus {
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.28);
 }
 
+.admin-portal-locked {
+  display: grid;
+  place-items: center;
+}
+
+.admin-login-shell {
+  display: grid;
+  gap: 1rem;
+  width: min(760px, 100%);
+}
+
+.admin-login-intro {
+  padding: clamp(1.2rem, 4vw, 2rem);
+}
+
+.admin-login-intro h1 {
+  margin-bottom: 0.6rem;
+  font-size: clamp(2.2rem, 8vw, 5rem);
+}
+
+.admin-login-intro p:not(.eyebrow) {
+  max-width: 560px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
 .admin-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
   padding: clamp(1rem, 3vw, 1.6rem);
+}
+
+.admin-menu-button {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border: 1px solid rgba(229, 200, 121, 0.28);
+  border-radius: var(--radius);
+  background: rgba(201, 164, 92, 0.1);
+  color: var(--gold-bright);
+  cursor: pointer;
 }
 
 .admin-header h1 {
@@ -2206,12 +2249,23 @@ textarea:focus {
   line-height: 1.7;
 }
 
+.admin-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
 .admin-login-card {
   display: grid;
   grid-template-columns: 1fr auto auto;
   align-items: end;
   gap: 0.75rem;
   padding: 1rem;
+}
+
+.admin-login-card-locked {
+  grid-template-columns: 1fr auto auto;
 }
 
 .admin-login-card label {
@@ -2229,6 +2283,40 @@ textarea:focus {
   background: rgba(0, 0, 0, 0.36);
   color: var(--ink);
   padding: 0.8rem 0.95rem;
+}
+
+.admin-sidebar {
+  position: absolute;
+  top: 5.8rem;
+  left: 0;
+  z-index: 20;
+  display: grid;
+  gap: 0.55rem;
+  width: min(320px, calc(100vw - 2rem));
+  padding: 0.8rem;
+  background: rgba(8, 8, 8, 0.96);
+  backdrop-filter: blur(18px);
+}
+
+.admin-sidebar button {
+  width: 100%;
+  min-height: 3rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 900;
+  text-align: left;
+  padding: 0.75rem 0.85rem;
+  cursor: pointer;
+}
+
+.admin-sidebar button:hover,
+.admin-sidebar button.active {
+  border-color: rgba(229, 200, 121, 0.28);
+  background: rgba(201, 164, 92, 0.1);
+  color: var(--gold-bright);
 }
 
 .admin-request-grid {
