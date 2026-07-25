@@ -57,6 +57,15 @@ create table if not exists public.feed_posts (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.service_pricing (
+  service_label text primary key,
+  payment_mode text not null default 'deposit' check (payment_mode in ('deposit', 'full', 'free')),
+  amount_cents integer not null default 0 check (amount_cents >= 0),
+  note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -95,6 +104,7 @@ alter table public.profiles enable row level security;
 alter table public.vehicles enable row level security;
 alter table public.service_requests enable row level security;
 alter table public.feed_posts enable row level security;
+alter table public.service_pricing enable row level security;
 
 do $$
 begin
@@ -118,6 +128,7 @@ drop policy if exists "Members can read all feed posts" on public.feed_posts;
 drop policy if exists "Members can create own feed posts" on public.feed_posts;
 drop policy if exists "Members can update own feed posts" on public.feed_posts;
 drop policy if exists "Members can delete own feed posts" on public.feed_posts;
+drop policy if exists "Members can read service pricing" on public.service_pricing;
 drop policy if exists "Members can upload vehicle photos" on storage.objects;
 drop policy if exists "Vehicle photos are public" on storage.objects;
 drop policy if exists "Members can update vehicle photos" on storage.objects;
@@ -181,6 +192,10 @@ create policy "Members can update own feed posts"
 create policy "Members can delete own feed posts"
   on public.feed_posts for delete
   using (auth.uid() = user_id);
+
+create policy "Members can read service pricing"
+  on public.service_pricing for select
+  using (auth.role() = 'authenticated');
 
 insert into storage.buckets (id, name, public)
 values ('vehicle-photos', 'vehicle-photos', true)

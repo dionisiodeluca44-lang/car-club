@@ -259,6 +259,30 @@ export async function loadFeedPosts() {
   return data.map(fromFeedPostRow);
 }
 
+export async function loadServicePricing() {
+  if (!supabase) return {};
+
+  const { data, error } = await supabase
+    .from("service_pricing")
+    .select("service_label, payment_mode, amount_cents, note, updated_at");
+
+  if (error) {
+    console.warn("Could not load service pricing.", error);
+    return {};
+  }
+
+  return (data || []).reduce((pricing, row) => {
+    pricing[row.service_label] = {
+      amountCents: row.amount_cents,
+      note: row.note || "",
+      paymentMode: row.payment_mode,
+      serviceLabel: row.service_label,
+      updatedAt: row.updated_at,
+    };
+    return pricing;
+  }, {});
+}
+
 export function subscribeToFeedPosts(onPostCreated) {
   if (!supabase || typeof onPostCreated !== "function") return () => {};
 

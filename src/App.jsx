@@ -32,6 +32,7 @@ import {
   getCurrentMember,
   isBackendConfigured,
   loadFeedPosts,
+  loadServicePricing,
   loadServiceRequests,
   loadVehicles,
   resendConfirmationEmail,
@@ -443,7 +444,9 @@ function serviceQuestionsForBooking(serviceLabel) {
 }
 
 function formatCad(amount) {
-  return `$${amount} CAD`;
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount)) return `$${amount} CAD`;
+  return `$${Number.isInteger(numericAmount) ? numericAmount : numericAmount.toFixed(2)} CAD`;
 }
 
 function vehicleClassFromVehicle(vehicle = {}) {
@@ -454,7 +457,118 @@ function vehicleClassFromVehicle(vehicle = {}) {
   return "car";
 }
 
-function paymentTermsForService(serviceLabel, vehicle, selectedOptionName) {
+function paymentTermsFromPricing(serviceLabel, pricing) {
+  const amountCents = Number(pricing?.amountCents ?? pricing?.amount_cents ?? 0);
+  const paymentMode = pricing?.paymentMode || pricing?.payment_mode || "deposit";
+  const note = pricing?.note || "";
+
+  if (paymentMode === "free" || amountCents <= 0) {
+    return {
+      amount: "Free request",
+      amountCents: 0,
+      mode: "free",
+      note: note || "White Glove will review the request and follow up with next steps.",
+      title: "No payment due now",
+    };
+  }
+
+  if (paymentMode === "full") {
+    return {
+      amount: `${formatCad(amountCents / 100)} plus taxes at checkout`,
+      amountCents,
+      mode: "full",
+      note: note || "This service has a confirmed price.",
+      title: "Pay in full",
+    };
+  }
+
+  return {
+    amount: `${formatCad(amountCents / 100)} deposit today`,
+    amountCents,
+    mode: "deposit",
+    note: note || "Final price will be confirmed after reviewing the vehicle and requested work. Your deposit is applied to the final invoice.",
+    title: "Security deposit",
+  };
+}
+
+function defaultPricingForService(serviceLabel) {
+  const catalog = serviceCatalogForLabel(serviceLabel);
+  const optionWithAmount = catalog?.options?.find((option) => {
+    if (typeof option === "string") return false;
+    return option.price === 0 || option.price || option.deposit || option.prices?.car;
+  });
+  const option = typeof optionWithAmount === "string" ? {} : optionWithAmount || {};
+
+  if (option.price === 0) {
+    return {
+      amountCents: 0,
+      note: "White Glove will review the request and follow up with next steps.",
+      paymentMode: "free",
+    };
+  }
+
+  if (option.price) {
+    return {
+      amountCents: Math.round(option.price * 100),
+      note: "This service has a clear fixed price for the selected option.",
+      paymentMode: "full",
+    };
+  }
+
+  if (option.prices?.car) {
+    return {
+      amountCents: Math.round(option.prices.car * 100),
+      note: "This service has fixed pricing based on the selected Garage vehicle.",
+      paymentMode: "full",
+    };
+  }
+
+  const depositAmount = option.deposit || catalog?.deposit;
+  if (depositAmount) {
+    return {
+      amountCents: Math.round(depositAmount * 100),
+      note: catalog?.note || defaultDepositTerms.note,
+      paymentMode: "deposit",
+    };
+  }
+
+  const rule = servicePaymentRules[serviceLabel];
+  if (rule?.mode === "full") {
+    return {
+      amountCents: 0,
+      note: rule.note,
+      paymentMode: "full",
+    };
+  }
+
+  return {
+    amountCents: 10000,
+    note: defaultDepositTerms.note,
+    paymentMode: "deposit",
+  };
+}
+
+function normalizeServicePricingRows(rows = []) {
+  return rows.reduce((pricing, row) => {
+    const serviceLabel = row.serviceLabel || row.service_label;
+    if (!serviceLabel) return pricing;
+
+    pricing[serviceLabel] = {
+      amountCents: Number(row.amountCents ?? row.amount_cents ?? 0),
+      note: row.note || "",
+      paymentMode: row.paymentMode || row.payment_mode || "deposit",
+      serviceLabel,
+      updatedAt: row.updatedAt || row.updated_at,
+    };
+    return pricing;
+  }, {});
+}
+
+function paymentTermsForService(serviceLabel, vehicle, selectedOptionName, servicePricing = {}) {
+  if (servicePricing?.[serviceLabel]) {
+    return paymentTermsFromPricing(serviceLabel, servicePricing[serviceLabel]);
+  }
+
   const catalog = serviceCatalogForLabel(serviceLabel);
   const vehicleClass = vehicleClassFromVehicle(vehicle);
   const selectedOption = catalog?.options?.find((option) => (typeof option === "string" ? option : option.name) === selectedOptionName);
@@ -1135,6 +1249,7 @@ function App() {
   const [feedPosts, setFeedPosts] = useState(() => {
     return ensureList(readStoredJson("carClubFeedPosts", []));
   });
+  const [servicePricing, setServicePricing] = useState({});
 
   const closeMenu = () => setMenuOpen(false);
 
@@ -1167,6 +1282,25 @@ function App() {
     const savedFeedPosts = await loadFeedPosts();
     setFeedPosts(ensureList(savedFeedPosts));
     return savedFeedPosts;
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadPricing() {
+      try {
+        const savedPricing = await loadServicePricing();
+        if (active) setServicePricing(savedPricing);
+      } catch (error) {
+        console.warn("Could not load service pricing.", error);
+      }
+    }
+
+    loadPricing();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -1473,7 +1607,7 @@ function App() {
   }
 
   if (mode === "app" && member) {
-    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteVehicle={deleteVehicle} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} />;
+    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteVehicle={deleteVehicle} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} servicePricing={servicePricing} />;
   }
 
   if (mode === "app") {
@@ -1756,81 +1890,91 @@ function RuntimeErrorScreen({ message, onReset }) {
   );
 }
 
-function AdminPaymentEditor({ onSave, request }) {
-  const [paymentMode, setPaymentMode] = useState("deposit");
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentNote, setPaymentNote] = useState("");
-  const [savingPayment, setSavingPayment] = useState(false);
+function AdminServicePricingEditor({ onSave, pricing }) {
+  return (
+    <section className="admin-pricing-card">
+      <div className="admin-pricing-heading">
+        <div>
+          <p className="eyebrow">Global pricing</p>
+          <h2>Service prices everyone will pay</h2>
+          <p>Change Brakes, Oil change, Detailing, Transport, or any service once here. Future bookings use the saved price for every member.</p>
+        </div>
+        <span>{serviceOptions.length} services</span>
+      </div>
+      <div className="admin-pricing-list">
+        {serviceOptions.map((service) => (
+          <AdminServicePriceRow key={service.label} onSave={onSave} pricing={pricing?.[service.label]} service={service} />
+        ))}
+      </div>
+    </section>
+  );
+}
 
-  async function submitPaymentUpdate(event) {
+function AdminServicePriceRow({ onSave, pricing, service }) {
+  const fallback = defaultPricingForService(service.label);
+  const [amount, setAmount] = useState(((pricing?.amountCents ?? fallback.amountCents) / 100).toString());
+  const [note, setNote] = useState(pricing?.note || fallback.note || "");
+  const [paymentMode, setPaymentMode] = useState(pricing?.paymentMode || fallback.paymentMode || "deposit");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const nextFallback = defaultPricingForService(service.label);
+    setAmount(((pricing?.amountCents ?? nextFallback.amountCents) / 100).toString());
+    setNote(pricing?.note || nextFallback.note || "");
+    setPaymentMode(pricing?.paymentMode || nextFallback.paymentMode || "deposit");
+  }, [pricing?.amountCents, pricing?.note, pricing?.paymentMode, service.label]);
+
+  async function submitPricing(event) {
     event.preventDefault();
+    setSaving(true);
 
-    if (paymentMode !== "no-payment" && !paymentAmount) {
-      return;
-    }
-
-    const paymentLabels = {
-      deposit: "Security deposit",
-      full: "Full amount",
-      "no-payment": "No payment due",
-      custom: "Custom payment",
-    };
-
-    setSavingPayment(true);
     try {
-      await onSave(request.id, {
+      await onSave(service.label, {
+        amountCents: paymentMode === "free" ? 0 : Math.round(Number(amount || 0) * 100),
+        note,
         paymentMode,
-        paymentTitle: paymentLabels[paymentMode],
-        paymentAmount: paymentMode === "no-payment" ? "No payment due" : `$${Number(paymentAmount || 0).toFixed(2)} CAD`,
-        paymentNote,
       });
-      setPaymentAmount("");
-      setPaymentNote("");
     } finally {
-      setSavingPayment(false);
+      setSaving(false);
     }
   }
 
   return (
-    <form className="admin-payment-editor" onSubmit={submitPaymentUpdate}>
-      <div className="admin-payment-heading">
-        <strong><CreditCard size={16} /> Payment adjustment</strong>
-        <p>Set what this member should pay for this booking request.</p>
-      </div>
-      <div className="admin-payment-grid">
-        <label>
-          Payment type
-          <select value={paymentMode} onChange={(event) => setPaymentMode(event.target.value)}>
-            <option value="deposit">Security deposit</option>
-            <option value="full">Full amount</option>
-            <option value="no-payment">No payment due</option>
-            <option value="custom">Custom payment</option>
-          </select>
-        </label>
-        <label>
-          Amount CAD
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={paymentAmount}
-            onChange={(event) => setPaymentAmount(event.target.value)}
-            placeholder="150.00"
-            disabled={paymentMode === "no-payment"}
-          />
-        </label>
+    <form className="admin-pricing-row" onSubmit={submitPricing}>
+      <div className="admin-pricing-service">
+        <strong>{service.label}</strong>
+        <small>{pricing ? "Saved global price" : "Default price until saved"}</small>
       </div>
       <label>
-        Admin note
-        <textarea
-          rows="2"
-          value={paymentNote}
-          onChange={(event) => setPaymentNote(event.target.value)}
-          placeholder="Provider quote, reason for price change, or payment instructions..."
+        Payment type
+        <select value={paymentMode} onChange={(event) => setPaymentMode(event.target.value)}>
+          <option value="deposit">Security deposit</option>
+          <option value="full">Pay in full</option>
+          <option value="free">Free request</option>
+        </select>
+      </label>
+      <label>
+        Amount CAD
+        <input
+          disabled={paymentMode === "free"}
+          min="0"
+          onChange={(event) => setAmount(event.target.value)}
+          step="0.01"
+          type="number"
+          value={amount}
         />
       </label>
-      <button className="button secondary compact-button" type="submit" disabled={savingPayment || (paymentMode !== "no-payment" && !paymentAmount)}>
-        {savingPayment ? "Saving..." : "Save Payment Update"}
+      <label>
+        Checkout note
+        <input
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Applied to final invoice..."
+          type="text"
+          value={note}
+        />
+      </label>
+      <button className="button secondary compact-button" type="submit" disabled={saving}>
+        {saving ? "Saving..." : "Save"}
       </button>
     </form>
   );
@@ -1841,6 +1985,7 @@ function AdminPortal({ onBack }) {
   const [draftToken, setDraftToken] = useState(adminToken);
   const [adminError, setAdminError] = useState("");
   const [loadingRequests, setLoadingRequests] = useState(false);
+  const [servicePricing, setServicePricing] = useState({});
   const [serviceRequests, setServiceRequests] = useState([]);
 
   async function loadAdminRequests(token = adminToken) {
@@ -1866,11 +2011,31 @@ function AdminPortal({ onBack }) {
     }
   }
 
+  async function loadAdminPricing(token = adminToken) {
+    if (!token) return;
+    setAdminError("");
+
+    try {
+      const response = await fetch("/.netlify/functions/admin-service-pricing", {
+        headers: { "x-admin-token": token },
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Could not load service pricing.");
+      }
+
+      setServicePricing(normalizeServicePricingRows(payload.pricing || []));
+    } catch (error) {
+      setAdminError(error.message || "Could not load service pricing.");
+    }
+  }
+
   async function submitAdminLogin(event) {
     event.preventDefault();
     localStorage.setItem("whiteGloveAdminToken", draftToken);
     setAdminToken(draftToken);
-    await loadAdminRequests(draftToken);
+    await Promise.all([loadAdminRequests(draftToken), loadAdminPricing(draftToken)]);
   }
 
   async function updateDemandStatus(id, status) {
@@ -1897,33 +2062,37 @@ function AdminPortal({ onBack }) {
     }
   }
 
-  async function updateDemandPayment(id, paymentUpdate) {
+  async function updateServicePrice(serviceLabel, pricingUpdate) {
     setAdminError("");
 
     try {
-      const response = await fetch("/.netlify/functions/admin-service-requests", {
+      const response = await fetch("/.netlify/functions/admin-service-pricing", {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
           "x-admin-token": adminToken,
         },
-        body: JSON.stringify({ id, ...paymentUpdate }),
+        body: JSON.stringify({ serviceLabel, ...pricingUpdate }),
       });
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(payload.error || "Could not update the booking payment.");
+        throw new Error(payload.error || "Could not update service pricing.");
       }
 
-      setServiceRequests((requests) => requests.map((request) => (request.id === id ? { ...request, ...payload.request } : request)));
+      setServicePricing((currentPricing) => ({
+        ...currentPricing,
+        ...normalizeServicePricingRows([payload.pricing]),
+      }));
     } catch (error) {
-      setAdminError(error.message || "Could not update the booking payment.");
+      setAdminError(error.message || "Could not update service pricing.");
     }
   }
 
   useEffect(() => {
     if (adminToken) {
       loadAdminRequests(adminToken);
+      loadAdminPricing(adminToken);
     }
   }, []);
 
@@ -1947,12 +2116,14 @@ function AdminPortal({ onBack }) {
           <button className="button primary compact-button" type="submit">
             <KeyRound size={18} /> Open Portal
           </button>
-          <button className="button secondary compact-button" type="button" onClick={() => loadAdminRequests(adminToken)} disabled={!adminToken || loadingRequests}>
+          <button className="button secondary compact-button" type="button" onClick={() => { loadAdminRequests(adminToken); loadAdminPricing(adminToken); }} disabled={!adminToken || loadingRequests}>
             {loadingRequests ? "Loading..." : "Refresh"}
           </button>
         </form>
 
         {adminError && <div className="error-message">{adminError}</div>}
+
+        {adminToken && <AdminServicePricingEditor onSave={updateServicePrice} pricing={servicePricing} />}
 
         <div className="admin-request-grid">
           {serviceRequests.length === 0 ? (
@@ -1986,7 +2157,6 @@ function AdminPortal({ onBack }) {
                     <dd>{request.created_at ? new Date(request.created_at).toLocaleString() : "Just now"}</dd>
                   </div>
                 </dl>
-                <AdminPaymentEditor request={request} onSave={updateDemandPayment} />
                 {request.notes && <pre>{request.notes}</pre>}
                 <div className="admin-status-actions">
                   {["Requested", "In Review", "Booked", "Paid / Confirmed", "Completed"].map((status) => (
@@ -2120,7 +2290,7 @@ function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
   );
 }
 
-function MemberApp({ appointments, feedPosts, garage, initialCompletion, member, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteVehicle, onLogout, onRefreshFeedPosts, onUpdateMember, onUpdateVehicle }) {
+function MemberApp({ appointments, feedPosts, garage, initialCompletion, member, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteVehicle, onLogout, onRefreshFeedPosts, onUpdateMember, onUpdateVehicle, servicePricing }) {
   const [activeTab, setActiveTab] = useState("home");
   const [completion, setCompletion] = useState(null);
   const garageList = ensureList(garage).map(normalizeVehicle);
@@ -2185,7 +2355,7 @@ function MemberApp({ appointments, feedPosts, garage, initialCompletion, member,
             />
           )}
           {!completion && activeTab === "garage" && <GarageScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={setCompletion} />}
-          {!completion && activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onComplete={setCompletion} setActiveTab={setActiveTab} vehicleOptions={vehicleOptions} />}
+          {!completion && activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onComplete={setCompletion} servicePricing={servicePricing} setActiveTab={setActiveTab} vehicleOptions={vehicleOptions} />}
           {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedPost={onAddFeedPost} onComplete={setCompletion} onRefreshFeedPosts={onRefreshFeedPosts} vehicleOptions={vehicleOptions} />}
           {!completion && activeTab === "account" && <AccountScreen garageCount={garageList.length} member={member} onLogout={onLogout} onUpdateMember={onUpdateMember} />}
         </MemberPanelErrorBoundary>
@@ -2478,7 +2648,7 @@ function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVeh
   );
 }
 
-function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComplete, setActiveTab, vehicleOptions }) {
+function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComplete, servicePricing, setActiveTab, vehicleOptions }) {
   const includedServices = useMemo(() => getAvailableServices(member.plan), [member.plan]);
   const serviceReminders = useMemo(() => buildServiceReminders(garage, member.plan), [garage, member.plan]);
   const [selectedService, setSelectedService] = useState(includedServices[0]?.label || "");
@@ -2620,6 +2790,7 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
           onAddAppointment={onAddAppointment}
           onComplete={onComplete}
           onChangeVehicle={() => vehicleSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          servicePricing={servicePricing}
           selectedService={selectedService}
           selectedServiceOption={selectedServiceOption}
           selectedVehicle={selectedVehicle}
@@ -3296,7 +3467,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
   );
 }
 
-function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onComplete, selectedService, selectedServiceOption, selectedVehicle, setSelectedService, setSelectedServiceOption }) {
+function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onComplete, servicePricing, selectedService, selectedServiceOption, selectedVehicle, setSelectedService, setSelectedServiceOption }) {
   const [bookingStep, setBookingStep] = useState("details");
   const [pendingBooking, setPendingBooking] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("card-on-file");
@@ -3309,7 +3480,7 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
   const serviceSubOptions = serviceOptionsForBooking(selectedService);
   const serviceQuestions = serviceQuestionsForBooking(selectedService);
   const hasVehicles = garage.length > 0 && Boolean(selectedVehicle);
-  const basePaymentTerms = paymentTermsForService(selectedService, selectedVehicle, selectedServiceOption);
+  const basePaymentTerms = paymentTermsForService(selectedService, selectedVehicle, selectedServiceOption, servicePricing);
   const selectedTransportChoice = transportChoices.find((choice) => choice.value === transportChoice) || transportChoices[0];
   const selectedPaymentTerms = bookingPaymentTerms(basePaymentTerms, selectedTransportChoice, warrantyCoverage);
   const selectedVehicleClass = vehicleClassFromVehicle(selectedVehicle);

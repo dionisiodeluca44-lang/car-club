@@ -2176,6 +2176,7 @@ textarea:focus {
 
 .admin-header,
 .admin-login-card,
+.admin-pricing-card,
 .admin-request-card,
 .admin-empty-card {
   border: 1px solid var(--line);
@@ -2312,47 +2313,89 @@ textarea:focus {
   white-space: pre-wrap;
 }
 
-.admin-payment-editor {
+.admin-pricing-card {
   display: grid;
-  gap: 0.85rem;
+  gap: 1rem;
+  padding: clamp(1rem, 3vw, 1.4rem);
+}
+
+.admin-pricing-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-pricing-heading h2 {
+  margin: 0.3rem 0 0.4rem;
+  font-size: clamp(1.5rem, 3vw, 2.4rem);
+}
+
+.admin-pricing-heading p:not(.eyebrow) {
+  max-width: 760px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.admin-pricing-heading span {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgba(229, 200, 121, 0.32);
+  border-radius: var(--radius);
+  color: var(--gold-bright);
+  background: rgba(201, 164, 92, 0.1);
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-pricing-list {
+  display: grid;
+  gap: 0.75rem;
+  max-height: 620px;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.admin-pricing-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(150px, 0.8fr) minmax(120px, 0.6fr) minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 0.75rem;
   padding: 1rem;
   border: 1px solid rgba(229, 200, 121, 0.2);
   border-radius: var(--radius);
   background: rgba(0, 0, 0, 0.24);
 }
 
-.admin-payment-heading strong {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
+.admin-pricing-service {
+  display: grid;
+  gap: 0.3rem;
+  align-self: center;
+}
+
+.admin-pricing-service strong {
   color: var(--ink);
   font-weight: 900;
 }
 
-.admin-payment-heading svg {
+.admin-pricing-service small {
   color: var(--gold-bright);
+  font-weight: 800;
 }
 
-.admin-payment-heading p {
-  margin-top: 0.25rem;
-}
-
-.admin-payment-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 0.75rem;
-}
-
-.admin-payment-editor label {
+.admin-pricing-row label {
   display: grid;
   gap: 0.45rem;
   color: var(--muted);
   font-weight: 800;
 }
 
-.admin-payment-editor input,
-.admin-payment-editor select,
-.admin-payment-editor textarea {
+.admin-pricing-row input,
+.admin-pricing-row select {
   width: 100%;
   min-height: 2.8rem;
   border: 1px solid var(--line);
@@ -2361,11 +2404,6 @@ textarea:focus {
   color: var(--ink);
   padding: 0.75rem 0.85rem;
   font: inherit;
-}
-
-.admin-payment-editor textarea {
-  min-height: 5rem;
-  resize: vertical;
 }
 
 .admin-status-actions {
@@ -2579,6 +2617,8 @@ textarea:focus {
 
   .admin-header,
   .admin-login-card,
+  .admin-pricing-heading,
+  .admin-pricing-row,
   .admin-request-card > div:first-child {
     display: grid;
     grid-template-columns: 1fr;
