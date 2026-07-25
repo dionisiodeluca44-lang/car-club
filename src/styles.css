@@ -2319,6 +2319,16 @@ textarea:focus {
   color: var(--gold-bright);
 }
 
+.admin-notice {
+  padding: 1rem;
+  border: 1px solid rgba(229, 200, 121, 0.32);
+  border-radius: var(--radius);
+  background: rgba(201, 164, 92, 0.1);
+  color: var(--gold-bright);
+  font-weight: 800;
+  line-height: 1.55;
+}
+
 .admin-request-grid {
   display: grid;
   gap: 1rem;

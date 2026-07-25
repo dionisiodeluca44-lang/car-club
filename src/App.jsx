@@ -1984,6 +1984,7 @@ function AdminPortal({ onBack }) {
   const [adminToken, setAdminToken] = useState("");
   const [draftToken, setDraftToken] = useState(() => localStorage.getItem("whiteGloveAdminToken") || "");
   const [adminError, setAdminError] = useState("");
+  const [adminNotice, setAdminNotice] = useState("");
   const [adminMenu, setAdminMenu] = useState("requests");
   const [adminSidebarOpen, setAdminSidebarOpen] = useState(false);
   const [loadingRequests, setLoadingRequests] = useState(false);
@@ -2016,7 +2017,7 @@ function AdminPortal({ onBack }) {
 
   async function loadAdminPricing(token = adminToken, options = {}) {
     if (!token) return;
-    setAdminError("");
+    if (!options.keepNotice) setAdminNotice("");
 
     try {
       const response = await fetch("/.netlify/functions/admin-service-pricing", {
@@ -2030,24 +2031,27 @@ function AdminPortal({ onBack }) {
 
       setServicePricing(normalizeServicePricingRows(payload.pricing || []));
     } catch (error) {
-      setAdminError(error.message || "Could not load service pricing.");
-      if (options.throwOnError) throw error;
+      const message = error.message || "Could not load service pricing.";
+      if (options.throwOnError) {
+        setAdminError(message);
+        throw error;
+      }
+      setAdminNotice(`${message} Service Requests still work. Run the Supabase pricing SQL before using Booking Price Settings.`);
     }
   }
 
   async function submitAdminLogin(event) {
     event.preventDefault();
     setAdminError("");
+    setAdminNotice("");
 
     try {
-      await Promise.all([
-        loadAdminRequests(draftToken, { throwOnError: true }),
-        loadAdminPricing(draftToken, { throwOnError: true }),
-      ]);
+      await loadAdminRequests(draftToken, { throwOnError: true });
       localStorage.setItem("whiteGloveAdminToken", draftToken);
       setAdminToken(draftToken);
       setAdminMenu("requests");
       setAdminSidebarOpen(false);
+      loadAdminPricing(draftToken, { keepNotice: true });
     } catch (error) {
       localStorage.removeItem("whiteGloveAdminToken");
       setAdminToken("");
@@ -2063,6 +2067,7 @@ function AdminPortal({ onBack }) {
     setAdminSidebarOpen(false);
     setServiceRequests([]);
     setServicePricing({});
+    setAdminNotice("");
   }
 
   async function updateDemandStatus(id, status) {
@@ -2188,6 +2193,7 @@ function AdminPortal({ onBack }) {
         )}
 
         {adminError && <div className="error-message">{adminError}</div>}
+        {adminNotice && <div className="admin-notice">{adminNotice}</div>}
 
         {adminMenu === "pricing" && <AdminServicePricingEditor onSave={updateServicePrice} pricing={servicePricing} />}
 
