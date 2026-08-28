@@ -53,6 +53,23 @@ export async function handler(event) {
   }
 
   try {
+    if (metadata.checkoutType === "membership_subscription") {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          plan: metadata.plan || "Club Drive",
+          stripe_customer_id: typeof session.customer === "string" ? session.customer : session.customer?.id || null,
+          stripe_subscription_id: typeof session.subscription === "string" ? session.subscription : session.subscription?.id || null,
+          subscription_activated_at: new Date().toISOString(),
+          subscription_status: "active",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+
+      if (error) throw error;
+      return response(200, { received: true });
+    }
+
     const { error } = await supabase.from("service_requests").insert({
       user_id: userId,
       vehicle_label: metadata.vehicle || "Vehicle pending",

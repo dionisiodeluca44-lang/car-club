@@ -33,6 +33,9 @@ export async function getCurrentMember() {
     name: profile?.full_name || user.user_metadata?.full_name || user.email,
     email: user.email,
     plan: profile?.plan || user.user_metadata?.plan || "Club Drive",
+    subscriptionStatus: profile?.subscription_status || user.user_metadata?.subscription_status || "active",
+    stripeCustomerId: profile?.stripe_customer_id || "",
+    stripeSubscriptionId: profile?.stripe_subscription_id || "",
     username: profile?.username || user.user_metadata?.username || "",
     avatarUrl: profile?.avatar_url || user.user_metadata?.avatar_url || "",
     notifications: profile?.notifications || defaultNotifications,
@@ -41,7 +44,7 @@ export async function getCurrentMember() {
 
 export async function createAccount({ email, name, password, plan, username }) {
   if (!supabase) {
-    return { avatarUrl: "", email, name, plan, username, notifications: defaultNotifications };
+    return { avatarUrl: "", email, name, plan, subscriptionStatus: "active", username, notifications: defaultNotifications };
   }
 
   const { data, error } = await supabase.auth.signUp({
@@ -74,6 +77,7 @@ export async function createAccount({ email, name, password, plan, username }) {
     email,
     name,
     plan,
+    subscriptionStatus: "pending",
     username,
     avatarUrl: "",
     notifications: defaultNotifications,
@@ -84,6 +88,7 @@ export async function createAccount({ email, name, password, plan, username }) {
     email,
     name,
     plan,
+    subscriptionStatus: "pending",
     username,
     avatarUrl: "",
     notifications: defaultNotifications,
@@ -105,7 +110,7 @@ export async function resendConfirmationEmail(email) {
 
 export async function signIn({ email, password }) {
   if (!supabase) {
-    return { avatarUrl: "", email, name: email.split("@")[0] || "Member", plan: "Club Drive", username: "", notifications: defaultNotifications };
+    return { avatarUrl: "", email, name: email.split("@")[0] || "Member", plan: "Club Drive", subscriptionStatus: "active", username: "", notifications: defaultNotifications };
   }
 
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -119,6 +124,9 @@ export async function signIn({ email, password }) {
     name: profile?.full_name || data.user.user_metadata?.full_name || data.user.email,
     email: data.user.email,
     plan: profile?.plan || data.user.user_metadata?.plan || "Club Drive",
+    subscriptionStatus: profile?.subscription_status || data.user.user_metadata?.subscription_status || "active",
+    stripeCustomerId: profile?.stripe_customer_id || "",
+    stripeSubscriptionId: profile?.stripe_subscription_id || "",
     username: profile?.username || data.user.user_metadata?.username || "",
     avatarUrl: profile?.avatar_url || data.user.user_metadata?.avatar_url || "",
     notifications: profile?.notifications || defaultNotifications,
@@ -130,10 +138,18 @@ export async function signOut() {
   await supabase.auth.signOut();
 }
 
-export async function upsertProfile({ avatarUrl, email, id, name, notifications, plan, username }) {
+export async function getCurrentAccessToken() {
+  if (!supabase) return "";
+
+  const { data, error } = await supabase.auth.getSession();
+  if (error) return "";
+  return data.session?.access_token || "";
+}
+
+export async function upsertProfile({ avatarUrl, email, id, name, notifications, plan, subscriptionStatus, username }) {
   if (!supabase || !id) return;
 
-  const { error } = await supabase.from("profiles").upsert({
+  const payload = {
     id,
     email,
     full_name: name,
@@ -141,7 +157,13 @@ export async function upsertProfile({ avatarUrl, email, id, name, notifications,
     avatar_url: avatarUrl || null,
     plan,
     notifications: notifications || defaultNotifications,
-  });
+  };
+
+  if (subscriptionStatus) {
+    payload.subscription_status = subscriptionStatus;
+  }
+
+  const { error } = await supabase.from("profiles").upsert(payload);
 
   if (error) throw error;
 }
@@ -277,6 +299,30 @@ export async function loadServicePricing() {
       note: row.note || "",
       paymentMode: row.payment_mode,
       serviceLabel: row.service_label,
+      updatedAt: row.updated_at,
+    };
+    return pricing;
+  }, {});
+}
+
+export async function loadMembershipPricing() {
+  if (!supabase) return {};
+
+  const { data, error } = await supabase
+    .from("membership_pricing")
+    .select("plan_name, amount_cents, cadence, note, updated_at");
+
+  if (error) {
+    console.warn("Could not load membership pricing.", error);
+    return {};
+  }
+
+  return (data || []).reduce((pricing, row) => {
+    pricing[row.plan_name] = {
+      amountCents: row.amount_cents,
+      cadence: row.cadence || "/month",
+      note: row.note || "",
+      planName: row.plan_name,
       updatedAt: row.updated_at,
     };
     return pricing;

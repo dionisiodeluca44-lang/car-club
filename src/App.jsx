@@ -29,9 +29,11 @@ import {
   createServiceRequest,
   createVehicle,
   deleteVehicleRecord,
+  getCurrentAccessToken,
   getCurrentMember,
   isBackendConfigured,
   loadFeedPosts,
+  loadMembershipPricing,
   loadServicePricing,
   loadServiceRequests,
   loadVehicles,
@@ -562,6 +564,57 @@ function normalizeServicePricingRows(rows = []) {
     };
     return pricing;
   }, {});
+}
+
+function planAmountCents(plan) {
+  const match = String(plan?.price || "").match(/[\d,.]+/);
+  if (!match) return null;
+  return Math.round(Number(match[0].replace(/,/g, "")) * 100);
+}
+
+function defaultMembershipPricingForPlan(planName) {
+  const plan = plans.find((item) => item.name === planName) || plans.find((item) => item.name === "Club Drive");
+  return {
+    amountCents: planAmountCents(plan),
+    cadence: plan?.cadence || "/month",
+    note: plan?.intro || "",
+    planName: plan?.name || planName,
+  };
+}
+
+function normalizeMembershipPricingRows(rows = []) {
+  if (!Array.isArray(rows)) return rows || {};
+
+  return rows.reduce((pricing, row) => {
+    const planName = row.planName || row.plan_name;
+    if (!planName) return pricing;
+
+    pricing[planName] = {
+      amountCents: row.amountCents ?? row.amount_cents ?? null,
+      cadence: row.cadence || "/month",
+      note: row.note || "",
+      planName,
+      updatedAt: row.updatedAt || row.updated_at,
+    };
+    return pricing;
+  }, {});
+}
+
+function membershipPricingForPlan(planName, membershipPricing = {}) {
+  const fallback = defaultMembershipPricingForPlan(planName);
+  const saved = membershipPricing?.[planName] || {};
+
+  return {
+    ...fallback,
+    ...saved,
+    amountCents: saved.amountCents ?? fallback.amountCents,
+  };
+}
+
+function membershipPriceLabel(planName, membershipPricing = {}) {
+  const pricing = membershipPricingForPlan(planName, membershipPricing);
+  if (pricing.amountCents === null || pricing.amountCents === undefined) return "Custom";
+  return formatCad(pricing.amountCents / 100).replace(" CAD", "");
 }
 
 function paymentTermsForService(serviceLabel, vehicle, selectedOptionName, servicePricing = {}) {
@@ -1250,6 +1303,7 @@ function App() {
     return ensureList(readStoredJson("carClubFeedPosts", []));
   });
   const [servicePricing, setServicePricing] = useState({});
+  const [membershipPricing, setMembershipPricing] = useState({});
 
   const closeMenu = () => setMenuOpen(false);
 
@@ -1304,6 +1358,25 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+
+    async function loadPricing() {
+      try {
+        const savedPricing = await loadMembershipPricing();
+        if (active) setMembershipPricing(normalizeMembershipPricingRows(savedPricing));
+      } catch (error) {
+        console.warn("Could not load membership pricing.", error);
+      }
+    }
+
+    loadPricing();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     function reportRuntimeError(event) {
       if (event.target && event.target !== window) return;
       setRuntimeError(event.reason?.message || event.error?.message || event.message || "The app hit an unexpected error.");
@@ -1321,6 +1394,7 @@ function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const bookingStatus = params.get("booking");
+    const membershipStatus = params.get("membership");
 
     if (bookingStatus === "success") {
       setCheckoutCompletion({
@@ -1341,6 +1415,30 @@ function App() {
 
     if (bookingStatus === "cancelled") {
       setAppError("Payment was cancelled. Your booking was not confirmed.");
+      setMode("app");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
+    if (membershipStatus === "success") {
+      setAppError("Membership payment received. We are checking your activation now.");
+      setMode("app");
+      window.history.replaceState({}, "", window.location.pathname);
+      if (isBackendConfigured) {
+        getCurrentMember()
+          .then((currentMember) => {
+            if (currentMember) {
+              setMember(currentMember);
+              setAppError(currentMember.subscriptionStatus === "active" ? "" : "Payment received. If your account is not open yet, press I Already Paid in a few seconds.");
+            }
+          })
+          .catch(() => {
+            setAppError("Payment received. Sign in again if your account does not open automatically.");
+          });
+      }
+    }
+
+    if (membershipStatus === "cancelled") {
+      setAppError("Membership checkout was cancelled. Your account is still waiting for activation.");
       setMode("app");
       window.history.replaceState({}, "", window.location.pathname);
     }
@@ -1455,6 +1553,20 @@ function App() {
     localStorage.removeItem("carClubMember");
     setMember(null);
     setMode("site");
+  }
+
+  async function refreshCurrentMember() {
+    if (!isBackendConfigured) return member;
+
+    const currentMember = await getCurrentMember();
+    if (!currentMember) {
+      setMember(null);
+      setMode("login");
+      return null;
+    }
+
+    setMember(currentMember);
+    return currentMember;
   }
 
   async function handleUpdateMember(settings) {
@@ -1580,7 +1692,7 @@ function App() {
   }
 
   if (mode === "login") {
-    return <LoginScreen appError={appError} backendEnabled={isBackendConfigured} onLogin={handleLogin} onBack={() => setMode("site")} />;
+    return <LoginScreen appError={appError} backendEnabled={isBackendConfigured} membershipPricing={membershipPricing} onLogin={handleLogin} onBack={() => setMode("site")} />;
   }
 
   if (runtimeError) {
@@ -1607,11 +1719,24 @@ function App() {
   }
 
   if (mode === "app" && member) {
+    if ((member.subscriptionStatus || "active") !== "active") {
+      return (
+        <SubscriptionActivationScreen
+          appError={appError}
+          member={member}
+          membershipPricing={membershipPricing}
+          onBack={() => setMode("site")}
+          onLogout={handleLogout}
+          onRefreshMember={refreshCurrentMember}
+        />
+      );
+    }
+
     return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteVehicle={deleteVehicle} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} servicePricing={servicePricing} />;
   }
 
   if (mode === "app") {
-    return <LoginScreen appError="Please sign in to access your member app." backendEnabled={isBackendConfigured} onLogin={handleLogin} onBack={() => setMode("site")} />;
+    return <LoginScreen appError="Please sign in to access your member app." backendEnabled={isBackendConfigured} membershipPricing={membershipPricing} onLogin={handleLogin} onBack={() => setMode("site")} />;
   }
 
   if (mode === "privacy") {
@@ -1752,8 +1877,8 @@ function App() {
                 <h3>{plan.name}</h3>
                 <p>{plan.intro}</p>
                 <div className="price">
-                  <strong>{plan.price}</strong>
-                  <span>{plan.cadence}</span>
+                  <strong>{membershipPriceLabel(plan.name, membershipPricing)}</strong>
+                  <span>{membershipPricingForPlan(plan.name, membershipPricing).cadence}</span>
                 </div>
                 <ul>
                   {plan.features.map((feature) => (
@@ -1980,6 +2105,97 @@ function AdminServicePriceRow({ onSave, pricing, service }) {
   );
 }
 
+function AdminMembershipPricingEditor({ membershipPricing, onSave }) {
+  return (
+    <section className="admin-pricing-card">
+      <div className="admin-pricing-heading">
+        <div>
+          <p className="eyebrow">Membership price settings</p>
+          <h2>Subscription prices</h2>
+          <p>Change the monthly membership price once here. New member checkouts and website membership cards will use the updated price.</p>
+        </div>
+        <span>{plans.length} plans</span>
+      </div>
+      <div className="admin-pricing-list">
+        {plans.map((plan) => (
+          <AdminMembershipPriceRow key={plan.name} membershipPricing={membershipPricing?.[plan.name]} onSave={onSave} plan={plan} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AdminMembershipPriceRow({ membershipPricing, onSave, plan }) {
+  const fallback = defaultMembershipPricingForPlan(plan.name);
+  const initialAmountCents = membershipPricing?.amountCents ?? fallback.amountCents;
+  const [amount, setAmount] = useState(initialAmountCents === null || initialAmountCents === undefined ? "" : (initialAmountCents / 100).toString());
+  const [cadence, setCadence] = useState(membershipPricing?.cadence || fallback.cadence || "/month");
+  const [note, setNote] = useState(membershipPricing?.note || fallback.note || "");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const nextFallback = defaultMembershipPricingForPlan(plan.name);
+    const nextAmountCents = membershipPricing?.amountCents ?? nextFallback.amountCents;
+    setAmount(nextAmountCents === null || nextAmountCents === undefined ? "" : (nextAmountCents / 100).toString());
+    setCadence(membershipPricing?.cadence || nextFallback.cadence || "/month");
+    setNote(membershipPricing?.note || nextFallback.note || "");
+  }, [membershipPricing?.amountCents, membershipPricing?.cadence, membershipPricing?.note, plan.name]);
+
+  async function submitPricing(event) {
+    event.preventDefault();
+    setSaving(true);
+
+    try {
+      await onSave(plan.name, {
+        amountCents: amount === "" ? null : Math.max(0, Math.round(Number(amount || 0) * 100)),
+        cadence,
+        note,
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="admin-pricing-row membership-pricing-row" onSubmit={submitPricing}>
+      <div className="admin-pricing-service">
+        <strong>{plan.name}</strong>
+        <small>{membershipPricing ? "Saved global price" : "Default price until saved"}</small>
+      </div>
+      <label>
+        Amount CAD
+        <input
+          min="0"
+          onChange={(event) => setAmount(event.target.value)}
+          placeholder={plan.price === "Custom" ? "Set a price" : "0"}
+          step="0.01"
+          type="number"
+          value={amount}
+        />
+      </label>
+      <label>
+        Billing
+        <select value={cadence} onChange={(event) => setCadence(event.target.value)}>
+          <option value="/month">Monthly</option>
+          <option value="/year">Yearly</option>
+        </select>
+      </label>
+      <label>
+        Website note
+        <input
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Shown internally with this price"
+          type="text"
+          value={note}
+        />
+      </label>
+      <button className="button secondary compact-button" type="submit" disabled={saving}>
+        {saving ? "Saving..." : "Save"}
+      </button>
+    </form>
+  );
+}
+
 function AdminPortal({ onBack }) {
   const [adminToken, setAdminToken] = useState("");
   const [draftToken, setDraftToken] = useState(() => localStorage.getItem("whiteGloveAdminToken") || "");
@@ -1988,6 +2204,7 @@ function AdminPortal({ onBack }) {
   const [adminMenu, setAdminMenu] = useState("requests");
   const [adminSidebarOpen, setAdminSidebarOpen] = useState(false);
   const [loadingRequests, setLoadingRequests] = useState(false);
+  const [membershipPricing, setMembershipPricing] = useState({});
   const [servicePricing, setServicePricing] = useState({});
   const [serviceRequests, setServiceRequests] = useState([]);
 
@@ -2040,6 +2257,31 @@ function AdminPortal({ onBack }) {
     }
   }
 
+  async function loadAdminMembershipPricing(token = adminToken, options = {}) {
+    if (!token) return;
+    if (!options.keepNotice) setAdminNotice("");
+
+    try {
+      const response = await fetch("/.netlify/functions/admin-membership-pricing", {
+        headers: { "x-admin-token": token },
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Could not load membership pricing.");
+      }
+
+      setMembershipPricing(normalizeMembershipPricingRows(payload.pricing || []));
+    } catch (error) {
+      const message = error.message || "Could not load membership pricing.";
+      if (options.throwOnError) {
+        setAdminError(message);
+        throw error;
+      }
+      setAdminNotice(`${message} Run the Supabase membership SQL before using Subscription Price Settings.`);
+    }
+  }
+
   async function submitAdminLogin(event) {
     event.preventDefault();
     setAdminError("");
@@ -2052,6 +2294,7 @@ function AdminPortal({ onBack }) {
       setAdminMenu("requests");
       setAdminSidebarOpen(false);
       loadAdminPricing(draftToken, { keepNotice: true });
+      loadAdminMembershipPricing(draftToken, { keepNotice: true });
     } catch (error) {
       localStorage.removeItem("whiteGloveAdminToken");
       setAdminToken("");
@@ -2067,6 +2310,7 @@ function AdminPortal({ onBack }) {
     setAdminSidebarOpen(false);
     setServiceRequests([]);
     setServicePricing({});
+    setMembershipPricing({});
     setAdminNotice("");
   }
 
@@ -2121,9 +2365,37 @@ function AdminPortal({ onBack }) {
     }
   }
 
+  async function updateMembershipPrice(planName, pricingUpdate) {
+    setAdminError("");
+
+    try {
+      const response = await fetch("/.netlify/functions/admin-membership-pricing", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": adminToken,
+        },
+        body: JSON.stringify({ planName, ...pricingUpdate }),
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Could not update membership pricing.");
+      }
+
+      setMembershipPricing((currentPricing) => ({
+        ...currentPricing,
+        ...normalizeMembershipPricingRows([payload.pricing]),
+      }));
+    } catch (error) {
+      setAdminError(error.message || "Could not update membership pricing.");
+    }
+  }
+
   const adminNavigation = [
     { id: "requests", label: "Service Requests" },
     { id: "pricing", label: "Booking Price Settings" },
+    { id: "memberships", label: "Subscription Price Settings" },
   ];
 
   if (!adminToken) {
@@ -2162,11 +2434,17 @@ function AdminPortal({ onBack }) {
           </button>
           <div>
             <p className="eyebrow">White Glove backend</p>
-            <h1>{adminMenu === "pricing" ? "Booking Price Settings" : "Service Requests"}</h1>
-            <p>{adminMenu === "pricing" ? "Set the same service request price for every member." : "Review paid bookings, member service requests, preferred timing, vehicle details, and concierge status."}</p>
+            <h1>{adminMenu === "memberships" ? "Subscription Price Settings" : adminMenu === "pricing" ? "Booking Price Settings" : "Service Requests"}</h1>
+            <p>
+              {adminMenu === "memberships"
+                ? "Set the membership prices used for new account activation checkouts."
+                : adminMenu === "pricing"
+                  ? "Set the same service request price for every member."
+                  : "Review paid bookings, member service requests, preferred timing, vehicle details, and concierge status."}
+            </p>
           </div>
           <div className="admin-header-actions">
-            <button className="button secondary compact-button" type="button" onClick={() => { loadAdminRequests(adminToken); loadAdminPricing(adminToken); }} disabled={loadingRequests}>
+            <button className="button secondary compact-button" type="button" onClick={() => { loadAdminRequests(adminToken); loadAdminPricing(adminToken); loadAdminMembershipPricing(adminToken); }} disabled={loadingRequests}>
               {loadingRequests ? "Loading..." : "Refresh"}
             </button>
             <button className="button secondary compact-button" type="button" onClick={closeAdminPortal}>Log Out</button>
@@ -2196,6 +2474,7 @@ function AdminPortal({ onBack }) {
         {adminNotice && <div className="admin-notice">{adminNotice}</div>}
 
         {adminMenu === "pricing" && <AdminServicePricingEditor onSave={updateServicePrice} pricing={servicePricing} />}
+        {adminMenu === "memberships" && <AdminMembershipPricingEditor membershipPricing={membershipPricing} onSave={updateMembershipPrice} />}
 
         {adminMenu === "requests" && (
           <div className="admin-request-grid">
@@ -2248,7 +2527,7 @@ function AdminPortal({ onBack }) {
   );
 }
 
-function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
+function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onLogin }) {
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
@@ -2342,11 +2621,11 @@ function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
           <label>
             Membership
             <select name="plan">
-              <option>Club Drive</option>
-              <option>Silver</option>
-              <option>Gold</option>
-              <option>Platinum</option>
-              <option>Collector</option>
+              {plans.map((plan) => (
+                <option key={plan.name} value={plan.name}>
+                  {plan.name} - {membershipPriceLabel(plan.name, membershipPricing)}{membershipPricingForPlan(plan.name, membershipPricing).cadence}
+                </option>
+              ))}
             </select>
           </label>
           <button className="button primary submit" name="authAction" type="submit" value="signin" disabled={authLoading}>
@@ -2359,6 +2638,137 @@ function LoginScreen({ appError, backendEnabled, onBack, onLogin }) {
             Resend Confirmation Email
           </button>
         </form>
+      </section>
+    </main>
+  );
+}
+
+function SubscriptionActivationScreen({ appError, member, membershipPricing, onBack, onLogout, onRefreshMember }) {
+  const [selectedPlan, setSelectedPlan] = useState(member?.plan || "Club Drive");
+  const [activationError, setActivationError] = useState("");
+  const [activationNotice, setActivationNotice] = useState("");
+  const [loading, setLoading] = useState(false);
+  const selectedPricing = membershipPricingForPlan(selectedPlan, membershipPricing);
+  const canCheckout = selectedPricing.amountCents !== null && selectedPricing.amountCents !== undefined && selectedPricing.amountCents > 0;
+
+  async function startMembershipCheckout() {
+    setActivationError("");
+    setActivationNotice("");
+
+    if (!canCheckout) {
+      setActivationError("This membership needs a price set in the admin portal before online activation can be used.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const accessToken = await getCurrentAccessToken();
+      const response = await fetch("/.netlify/functions/create-membership-checkout-session", {
+        method: "POST",
+        headers: {
+          "Authorization": accessToken ? `Bearer ${accessToken}` : "",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          memberEmail: member.email,
+          memberName: member.name,
+          plan: selectedPlan,
+          userId: member.id,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || !payload.url) {
+        throw new Error(payload.error || "Could not start membership checkout.");
+      }
+
+      window.location.href = payload.url;
+    } catch (error) {
+      setActivationError(error.message || "Could not start membership checkout.");
+      setLoading(false);
+    }
+  }
+
+  async function checkMembership() {
+    setActivationError("");
+    setActivationNotice("");
+    setLoading(true);
+
+    try {
+      const refreshedMember = await onRefreshMember?.();
+      if (refreshedMember?.subscriptionStatus === "active") {
+        setActivationNotice("Membership is active. Opening your account.");
+        return;
+      }
+      setActivationNotice("Payment is not marked active yet. If you just paid, wait a few seconds and check again.");
+    } catch (error) {
+      setActivationError(error.message || "Could not check membership status.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main className="login-screen subscription-screen">
+      <section className="subscription-activation">
+        <button className="text-button" type="button" onClick={onBack}>Back to site</button>
+        <div className="auth-brand">
+          <span className="brand-mark">WG</span>
+          <span>White Glove Member App</span>
+        </div>
+        <p className="eyebrow">Membership activation</p>
+        <h1>Activate your account.</h1>
+        <p>Your account is created. Choose your membership and complete the secure checkout before the member app opens.</p>
+
+        {appError && (
+          <div className={appError.toLowerCase().includes("cancelled") ? "error-message" : "success-message"} role="status">
+            {appError}
+          </div>
+        )}
+        {activationError && <div className="error-message" role="alert">{activationError}</div>}
+        {activationNotice && <div className="success-message" role="status">{activationNotice}</div>}
+
+        <div className="subscription-plan-grid">
+          {plans.map((plan) => {
+            const pricing = membershipPricingForPlan(plan.name, membershipPricing);
+            const isSelected = selectedPlan === plan.name;
+            return (
+              <button
+                className={isSelected ? "subscription-plan selected" : "subscription-plan"}
+                key={plan.name}
+                onClick={() => setSelectedPlan(plan.name)}
+                type="button"
+              >
+                <span>{plan.name}</span>
+                <strong>{membershipPriceLabel(plan.name, membershipPricing)}{pricing.cadence}</strong>
+                <small>{plan.intro}</small>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="subscription-summary">
+          <div>
+            <span>Selected membership</span>
+            <strong>{selectedPlan}</strong>
+          </div>
+          <div>
+            <span>Due today</span>
+            <strong>{canCheckout ? `${membershipPriceLabel(selectedPlan, membershipPricing)}${selectedPricing.cadence}` : "Custom"}</strong>
+          </div>
+        </div>
+
+        <div className="subscription-actions">
+          <button className="button primary submit" type="button" onClick={startMembershipCheckout} disabled={loading || !canCheckout}>
+            {loading ? "Opening checkout..." : "Activate With Stripe"} <ArrowRight size={18} />
+          </button>
+          <button className="button secondary submit" type="button" onClick={checkMembership} disabled={loading}>
+            I Already Paid
+          </button>
+          <button className="button ghost submit" type="button" onClick={onLogout} disabled={loading}>
+            Log Out
+          </button>
+        </div>
       </section>
     </main>
   );

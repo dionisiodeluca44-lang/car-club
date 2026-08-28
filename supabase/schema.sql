@@ -10,10 +10,22 @@ create table if not exists public.profiles (
   username text,
   avatar_url text,
   plan text not null default 'Club Drive',
+  subscription_status text not null default 'pending',
+  stripe_customer_id text,
+  stripe_subscription_id text,
+  subscription_activated_at timestamptz,
+  subscription_cancelled_at timestamptz,
   notifications jsonb not null default '{"bookingUpdates": true, "feedActivity": true, "offers": true, "serviceReminders": true}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.profiles
+  add column if not exists subscription_status text not null default 'pending',
+  add column if not exists stripe_customer_id text,
+  add column if not exists stripe_subscription_id text,
+  add column if not exists subscription_activated_at timestamptz,
+  add column if not exists subscription_cancelled_at timestamptz;
 
 create table if not exists public.vehicles (
   id uuid primary key default gen_random_uuid(),
@@ -66,20 +78,30 @@ create table if not exists public.service_pricing (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.membership_pricing (
+  plan_name text primary key,
+  amount_cents integer check (amount_cents is null or amount_cents >= 0),
+  cadence text not null default '/month' check (cadence in ('/month', '/year')),
+  note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer set search_path = public
 as $$
 begin
-  insert into public.profiles (id, email, full_name, username, avatar_url, plan)
+  insert into public.profiles (id, email, full_name, username, avatar_url, plan, subscription_status)
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data->>'full_name', 'Member'),
     new.raw_user_meta_data->>'username',
     new.raw_user_meta_data->>'avatar_url',
-    coalesce(new.raw_user_meta_data->>'plan', 'Club Drive')
+    coalesce(new.raw_user_meta_data->>'plan', 'Club Drive'),
+    'pending'
   )
   on conflict (id) do update
   set
@@ -105,6 +127,7 @@ alter table public.vehicles enable row level security;
 alter table public.service_requests enable row level security;
 alter table public.feed_posts enable row level security;
 alter table public.service_pricing enable row level security;
+alter table public.membership_pricing enable row level security;
 
 do $$
 begin
@@ -129,6 +152,7 @@ drop policy if exists "Members can create own feed posts" on public.feed_posts;
 drop policy if exists "Members can update own feed posts" on public.feed_posts;
 drop policy if exists "Members can delete own feed posts" on public.feed_posts;
 drop policy if exists "Members can read service pricing" on public.service_pricing;
+drop policy if exists "Anyone can read membership pricing" on public.membership_pricing;
 drop policy if exists "Members can upload vehicle photos" on storage.objects;
 drop policy if exists "Vehicle photos are public" on storage.objects;
 drop policy if exists "Members can update vehicle photos" on storage.objects;
@@ -196,6 +220,19 @@ create policy "Members can delete own feed posts"
 create policy "Members can read service pricing"
   on public.service_pricing for select
   using (auth.role() = 'authenticated');
+
+create policy "Anyone can read membership pricing"
+  on public.membership_pricing for select
+  using (true);
+
+insert into public.membership_pricing (plan_name, amount_cents, cadence, note)
+values
+  ('Silver', 9900, '/month', 'For owners who want the essentials managed with priority support.'),
+  ('Club Drive', 14900, '/month', 'For owners who want pickup, delivery, and regular care coordination handled.'),
+  ('Gold', 19900, '/month', 'For daily drivers and seasonal vehicles that need consistent care.'),
+  ('Platinum', 39900, '/month', 'For owners who want complete white-glove vehicle management.'),
+  ('Collector', null, '/month', 'For multi-car owners, collectors, and specialty storage needs.')
+on conflict (plan_name) do nothing;
 
 insert into storage.buckets (id, name, public)
 values ('vehicle-photos', 'vehicle-photos', true)
