@@ -47,14 +47,23 @@ ADMIN_PORTAL_PASSWORD=choose-a-strong-admin-password
 Setup steps:
 
 1. Create a Supabase project.
-2. Run `supabase/schema.sql` in the Supabase SQL editor.
-3. Copy `.env.example` to `.env.local` for local development and fill in the keys.
-4. Add the same keys in Netlify under Site configuration > Environment variables.
-5. Create a Stripe webhook endpoint for `https://vocal-pie-c034af.netlify.app/.netlify/functions/stripe-webhook` and subscribe it to `checkout.session.completed`.
-6. Enable Stripe customer email receipts in the Stripe dashboard if you want automatic payment receipts.
-7. Redeploy Netlify.
+2. Run `supabase/schema.sql` in the Supabase SQL editor. For a project that already ran the earlier membership setup, run `supabase/subscription-lifecycle.sql` instead.
+3. In Supabase Authentication > URL Configuration, add `https://vocal-pie-c034af.netlify.app/?password=recovery` to the allowed redirect URLs so password-reset emails return to the new-password screen.
+4. Copy `.env.example` to `.env.local` for local development and fill in the keys.
+5. Add the same keys in Netlify under Site configuration > Environment variables.
+6. Create a Stripe webhook endpoint for `https://vocal-pie-c034af.netlify.app/.netlify/functions/stripe-webhook` and subscribe it to:
+   - `checkout.session.completed`
+   - `customer.subscription.created`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+   - `customer.subscription.paused`
+   - `customer.subscription.resumed`
+   - `invoice.paid`
+   - `invoice.payment_failed`
+7. Enable Stripe customer email receipts in the Stripe dashboard if you want automatic payment receipts.
+8. Redeploy Netlify.
 
-Once configured, members can create accounts, sign in, save garage vehicles, upload vehicle photos, update vehicle values/horsepower/work history, create paid booking requests, and have those confirmed requests appear in the backend portal.
+Once configured, members can create accounts, activate a recurring membership, sign in, save garage vehicles, upload vehicle photos, update vehicle values/horsepower/work history, create paid booking requests, and have those confirmed requests appear in the backend portal. Stripe lifecycle webhooks pause access for `past_due`, `unpaid`, `paused`, and `canceled` subscriptions and restore it when Stripe reports the subscription `active` or `trialing` again. Supabase row-level policies enforce the same rule for garage, service-request, feed, and vehicle-upload operations.
 
 Backend portal:
 
@@ -89,5 +98,4 @@ Before uploading to TestFlight or the App Store, install full Xcode from the Mac
 Still planned:
 
 - Branded confirmation emails through Resend, Postmark, or another email service
-- Stripe subscriptions for monthly packages
 - SMS notifications

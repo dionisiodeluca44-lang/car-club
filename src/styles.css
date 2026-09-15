@@ -848,6 +848,22 @@ textarea:focus {
   align-items: center;
 }
 
+.subscription-lifecycle-notice {
+  display: grid;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(229, 200, 121, 0.35);
+  border-radius: var(--radius);
+  background: rgba(201, 164, 92, 0.1);
+  color: var(--ink);
+}
+
+.subscription-lifecycle-notice span {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 .text-button {
   margin-bottom: 1.2rem;
   color: var(--gold-bright);
@@ -877,6 +893,24 @@ textarea:focus {
 .app-form {
   display: grid;
   gap: 1rem;
+}
+
+.forgot-password-button {
+  justify-self: start;
+  margin-top: -0.45rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--gold-bright);
+  cursor: pointer;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+
+.forgot-password-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .mobile-app-shell {

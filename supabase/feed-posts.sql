@@ -1,4 +1,4 @@
--- Run this once in Supabase SQL Editor to make the member feed shared.
+-- Run this after the main membership schema in Supabase SQL Editor to make the member feed shared.
 
 create table if not exists public.feed_posts (
   id uuid primary key default gen_random_uuid(),
@@ -20,17 +20,17 @@ drop policy if exists "Members can delete own feed posts" on public.feed_posts;
 
 create policy "Members can read all feed posts"
   on public.feed_posts for select
-  using (auth.role() = 'authenticated');
+  using (public.has_active_membership());
 
 create policy "Members can create own feed posts"
   on public.feed_posts for insert
-  with check (auth.uid() = user_id);
+  with check (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can update own feed posts"
   on public.feed_posts for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+  using (auth.uid() = user_id and public.has_active_membership())
+  with check (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can delete own feed posts"
   on public.feed_posts for delete
-  using (auth.uid() = user_id);
+  using (auth.uid() = user_id and public.has_active_membership());

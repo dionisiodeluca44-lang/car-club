@@ -19,6 +19,11 @@ function getAuthRedirectUrl() {
   return window.location.origin;
 }
 
+function getPasswordRecoveryRedirectUrl() {
+  if (typeof window === "undefined") return undefined;
+  return `${window.location.origin}/?password=recovery`;
+}
+
 export async function getCurrentMember() {
   if (!supabase) return null;
 
@@ -26,14 +31,17 @@ export async function getCurrentMember() {
   if (error || !data.session?.user) return null;
 
   const user = data.session.user;
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+  const { data: profile, error: profileError } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+  if (profileError) throw profileError;
 
   return {
     id: user.id,
     name: profile?.full_name || user.user_metadata?.full_name || user.email,
     email: user.email,
     plan: profile?.plan || user.user_metadata?.plan || "Club Drive",
-    subscriptionStatus: profile?.subscription_status || user.user_metadata?.subscription_status || "active",
+    subscriptionStatus: profile?.subscription_status || user.user_metadata?.subscription_status || "pending",
+    subscriptionCancelAtPeriodEnd: Boolean(profile?.subscription_cancel_at_period_end),
+    subscriptionStatusUpdatedAt: profile?.subscription_status_updated_at || "",
     stripeCustomerId: profile?.stripe_customer_id || "",
     stripeSubscriptionId: profile?.stripe_subscription_id || "",
     username: profile?.username || user.user_metadata?.username || "",
@@ -77,7 +85,6 @@ export async function createAccount({ email, name, password, plan, username }) {
     email,
     name,
     plan,
-    subscriptionStatus: "pending",
     username,
     avatarUrl: "",
     notifications: defaultNotifications,
@@ -108,6 +115,18 @@ export async function resendConfirmationEmail(email) {
   if (error) throw error;
 }
 
+export async function requestPasswordReset(email) {
+  if (!supabase) {
+    throw new Error("Password recovery requires the Supabase backend.");
+  }
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: getPasswordRecoveryRedirectUrl(),
+  });
+
+  if (error) throw error;
+}
+
 export async function signIn({ email, password }) {
   if (!supabase) {
     return { avatarUrl: "", email, name: email.split("@")[0] || "Member", plan: "Club Drive", subscriptionStatus: "active", username: "", notifications: defaultNotifications };
@@ -117,14 +136,17 @@ export async function signIn({ email, password }) {
   if (error) throw error;
   if (!data.user) throw new Error("Could not sign in.");
 
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", data.user.id).maybeSingle();
+  const { data: profile, error: profileError } = await supabase.from("profiles").select("*").eq("id", data.user.id).maybeSingle();
+  if (profileError) throw profileError;
 
   return {
     id: data.user.id,
     name: profile?.full_name || data.user.user_metadata?.full_name || data.user.email,
     email: data.user.email,
     plan: profile?.plan || data.user.user_metadata?.plan || "Club Drive",
-    subscriptionStatus: profile?.subscription_status || data.user.user_metadata?.subscription_status || "active",
+    subscriptionStatus: profile?.subscription_status || data.user.user_metadata?.subscription_status || "pending",
+    subscriptionCancelAtPeriodEnd: Boolean(profile?.subscription_cancel_at_period_end),
+    subscriptionStatusUpdatedAt: profile?.subscription_status_updated_at || "",
     stripeCustomerId: profile?.stripe_customer_id || "",
     stripeSubscriptionId: profile?.stripe_subscription_id || "",
     username: profile?.username || data.user.user_metadata?.username || "",
@@ -146,7 +168,7 @@ export async function getCurrentAccessToken() {
   return data.session?.access_token || "";
 }
 
-export async function upsertProfile({ avatarUrl, email, id, name, notifications, plan, subscriptionStatus, username }) {
+export async function upsertProfile({ avatarUrl, email, id, name, notifications, plan, username }) {
   if (!supabase || !id) return;
 
   const payload = {
@@ -158,10 +180,6 @@ export async function upsertProfile({ avatarUrl, email, id, name, notifications,
     plan,
     notifications: notifications || defaultNotifications,
   };
-
-  if (subscriptionStatus) {
-    payload.subscription_status = subscriptionStatus;
-  }
 
   const { error } = await supabase.from("profiles").upsert(payload);
 

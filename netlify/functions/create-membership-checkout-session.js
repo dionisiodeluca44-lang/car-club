@@ -85,6 +85,22 @@ async function verifyMember(event, payload) {
   return data.user;
 }
 
+async function billingProfileForMember(userId) {
+  if (!supabase || !userId) return null;
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("stripe_customer_id, stripe_subscription_id, subscription_status")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Could not load the member's existing Stripe billing profile: ${error.message}`);
+  }
+
+  return data || null;
+}
+
 export async function handler(event) {
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed" });
@@ -99,6 +115,19 @@ export async function handler(event) {
     const verifiedUser = await verifyMember(event, payload);
     const plan = clean(payload.plan, "Club Drive");
     const pricing = await pricingForPlan(plan);
+    const billingProfile = await billingProfileForMember(verifiedUser?.id);
+    if (!billingProfile) {
+      throw new Error("The signed-in member does not have a billing profile.");
+    }
+    const existingCustomerId = billingProfile?.stripe_customer_id || null;
+
+    if (["active", "trialing"].includes(billingProfile?.subscription_status)) {
+      return json(409, { error: "This membership is already active." });
+    }
+
+    if (["past_due", "unpaid", "paused", "incomplete"].includes(billingProfile?.subscription_status)) {
+      return json(409, { error: "Resolve the existing subscription through Stripe before starting another membership." });
+    }
 
     if (!pricing) {
       return json(400, { error: "Choose a valid membership." });
@@ -118,10 +147,9 @@ export async function handler(event) {
       userId: clean(verifiedUser?.id || payload.userId),
     };
 
-    const session = await stripe.checkout.sessions.create({
+    const sessionOptions = {
       mode: "subscription",
       payment_method_types: ["card"],
-      customer_email: clean(verifiedUser?.email || payload.memberEmail),
       client_reference_id: clean(`white-glove-membership-${verifiedUser?.id || payload.userId || payload.memberEmail || Date.now()}`),
       success_url: `${siteUrl}/?membership=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl}/?membership=cancelled`,
@@ -148,7 +176,15 @@ export async function handler(event) {
       subscription_data: {
         metadata,
       },
-    });
+    };
+
+    if (existingCustomerId) {
+      sessionOptions.customer = existingCustomerId;
+    } else {
+      sessionOptions.customer_email = clean(verifiedUser?.email || payload.memberEmail);
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionOptions);
 
     return json(200, { id: session.id, url: session.url });
   } catch (error) {

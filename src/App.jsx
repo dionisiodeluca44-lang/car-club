@@ -37,6 +37,7 @@ import {
   loadServicePricing,
   loadServiceRequests,
   loadVehicles,
+  requestPasswordReset,
   resendConfirmationEmail,
   signIn,
   signOut,
@@ -137,6 +138,59 @@ const plans = [
     features: ["Dedicated account manager", "Full collection management", "Storage coordination", "Monthly inspections", "Market value tracking"],
   },
 ];
+
+const membershipAccessStatuses = new Set(["active", "trialing"]);
+
+function hasMembershipAccess(status) {
+  return membershipAccessStatuses.has(String(status || "").toLowerCase());
+}
+
+function membershipLifecycleContent(status) {
+  switch (String(status || "pending").toLowerCase()) {
+    case "past_due":
+      return {
+        eyebrow: "Payment required",
+        title: "Your membership payment is past due.",
+        description: "Member-app access is paused while the balance is outstanding. Use the secure Stripe payment email to update your payment method or complete payment, then check your status again.",
+        canStartCheckout: false,
+      };
+    case "unpaid":
+      return {
+        eyebrow: "Membership unpaid",
+        title: "Your membership needs billing attention.",
+        description: "Stripe could not collect the membership balance after its retry period, so member-app access is paused. Contact White Glove or use Stripe's payment email to settle the balance, then check your status again.",
+        canStartCheckout: false,
+      };
+    case "canceled":
+      return {
+        eyebrow: "Membership ended",
+        title: "Reactivate your membership.",
+        description: "Your previous subscription has ended and member-app access is paused. Choose a membership below and complete a new secure checkout to regain access.",
+        canStartCheckout: true,
+      };
+    case "paused":
+      return {
+        eyebrow: "Membership paused",
+        title: "Your membership is paused.",
+        description: "Add or update your payment method through Stripe, then check your membership status. Access returns as soon as Stripe reports the subscription active again.",
+        canStartCheckout: false,
+      };
+    case "incomplete_expired":
+      return {
+        eyebrow: "Activation expired",
+        title: "Restart your membership activation.",
+        description: "The previous checkout was not completed in time. Choose your membership and start a new secure Stripe checkout.",
+        canStartCheckout: true,
+      };
+    default:
+      return {
+        eyebrow: "Membership activation",
+        title: "Activate your account.",
+        description: "Your account is created. Choose your membership and complete the secure checkout before the member app opens.",
+        canStartCheckout: true,
+      };
+  }
+}
 
 const serviceOptions = [
   {
@@ -1280,7 +1334,7 @@ class MemberPanelErrorBoundary extends Component {
 }
 
 function App() {
-  const [mode, setMode] = useState("site");
+  const [mode, setMode] = useState(() => new URLSearchParams(window.location.search).get("password") === "recovery" ? "password-recovery" : "site");
   const [menuOpen, setMenuOpen] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -1291,7 +1345,8 @@ function App() {
   const [loadingAccount, setLoadingAccount] = useState(isBackendConfigured);
   const [member, setMember] = useState(() => {
     if (isBackendConfigured) return null;
-    return readStoredJson("carClubMember", null);
+    const storedMember = readStoredJson("carClubMember", null);
+    return storedMember ? { ...storedMember, subscriptionStatus: storedMember.subscriptionStatus || "active" } : null;
   });
   const [garage, setGarage] = useState(() => {
     return ensureList(readStoredJson("carClubGarage", defaultGarage));
@@ -1428,7 +1483,7 @@ function App() {
           .then((currentMember) => {
             if (currentMember) {
               setMember(currentMember);
-              setAppError(currentMember.subscriptionStatus === "active" ? "" : "Payment received. If your account is not open yet, press I Already Paid in a few seconds.");
+              setAppError(hasMembershipAccess(currentMember.subscriptionStatus) ? "" : "Payment received. If your account is not open yet, check your membership status again in a few seconds.");
             }
           })
           .catch(() => {
@@ -1438,7 +1493,7 @@ function App() {
     }
 
     if (membershipStatus === "cancelled") {
-      setAppError("Membership checkout was cancelled. Your account is still waiting for activation.");
+      setAppError("Membership checkout was cancelled. Your membership status has not changed.");
       setMode("app");
       window.history.replaceState({}, "", window.location.pathname);
     }
@@ -1448,6 +1503,11 @@ function App() {
     let active = true;
 
     async function loadAccount() {
+      if (new URLSearchParams(window.location.search).get("password") === "recovery") {
+        setLoadingAccount(false);
+        return;
+      }
+
       if (!isBackendConfigured) {
         setLoadingAccount(false);
         return;
@@ -1458,6 +1518,15 @@ function App() {
         if (!active || !currentMember) {
           if (active) setMember(null);
           setLoadingAccount(false);
+          return;
+        }
+
+        if (!hasMembershipAccess(currentMember.subscriptionStatus)) {
+          setMember(currentMember);
+          setGarage([]);
+          setAppointments([]);
+          setFeedPosts([]);
+          setMode("app");
           return;
         }
 
@@ -1486,6 +1555,54 @@ function App() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isBackendConfigured || !member?.id || mode !== "app") return undefined;
+
+    let active = true;
+
+    async function syncMembershipStatus() {
+      try {
+        const currentMember = await getCurrentMember();
+        if (!active || !currentMember) return;
+
+        if (hasMembershipAccess(currentMember.subscriptionStatus) && !hasMembershipAccess(member.subscriptionStatus)) {
+          const [savedGarage, savedAppointments, savedFeedPosts] = await Promise.all([
+            loadVehicles(currentMember.id),
+            loadServiceRequests(currentMember.id),
+            loadFeedPosts(),
+          ]);
+          if (!active) return;
+          setGarage(ensureList(savedGarage));
+          setAppointments(ensureList(savedAppointments));
+          setFeedPosts(ensureList(savedFeedPosts));
+        } else if (!hasMembershipAccess(currentMember.subscriptionStatus) && hasMembershipAccess(member.subscriptionStatus)) {
+          setGarage([]);
+          setAppointments([]);
+          setFeedPosts([]);
+        }
+
+        setMember(currentMember);
+      } catch (error) {
+        console.warn("Could not refresh membership status.", error);
+      }
+    }
+
+    function syncWhenVisible() {
+      if (document.visibilityState === "visible") syncMembershipStatus();
+    }
+
+    const intervalId = window.setInterval(syncMembershipStatus, 30_000);
+    window.addEventListener("focus", syncMembershipStatus);
+    document.addEventListener("visibilitychange", syncWhenVisible);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", syncMembershipStatus);
+      document.removeEventListener("visibilitychange", syncWhenVisible);
+    };
+  }, [member?.id, member?.subscriptionStatus, mode]);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -1541,10 +1658,11 @@ function App() {
       return;
     }
 
-    localStorage.setItem("carClubMember", JSON.stringify(profile));
+    const localMember = { ...profile, subscriptionStatus: "active" };
+    localStorage.setItem("carClubMember", JSON.stringify(localMember));
     localStorage.setItem("carClubGarage", JSON.stringify(garage));
     localStorage.setItem("carClubAppointments", JSON.stringify(appointments));
-    setMember(profile);
+    setMember(localMember);
     setMode("app");
   }
 
@@ -1553,6 +1671,15 @@ function App() {
     localStorage.removeItem("carClubMember");
     setMember(null);
     setMode("site");
+  }
+
+  async function finishPasswordRecovery(message = "") {
+    await signOut();
+    window.history.replaceState({}, "", window.location.pathname);
+    setMember(null);
+    setAppError(message);
+    setLoadingAccount(false);
+    setMode("login");
   }
 
   async function refreshCurrentMember() {
@@ -1692,7 +1819,11 @@ function App() {
   }
 
   if (mode === "login") {
-    return <LoginScreen appError={appError} backendEnabled={isBackendConfigured} membershipPricing={membershipPricing} onLogin={handleLogin} onBack={() => setMode("site")} />;
+    return <LoginScreen appError={appError} backendEnabled={isBackendConfigured} membershipPricing={membershipPricing} onForgotPassword={requestPasswordReset} onLogin={handleLogin} onBack={() => setMode("site")} />;
+  }
+
+  if (mode === "password-recovery") {
+    return <PasswordRecoveryScreen onCancel={() => finishPasswordRecovery()} onComplete={() => finishPasswordRecovery("Your password has been changed. Sign in with your new password.")} />;
   }
 
   if (runtimeError) {
@@ -1719,7 +1850,7 @@ function App() {
   }
 
   if (mode === "app" && member) {
-    if ((member.subscriptionStatus || "active") !== "active") {
+    if (!hasMembershipAccess(member.subscriptionStatus)) {
       return (
         <SubscriptionActivationScreen
           appError={appError}
@@ -1736,7 +1867,7 @@ function App() {
   }
 
   if (mode === "app") {
-    return <LoginScreen appError="Please sign in to access your member app." backendEnabled={isBackendConfigured} membershipPricing={membershipPricing} onLogin={handleLogin} onBack={() => setMode("site")} />;
+    return <LoginScreen appError="Please sign in to access your member app." backendEnabled={isBackendConfigured} membershipPricing={membershipPricing} onForgotPassword={requestPasswordReset} onLogin={handleLogin} onBack={() => setMode("site")} />;
   }
 
   if (mode === "privacy") {
@@ -2527,11 +2658,12 @@ function AdminPortal({ onBack }) {
   );
 }
 
-function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onLogin }) {
+function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onForgotPassword, onLogin }) {
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
-  const appErrorIsNotice = appError?.startsWith("Account created.");
+  const formRef = useRef(null);
+  const appErrorIsNotice = appError?.startsWith("Account created.") || appError?.startsWith("Your password has been changed.");
 
   async function submitLogin(event) {
     event.preventDefault();
@@ -2561,7 +2693,7 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onLo
     setAuthError("");
     setAuthNotice("");
 
-    const emailInput = document.querySelector(".app-form input[name='email']");
+    const emailInput = formRef.current?.elements?.email;
     const email = emailInput?.value;
 
     if (!email) {
@@ -2580,6 +2712,35 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onLo
     }
   }
 
+  async function handleForgotPassword() {
+    setAuthError("");
+    setAuthNotice("");
+
+    const emailInput = formRef.current?.elements?.email;
+    const email = emailInput?.value?.trim();
+
+    if (!email) {
+      setAuthError("Enter your email first, then choose Forgot your password.");
+      emailInput?.focus();
+      return;
+    }
+
+    if (!emailInput.checkValidity()) {
+      emailInput.reportValidity();
+      return;
+    }
+
+    try {
+      setAuthLoading(true);
+      await onForgotPassword(email);
+      setAuthNotice("If an account exists for that email, a password reset link is on its way. Check your inbox and spam folder.");
+    } catch (error) {
+      setAuthError(error.message || "Could not send the password reset email.");
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
   return (
     <main className="login-screen">
       <section className="phone-auth">
@@ -2590,7 +2751,7 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onLo
         </div>
         <h1>Log in to your vehicle concierge account.</h1>
         <p>{backendEnabled ? "Use your member email and password to access saved vehicles and service requests." : "Backend keys are not connected yet, so this runs in local prototype mode."}</p>
-        <form className="app-form" onSubmit={submitLogin}>
+        <form className="app-form" ref={formRef} onSubmit={submitLogin}>
           {authError && (
             <div className="error-message" role="alert">
               {authError}
@@ -2618,6 +2779,9 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onLo
             Password
             <input name="password" type="password" placeholder="Minimum 6 characters" required />
           </label>
+          <button className="forgot-password-button" type="button" onClick={handleForgotPassword} disabled={authLoading || !backendEnabled}>
+            Forgot your password?
+          </button>
           <label>
             Membership
             <select name="plan">
@@ -2643,19 +2807,83 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onLo
   );
 }
 
+function PasswordRecoveryScreen({ onCancel, onComplete }) {
+  const [recoveryError, setRecoveryError] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+
+  async function submitNewPassword(event) {
+    event.preventDefault();
+    setRecoveryError("");
+
+    const formData = new FormData(event.currentTarget);
+    const password = String(formData.get("password") || "");
+    const confirmation = String(formData.get("passwordConfirmation") || "");
+
+    if (password !== confirmation) {
+      setRecoveryError("The passwords do not match.");
+      return;
+    }
+
+    try {
+      setSavingPassword(true);
+      await updateMemberPassword(password);
+      await onComplete();
+    } catch (error) {
+      setRecoveryError(error.message || "Could not change your password. Request a new reset email and try again.");
+      setSavingPassword(false);
+    }
+  }
+
+  return (
+    <main className="login-screen">
+      <section className="phone-auth">
+        <button className="text-button" type="button" onClick={onCancel} disabled={savingPassword}>Back to sign in</button>
+        <div className="auth-brand">
+          <span className="brand-mark">WG</span>
+          <span>White Glove Member App</span>
+        </div>
+        <KeyRound size={28} />
+        <h1>Choose a new password.</h1>
+        <p>Enter a new password for your member account. You’ll return to sign in after it is saved.</p>
+        <form className="app-form" onSubmit={submitNewPassword}>
+          {recoveryError && <div className="error-message" role="alert">{recoveryError}</div>}
+          <label>
+            New password
+            <input name="password" type="password" minLength="6" autoComplete="new-password" placeholder="Minimum 6 characters" required />
+          </label>
+          <label>
+            Confirm new password
+            <input name="passwordConfirmation" type="password" minLength="6" autoComplete="new-password" placeholder="Enter it again" required />
+          </label>
+          <button className="button primary submit" type="submit" disabled={savingPassword}>
+            {savingPassword ? "Saving password..." : "Change Password"} <ArrowRight size={18} />
+          </button>
+        </form>
+      </section>
+    </main>
+  );
+}
+
 function SubscriptionActivationScreen({ appError, member, membershipPricing, onBack, onLogout, onRefreshMember }) {
   const [selectedPlan, setSelectedPlan] = useState(member?.plan || "Club Drive");
   const [activationError, setActivationError] = useState("");
   const [activationNotice, setActivationNotice] = useState("");
   const [loading, setLoading] = useState(false);
+  const lifecycleContent = membershipLifecycleContent(member?.subscriptionStatus);
   const selectedPricing = membershipPricingForPlan(selectedPlan, membershipPricing);
-  const canCheckout = selectedPricing.amountCents !== null && selectedPricing.amountCents !== undefined && selectedPricing.amountCents > 0;
+  const hasCheckoutPrice = selectedPricing.amountCents !== null && selectedPricing.amountCents !== undefined && selectedPricing.amountCents > 0;
+  const canCheckout = lifecycleContent.canStartCheckout && hasCheckoutPrice;
 
   async function startMembershipCheckout() {
     setActivationError("");
     setActivationNotice("");
 
-    if (!canCheckout) {
+    if (!lifecycleContent.canStartCheckout) {
+      setActivationError("Resolve the existing subscription balance through Stripe before starting another membership.");
+      return;
+    }
+
+    if (!hasCheckoutPrice) {
       setActivationError("This membership needs a price set in the admin portal before online activation can be used.");
       return;
     }
@@ -2696,11 +2924,12 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
 
     try {
       const refreshedMember = await onRefreshMember?.();
-      if (refreshedMember?.subscriptionStatus === "active") {
+      if (hasMembershipAccess(refreshedMember?.subscriptionStatus)) {
         setActivationNotice("Membership is active. Opening your account.");
         return;
       }
-      setActivationNotice("Payment is not marked active yet. If you just paid, wait a few seconds and check again.");
+      const refreshedContent = membershipLifecycleContent(refreshedMember?.subscriptionStatus);
+      setActivationNotice(`Stripe still reports this membership as ${String(refreshedMember?.subscriptionStatus || "pending").replaceAll("_", " ")}. ${refreshedContent.description}`);
     } catch (error) {
       setActivationError(error.message || "Could not check membership status.");
     } finally {
@@ -2716,9 +2945,9 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
           <span className="brand-mark">WG</span>
           <span>White Glove Member App</span>
         </div>
-        <p className="eyebrow">Membership activation</p>
-        <h1>Activate your account.</h1>
-        <p>Your account is created. Choose your membership and complete the secure checkout before the member app opens.</p>
+        <p className="eyebrow">{lifecycleContent.eyebrow}</p>
+        <h1>{lifecycleContent.title}</h1>
+        <p>{lifecycleContent.description}</p>
 
         {appError && (
           <div className={appError.toLowerCase().includes("cancelled") ? "error-message" : "success-message"} role="status">
@@ -2728,42 +2957,48 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
         {activationError && <div className="error-message" role="alert">{activationError}</div>}
         {activationNotice && <div className="success-message" role="status">{activationNotice}</div>}
 
-        <div className="subscription-plan-grid">
-          {plans.map((plan) => {
-            const pricing = membershipPricingForPlan(plan.name, membershipPricing);
-            const isSelected = selectedPlan === plan.name;
-            return (
-              <button
-                className={isSelected ? "subscription-plan selected" : "subscription-plan"}
-                key={plan.name}
-                onClick={() => setSelectedPlan(plan.name)}
-                type="button"
-              >
-                <span>{plan.name}</span>
-                <strong>{membershipPriceLabel(plan.name, membershipPricing)}{pricing.cadence}</strong>
-                <small>{plan.intro}</small>
-              </button>
-            );
-          })}
-        </div>
+        {lifecycleContent.canStartCheckout && (
+          <>
+            <div className="subscription-plan-grid">
+              {plans.map((plan) => {
+                const pricing = membershipPricingForPlan(plan.name, membershipPricing);
+                const isSelected = selectedPlan === plan.name;
+                return (
+                  <button
+                    className={isSelected ? "subscription-plan selected" : "subscription-plan"}
+                    key={plan.name}
+                    onClick={() => setSelectedPlan(plan.name)}
+                    type="button"
+                  >
+                    <span>{plan.name}</span>
+                    <strong>{membershipPriceLabel(plan.name, membershipPricing)}{pricing.cadence}</strong>
+                    <small>{plan.intro}</small>
+                  </button>
+                );
+              })}
+            </div>
 
-        <div className="subscription-summary">
-          <div>
-            <span>Selected membership</span>
-            <strong>{selectedPlan}</strong>
-          </div>
-          <div>
-            <span>Due today</span>
-            <strong>{canCheckout ? `${membershipPriceLabel(selectedPlan, membershipPricing)}${selectedPricing.cadence}` : "Custom"}</strong>
-          </div>
-        </div>
+            <div className="subscription-summary">
+              <div>
+                <span>Selected membership</span>
+                <strong>{selectedPlan}</strong>
+              </div>
+              <div>
+                <span>Due today</span>
+                <strong>{hasCheckoutPrice ? `${membershipPriceLabel(selectedPlan, membershipPricing)}${selectedPricing.cadence}` : "Custom"}</strong>
+              </div>
+            </div>
+          </>
+        )}
 
         <div className="subscription-actions">
-          <button className="button primary submit" type="button" onClick={startMembershipCheckout} disabled={loading || !canCheckout}>
-            {loading ? "Opening checkout..." : "Activate With Stripe"} <ArrowRight size={18} />
-          </button>
-          <button className="button secondary submit" type="button" onClick={checkMembership} disabled={loading}>
-            I Already Paid
+          {lifecycleContent.canStartCheckout && (
+            <button className="button primary submit" type="button" onClick={startMembershipCheckout} disabled={loading || !canCheckout}>
+              {loading ? "Opening checkout..." : member?.subscriptionStatus === "canceled" ? "Reactivate With Stripe" : "Activate With Stripe"} <ArrowRight size={18} />
+            </button>
+          )}
+          <button className={lifecycleContent.canStartCheckout ? "button secondary submit" : "button primary submit"} type="button" onClick={checkMembership} disabled={loading}>
+            {loading ? "Checking..." : "Check Membership Status"}
           </button>
           <button className="button ghost submit" type="button" onClick={onLogout} disabled={loading}>
             Log Out
@@ -2825,6 +3060,13 @@ function MemberApp({ appointments, feedPosts, garage, initialCompletion, member,
             <ProfileAvatar member={member} size={32} />
           </button>
         </header>
+
+        {member.subscriptionCancelAtPeriodEnd && (
+          <div className="subscription-lifecycle-notice" role="status">
+            <strong>Your membership is scheduled to end.</strong>
+            <span>You can keep using the member app until Stripe closes the subscription. Contact White Glove if you want to keep it active.</span>
+          </div>
+        )}
 
         <MemberPanelErrorBoundary resetKey={activeTab} onRecover={() => setActiveTab("home")}>
           {completion && <CompletionScreen completion={completion} onNavigate={navigateToTab} />}

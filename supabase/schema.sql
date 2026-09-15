@@ -13,8 +13,12 @@ create table if not exists public.profiles (
   subscription_status text not null default 'pending',
   stripe_customer_id text,
   stripe_subscription_id text,
+  stripe_subscription_created_at timestamptz,
+  stripe_subscription_event_id text,
   subscription_activated_at timestamptz,
   subscription_cancelled_at timestamptz,
+  subscription_status_updated_at timestamptz,
+  subscription_cancel_at_period_end boolean not null default false,
   notifications jsonb not null default '{"bookingUpdates": true, "feedActivity": true, "offers": true, "serviceReminders": true}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -24,8 +28,18 @@ alter table public.profiles
   add column if not exists subscription_status text not null default 'pending',
   add column if not exists stripe_customer_id text,
   add column if not exists stripe_subscription_id text,
+  add column if not exists stripe_subscription_created_at timestamptz,
+  add column if not exists stripe_subscription_event_id text,
   add column if not exists subscription_activated_at timestamptz,
-  add column if not exists subscription_cancelled_at timestamptz;
+  add column if not exists subscription_cancelled_at timestamptz,
+  add column if not exists subscription_status_updated_at timestamptz,
+  add column if not exists subscription_cancel_at_period_end boolean not null default false;
+
+-- Members may edit their profile details, but only the service-role webhook may
+-- change Stripe identity or entitlement fields.
+revoke update on public.profiles from authenticated;
+grant update (id, email, full_name, username, avatar_url, plan, notifications, updated_at)
+  on public.profiles to authenticated;
 
 create table if not exists public.vehicles (
   id uuid primary key default gen_random_uuid(),
@@ -129,6 +143,24 @@ alter table public.feed_posts enable row level security;
 alter table public.service_pricing enable row level security;
 alter table public.membership_pricing enable row level security;
 
+create or replace function public.has_active_membership()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles
+    where id = auth.uid()
+      and subscription_status in ('active', 'trialing')
+  );
+$$;
+
+revoke all on function public.has_active_membership() from public;
+grant execute on function public.has_active_membership() to authenticated;
+
 do $$
 begin
   alter publication supabase_realtime add table public.feed_posts;
@@ -172,50 +204,50 @@ create policy "Members can update own profile"
 
 create policy "Members can read own vehicles"
   on public.vehicles for select
-  using (auth.uid() = user_id);
+  using (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can insert own vehicles"
   on public.vehicles for insert
-  with check (auth.uid() = user_id);
+  with check (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can update own vehicles"
   on public.vehicles for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+  using (auth.uid() = user_id and public.has_active_membership())
+  with check (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can delete own vehicles"
   on public.vehicles for delete
-  using (auth.uid() = user_id);
+  using (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can read own service requests"
   on public.service_requests for select
-  using (auth.uid() = user_id);
+  using (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can insert own service requests"
   on public.service_requests for insert
-  with check (auth.uid() = user_id);
+  with check (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can update own service requests"
   on public.service_requests for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+  using (auth.uid() = user_id and public.has_active_membership())
+  with check (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can read all feed posts"
   on public.feed_posts for select
-  using (auth.role() = 'authenticated');
+  using (public.has_active_membership());
 
 create policy "Members can create own feed posts"
   on public.feed_posts for insert
-  with check (auth.uid() = user_id);
+  with check (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can update own feed posts"
   on public.feed_posts for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+  using (auth.uid() = user_id and public.has_active_membership())
+  with check (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can delete own feed posts"
   on public.feed_posts for delete
-  using (auth.uid() = user_id);
+  using (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can read service pricing"
   on public.service_pricing for select
@@ -242,7 +274,7 @@ create policy "Members can upload vehicle photos"
   on storage.objects for insert
   with check (
     bucket_id = 'vehicle-photos'
-    and auth.role() = 'authenticated'
+    and public.has_active_membership()
   );
 
 create policy "Vehicle photos are public"
@@ -253,5 +285,5 @@ create policy "Members can update vehicle photos"
   on storage.objects for update
   using (
     bucket_id = 'vehicle-photos'
-    and auth.role() = 'authenticated'
+    and public.has_active_membership()
   );
