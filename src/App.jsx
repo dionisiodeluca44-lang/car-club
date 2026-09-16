@@ -2777,7 +2777,7 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
           </label>
           <label>
             Password
-            <input name="password" type="password" placeholder="Minimum 6 characters" required />
+            <input name="password" type="password" minLength="6" placeholder="Minimum 6 characters" required />
           </label>
           <button className="forgot-password-button" type="button" onClick={handleForgotPassword} disabled={authLoading || !backendEnabled}>
             Forgot your password?

@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const productionSiteUrl = import.meta.env.VITE_PUBLIC_SITE_URL || "https://vocal-pie-c034af.netlify.app";
 
 export const isBackendConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
@@ -15,13 +16,19 @@ const defaultNotifications = {
 };
 
 function getAuthRedirectUrl() {
-  if (typeof window === "undefined") return undefined;
-  return window.location.origin;
+  if (typeof window === "undefined") return productionSiteUrl;
+
+  const origin = window.location.origin;
+  const isLocalDev = import.meta.env.DEV && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+  const isNativeAppOrigin = /^(capacitor|ionic):\/\/localhost$/i.test(origin) || /^https?:\/\/localhost(:\d+)?$/i.test(origin);
+
+  if (isLocalDev) return origin;
+  if (!origin || origin === "null" || isNativeAppOrigin) return productionSiteUrl;
+  return origin;
 }
 
 function getPasswordRecoveryRedirectUrl() {
-  if (typeof window === "undefined") return undefined;
-  return `${window.location.origin}/?password=recovery`;
+  return `${getAuthRedirectUrl()}/?password=recovery`;
 }
 
 export async function getCurrentMember() {
