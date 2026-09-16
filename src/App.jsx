@@ -1696,6 +1696,48 @@ function App() {
     return currentMember;
   }
 
+  const refreshMemberAppData = useCallback(async () => {
+    if (!isBackendConfigured) {
+      const storedGarage = ensureList(readStoredJson("carClubGarage", defaultGarage));
+      const storedAppointments = ensureList(readStoredJson("carClubAppointments", defaultAppointments));
+      const storedFeedPosts = ensureList(readStoredJson("carClubFeedPosts", []));
+      setGarage(storedGarage);
+      setAppointments(storedAppointments);
+      setFeedPosts(storedFeedPosts);
+      return { appointments: storedAppointments, feedPosts: storedFeedPosts, garage: storedGarage };
+    }
+
+    const currentMember = await getCurrentMember();
+    if (!currentMember) {
+      setMember(null);
+      setMode("login");
+      return null;
+    }
+
+    setMember(currentMember);
+
+    if (!hasMembershipAccess(currentMember.subscriptionStatus)) {
+      setGarage([]);
+      setAppointments([]);
+      setFeedPosts([]);
+      return { appointments: [], feedPosts: [], garage: [] };
+    }
+
+    const [savedGarage, savedAppointments, savedFeedPosts] = await Promise.all([
+      loadVehicles(currentMember.id),
+      loadServiceRequests(currentMember.id),
+      loadFeedPosts(),
+    ]);
+
+    const nextGarage = ensureList(savedGarage);
+    const nextAppointments = ensureList(savedAppointments);
+    const nextFeedPosts = ensureList(savedFeedPosts);
+    setGarage(nextGarage);
+    setAppointments(nextAppointments);
+    setFeedPosts(nextFeedPosts);
+    return { appointments: nextAppointments, feedPosts: nextFeedPosts, garage: nextGarage };
+  }, []);
+
   async function handleUpdateMember(settings) {
     const nextPlan = settings.plan || member?.plan || "Club Drive";
 
@@ -1863,7 +1905,7 @@ function App() {
       );
     }
 
-    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteVehicle={deleteVehicle} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} servicePricing={servicePricing} />;
+    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteVehicle={deleteVehicle} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onRefreshMemberAppData={refreshMemberAppData} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} servicePricing={servicePricing} />;
   }
 
   if (mode === "app") {
@@ -3009,9 +3051,11 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
   );
 }
 
-function MemberApp({ appointments, feedPosts, garage, initialCompletion, member, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteVehicle, onLogout, onRefreshFeedPosts, onUpdateMember, onUpdateVehicle, servicePricing }) {
+function MemberApp({ appointments, feedPosts, garage, initialCompletion, member, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteVehicle, onLogout, onRefreshFeedPosts, onRefreshMemberAppData, onUpdateMember, onUpdateVehicle, servicePricing }) {
   const [activeTab, setActiveTab] = useState("home");
   const [completion, setCompletion] = useState(null);
+  const [tabRefreshKey, setTabRefreshKey] = useState(0);
+  const appMainRef = useRef(null);
   const garageList = ensureList(garage).map(normalizeVehicle);
   const appointmentList = ensureList(appointments);
   const vehicleOptions = useMemo(() => garageList.map((vehicle) => `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle"), [garageList]);
@@ -3019,6 +3063,14 @@ function MemberApp({ appointments, feedPosts, garage, initialCompletion, member,
   const navigateToTab = (tab) => {
     setCompletion(null);
     setActiveTab(tab);
+    setTabRefreshKey((key) => key + 1);
+
+    window.requestAnimationFrame(() => {
+      appMainRef.current?.scrollTo?.({ top: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    onRefreshMemberAppData?.().catch(() => {});
   };
 
   useEffect(() => {
@@ -3050,7 +3102,7 @@ function MemberApp({ appointments, feedPosts, garage, initialCompletion, member,
         </nav>
       </aside>
 
-      <main className="app-main">
+      <main className="app-main" ref={appMainRef}>
         <header className="app-topbar">
           <div>
             <p className="eyebrow">Member app</p>
@@ -3068,22 +3120,24 @@ function MemberApp({ appointments, feedPosts, garage, initialCompletion, member,
           </div>
         )}
 
-        <MemberPanelErrorBoundary resetKey={activeTab} onRecover={() => setActiveTab("home")}>
-          {completion && <CompletionScreen completion={completion} onNavigate={navigateToTab} />}
-          {!completion && activeTab === "home" && (
-            <Dashboard
-              appointments={appointmentList}
-              garage={garageList}
-              member={member}
-              onAddAppointment={onAddAppointment}
-              setActiveTab={setActiveTab}
-              onComplete={setCompletion}
-            />
-          )}
-          {!completion && activeTab === "garage" && <GarageScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={setCompletion} />}
-          {!completion && activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onComplete={setCompletion} servicePricing={servicePricing} setActiveTab={setActiveTab} vehicleOptions={vehicleOptions} />}
-          {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedPost={onAddFeedPost} onComplete={setCompletion} onRefreshFeedPosts={onRefreshFeedPosts} vehicleOptions={vehicleOptions} />}
-          {!completion && activeTab === "account" && <AccountScreen garageCount={garageList.length} member={member} onLogout={onLogout} onUpdateMember={onUpdateMember} />}
+        <MemberPanelErrorBoundary resetKey={`${activeTab}-${tabRefreshKey}`} onRecover={() => setActiveTab("home")}>
+          <div key={`${activeTab}-${tabRefreshKey}`}>
+            {completion && <CompletionScreen completion={completion} onNavigate={navigateToTab} />}
+            {!completion && activeTab === "home" && (
+              <Dashboard
+                appointments={appointmentList}
+                garage={garageList}
+                member={member}
+                onAddAppointment={onAddAppointment}
+                setActiveTab={navigateToTab}
+                onComplete={setCompletion}
+              />
+            )}
+            {!completion && activeTab === "garage" && <GarageScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={setCompletion} />}
+            {!completion && activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onComplete={setCompletion} servicePricing={servicePricing} setActiveTab={navigateToTab} vehicleOptions={vehicleOptions} />}
+            {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedPost={onAddFeedPost} onComplete={setCompletion} onRefreshFeedPosts={onRefreshFeedPosts} vehicleOptions={vehicleOptions} />}
+            {!completion && activeTab === "account" && <AccountScreen garageCount={garageList.length} member={member} onLogout={onLogout} onUpdateMember={onUpdateMember} />}
+          </div>
         </MemberPanelErrorBoundary>
       </main>
 
