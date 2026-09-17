@@ -96,9 +96,18 @@ const services = [
   {
     icon: ClipboardCheck,
     title: "Fleet Management",
-    items: ["5 to 100 vehicles", "Preventive schedules", "Driver coordination", "Service records", "Vendor management"],
+    items: ["2 to 100 vehicles", "Preventive schedules", "Driver coordination", "Service records", "Vendor management"],
   },
 ];
+
+const appStoreUrl = import.meta.env.VITE_APP_STORE_URL || "https://apps.apple.com/search?term=White%20Glove%20Concierge";
+
+function isNativeAppRuntime() {
+  if (typeof window === "undefined") return false;
+  const capacitor = window.Capacitor;
+  const platform = capacitor?.getPlatform?.();
+  return capacitor?.isNativePlatform?.() === true || platform === "ios" || platform === "android" || /^(capacitor|ionic):\/\/localhost$/i.test(window.location.origin);
+}
 
 const plans = [
   {
@@ -962,6 +971,33 @@ function garageLimitLabel(plan) {
   return hasCollectionPackage(plan) ? "Unlimited vehicles" : "1 vehicle";
 }
 
+const approvedOrClosedRequestStatuses = new Set(["approved", "booked", "paid / confirmed", "completed", "cancelled", "canceled"]);
+
+function normalizeRequestValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isRequestApprovedOrClosed(status) {
+  return approvedOrClosedRequestStatuses.has(normalizeRequestValue(status));
+}
+
+function hasOpenMatchingServiceRequest(appointments, appointment) {
+  const serviceKey = normalizeRequestValue(appointment?.service);
+  const vehicleKey = normalizeRequestValue(appointment?.vehicle);
+  const vehicleIdKey = normalizeRequestValue(appointment?.vehicleId);
+
+  if (!serviceKey || (!vehicleKey && !vehicleIdKey)) return false;
+
+  return ensureList(appointments).some((request) => {
+    const sameService = normalizeRequestValue(request.service) === serviceKey;
+    const sameVehicle = vehicleIdKey
+      ? normalizeRequestValue(request.vehicleId) === vehicleIdKey || normalizeRequestValue(request.vehicle) === vehicleKey
+      : normalizeRequestValue(request.vehicle) === vehicleKey;
+
+    return sameService && sameVehicle && !isRequestApprovedOrClosed(request.status);
+  });
+}
+
 const defaultNotificationSettings = {
   bookingUpdates: true,
   feedActivity: true,
@@ -1080,7 +1116,27 @@ const defaultAppointments = [
 const fallbackVehicleImage = "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=85";
 
 function ensureList(value) {
-  return Array.isArray(value) ? value : [];
+  if (Array.isArray(value)) return value;
+  return value ? [value] : [];
+}
+
+function uniqueImageList(images) {
+  return [...new Set(ensureList(images).filter(Boolean))].slice(0, 10);
+}
+
+function vehicleImageGallery(vehicle = {}) {
+  return uniqueImageList([...(Array.isArray(vehicle.images) ? vehicle.images : []), vehicle.image]);
+}
+
+function readFilesAsDataUrls(fileList, limit = 10) {
+  const files = Array.from(fileList || []).filter((file) => file.type?.startsWith("image/")).slice(0, limit);
+
+  return Promise.all(files.map((file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Could not read one of the photos."));
+    reader.readAsDataURL(file);
+  })));
 }
 
 function mergeFeedPosts(newPosts, currentPosts) {
@@ -1107,6 +1163,7 @@ function readNoteValue(notes, label) {
 function normalizeVehicle(vehicle, index = 0) {
   const safeVehicle = vehicle && typeof vehicle === "object" ? vehicle : {};
   const notes = safeVehicle.notes || "";
+  const images = vehicleImageGallery(safeVehicle);
 
   return {
     ...safeVehicle,
@@ -1141,7 +1198,8 @@ function normalizeVehicle(vehicle, index = 0) {
     batteryAge: safeVehicle.batteryAge || readNoteValue(notes, "Battery age") || "Battery age pending",
     registration: safeVehicle.registration || readNoteValue(notes, "Registration") || "Registration pending",
     notes,
-    image: safeVehicle.image || fallbackVehicleImage,
+    image: images[0] || fallbackVehicleImage,
+    images: images.length ? images : [fallbackVehicleImage],
   };
 }
 
@@ -1336,6 +1394,7 @@ class MemberPanelErrorBoundary extends Component {
 function App() {
   const [mode, setMode] = useState(() => new URLSearchParams(window.location.search).get("password") === "recovery" ? "password-recovery" : "site");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [memberAccessChoiceOpen, setMemberAccessChoiceOpen] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [appError, setAppError] = useState("");
@@ -1359,8 +1418,30 @@ function App() {
   });
   const [servicePricing, setServicePricing] = useState({});
   const [membershipPricing, setMembershipPricing] = useState({});
+  const nativeAppRuntime = isNativeAppRuntime();
+  const memberAccessLabel = nativeAppRuntime ? "Sign in / Sign up" : "Open Member App";
 
   const closeMenu = () => setMenuOpen(false);
+
+  function openMemberAccess() {
+    closeMenu();
+    if (nativeAppRuntime) {
+      setMode(member ? "app" : "login");
+      return;
+    }
+
+    setMemberAccessChoiceOpen(true);
+  }
+
+  function continueMemberAccessOnWeb() {
+    setMemberAccessChoiceOpen(false);
+    setMode(member ? "app" : "login");
+  }
+
+  function openMemberAccessInStore() {
+    setMemberAccessChoiceOpen(false);
+    window.location.href = appStoreUrl;
+  }
 
   useEffect(() => {
     function readAdminHash() {
@@ -1829,6 +1910,10 @@ function App() {
       throw new Error(`${appointment.service} is not included in the ${member?.plan || "current"} package.`);
     }
 
+    if (hasOpenMatchingServiceRequest(appointments, appointment)) {
+      throw new Error(`You already have an open ${appointment.service} request for ${appointment.vehicle}. Wait until it is approved before booking that same service again.`);
+    }
+
     if (isBackendConfigured && member?.id) {
       const savedRequest = await createServiceRequest(member.id, appointment);
       setAppointments((currentAppointments) => [savedRequest, ...currentAppointments]);
@@ -1932,7 +2017,7 @@ function App() {
         <nav className={menuOpen ? "nav-links open" : "nav-links"} aria-label="Primary navigation">
           <a href="#services" onClick={closeMenu}>Services</a>
           <a href="#memberships" onClick={closeMenu}>Memberships</a>
-          <button className="nav-button profile-nav-button" type="button" onClick={() => setMode(member ? "app" : "login")}>
+          <button className="nav-button profile-nav-button" type="button" onClick={openMemberAccess}>
             <ProfileAvatar member={member} size={24} /> Member App
           </button>
           <a href="#apply" onClick={closeMenu}>Apply</a>
@@ -1950,8 +2035,8 @@ function App() {
               White Glove Concierge handles every automotive need through one dedicated concierge. Maintenance, detailing, transportation, storage, buying, selling, repairs, emergencies, collections, and fleet support, all coordinated for you.
             </p>
             <div className="hero-actions">
-              <button className="button primary" type="button" onClick={() => setMode(member ? "app" : "login")}>
-                Open Member App <ArrowRight size={18} />
+              <button className="button primary" type="button" onClick={openMemberAccess}>
+                {memberAccessLabel} <ArrowRight size={18} />
               </button>
               <a className="button secondary" href="#apply">
                 Request a Consultation <CalendarCheck size={18} />
@@ -2072,7 +2157,7 @@ function App() {
           <div className="image-band-media" aria-hidden="true" />
           <div className="image-band-copy">
             <p className="eyebrow">Collection management</p>
-            <h2>Built for collectors, busy owners, and companies with 5 to 100 vehicles.</h2>
+            <h2>Built for collectors, busy owners, and companies with 2 to 100 vehicles.</h2>
             <p>
               Keep every vehicle ready, protected, documented, and properly serviced with a dedicated care plan. We coordinate maintenance, transportation, storage, inspections, buying, selling, paperwork, and emergency support through a trusted partner network.
             </p>
@@ -2125,9 +2210,29 @@ function App() {
         </div>
         <div className="footer-actions">
           <button type="button" onClick={() => setMode("privacy")}>Privacy Policy</button>
-          <button type="button" onClick={() => setMode(member ? "app" : "login")}>Open Member App</button>
+          <button type="button" onClick={openMemberAccess}>Open Member App</button>
         </div>
       </footer>
+      {memberAccessChoiceOpen && (
+        <div className="member-access-modal" role="dialog" aria-modal="true" aria-labelledby="member-access-title">
+          <section className="member-access-card">
+            <button className="icon-button modal-close-button" type="button" onClick={() => setMemberAccessChoiceOpen(false)} aria-label="Close">
+              <X size={20} />
+            </button>
+            <p className="eyebrow">White Glove member app</p>
+            <h2 id="member-access-title">How would you like to open it?</h2>
+            <p>Stay on the web member portal, or open White Glove Concierge in the App Store.</p>
+            <div className="member-access-actions">
+              <button className="button primary" type="button" onClick={continueMemberAccessOnWeb}>
+                Stay On Web
+              </button>
+              <button className="button secondary" type="button" onClick={openMemberAccessInStore}>
+                Open App Store
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -2684,7 +2789,7 @@ function AdminPortal({ onBack }) {
                   </dl>
                   {request.notes && <pre>{request.notes}</pre>}
                   <div className="admin-status-actions">
-                    {["Requested", "In Review", "Booked", "Paid / Confirmed", "Completed"].map((status) => (
+                    {["Requested", "In Review", "Approved", "Booked", "Paid / Confirmed", "Completed"].map((status) => (
                       <button key={status} type="button" onClick={() => updateDemandStatus(request.id, status)}>
                         {status}
                       </button>
@@ -3194,29 +3299,36 @@ function CompletionScreen({ completion, onNavigate }) {
 
 function Dashboard({ appointments, garage, member, onAddAppointment, onComplete, setActiveTab }) {
   const serviceReminders = buildServiceReminders(garage, member.plan);
+  const [requestError, setRequestError] = useState("");
 
   async function sendReminderRequest(reminder) {
-    const savedRequest = await onAddAppointment({
-      vehicle: reminder.vehicle,
-      service: reminder.service,
-      date: "",
-      time: "",
-      notes: `${reminder.title}. ${reminder.message}`,
-    });
+    setRequestError("");
 
-    onComplete?.({
-      actionLabel: "View Requests",
-      actionTab: "schedule",
-      details: [
-        ["Service", savedRequest?.service || reminder.service],
-        ["Vehicle", savedRequest?.vehicle || reminder.vehicle],
-        ["Status", savedRequest?.status || "Requested"],
-      ],
-      message: "Your concierge request has been sent from the service reminder. White Glove will coordinate the appointment details.",
-      secondaryLabel: "Back Home",
-      secondaryTab: "home",
-      title: "Service request successfully sent.",
-    });
+    try {
+      const savedRequest = await onAddAppointment({
+        vehicle: reminder.vehicle,
+        service: reminder.service,
+        date: "",
+        time: "",
+        notes: `${reminder.title}. ${reminder.message}`,
+      });
+
+      onComplete?.({
+        actionLabel: "View Requests",
+        actionTab: "schedule",
+        details: [
+          ["Service", savedRequest?.service || reminder.service],
+          ["Vehicle", savedRequest?.vehicle || reminder.vehicle],
+          ["Status", savedRequest?.status || "Requested"],
+        ],
+        message: "Your concierge request has been sent from the service reminder. White Glove will coordinate the appointment details.",
+        secondaryLabel: "Back Home",
+        secondaryTab: "home",
+        title: "Service request successfully sent.",
+      });
+    } catch (error) {
+      setRequestError(error.message || "Could not send that service request.");
+    }
   }
 
   return (
@@ -3237,6 +3349,7 @@ function Dashboard({ appointments, garage, member, onAddAppointment, onComplete,
           </div>
         ) : (
           <div className="service-reminder-list">
+            {requestError && <div className="error-message" role="alert">{requestError}</div>}
             {serviceReminders.slice(0, 3).map((reminder) => (
               <article key={reminder.id}>
                 <span>{reminder.urgency}</span>
@@ -3310,6 +3423,7 @@ function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVeh
   const vehicleLimitText = garageLimitLabel(member.plan);
   const [showForm, setShowForm] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  const [requestError, setRequestError] = useState("");
   const selectedVehicle = garageList.find((vehicle) => vehicle.id === selectedVehicleId);
 
   useEffect(() => {
@@ -3319,27 +3433,33 @@ function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVeh
   }, [canAddVehicle, showForm]);
 
   async function sendReminderRequest(reminder) {
-    const savedRequest = await onAddAppointment({
-      vehicle: reminder.vehicle,
-      service: reminder.service,
-      date: "",
-      time: "",
-      notes: `${reminder.title}. ${reminder.message}`,
-    });
+    setRequestError("");
 
-    onComplete?.({
-      actionLabel: "View Requests",
-      actionTab: "schedule",
-      details: [
-        ["Service", savedRequest?.service || reminder.service],
-        ["Vehicle", savedRequest?.vehicle || reminder.vehicle],
-        ["Status", savedRequest?.status || "Requested"],
-      ],
-      message: "Your concierge request has been sent from the garage reminder. White Glove will coordinate the appointment details.",
-      secondaryLabel: "Back to Garage",
-      secondaryTab: "garage",
-      title: "Service request successfully sent.",
-    });
+    try {
+      const savedRequest = await onAddAppointment({
+        vehicle: reminder.vehicle,
+        service: reminder.service,
+        date: "",
+        time: "",
+        notes: `${reminder.title}. ${reminder.message}`,
+      });
+
+      onComplete?.({
+        actionLabel: "View Requests",
+        actionTab: "schedule",
+        details: [
+          ["Service", savedRequest?.service || reminder.service],
+          ["Vehicle", savedRequest?.vehicle || reminder.vehicle],
+          ["Status", savedRequest?.status || "Requested"],
+        ],
+        message: "Your concierge request has been sent from the garage reminder. White Glove will coordinate the appointment details.",
+        secondaryLabel: "Back to Garage",
+        secondaryTab: "garage",
+        title: "Service request successfully sent.",
+      });
+    } catch (error) {
+      setRequestError(error.message || "Could not send that service request.");
+    }
   }
 
   if (selectedVehicle) {
@@ -3411,6 +3531,7 @@ function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVeh
           </div>
         ) : (
           <div className="service-reminder-list">
+            {requestError && <div className="error-message" role="alert">{requestError}</div>}
             {serviceReminders.map((reminder) => (
               <article key={reminder.id}>
                 <span>{reminder.urgency}</span>
@@ -3434,6 +3555,7 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
   const [selectedService, setSelectedService] = useState(includedServices[0]?.label || "");
   const [selectedServiceOption, setSelectedServiceOption] = useState(serviceOptionsForBooking(includedServices[0]?.label)[0] || "Not Sure");
   const [selectedVehicleId, setSelectedVehicleId] = useState(garage[0]?.id || "");
+  const [reminderError, setReminderError] = useState("");
   const selectedVehicle = garage.find((vehicle) => vehicle.id === selectedVehicleId) || garage[0] || null;
   const formSectionRef = useRef(null);
   const vehicleSectionRef = useRef(null);
@@ -3471,27 +3593,33 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
   }
 
   async function sendReminderRequest(reminder) {
-    const savedRequest = await onAddAppointment({
-      vehicle: reminder.vehicle,
-      service: reminder.service,
-      date: "",
-      time: "",
-      notes: `${reminder.title}. ${reminder.message}`,
-    });
+    setReminderError("");
 
-    onComplete?.({
-      actionLabel: "View Requests",
-      actionTab: "schedule",
-      details: [
-        ["Service", savedRequest?.service || reminder.service],
-        ["Vehicle", savedRequest?.vehicle || reminder.vehicle],
-        ["Status", savedRequest?.status || "Requested"],
-      ],
-      message: "The reminder was turned into a concierge request. White Glove will follow up with timing and next steps.",
-      secondaryLabel: "Back Home",
-      secondaryTab: "home",
-      title: "Service reminder request sent.",
-    });
+    try {
+      const savedRequest = await onAddAppointment({
+        vehicle: reminder.vehicle,
+        service: reminder.service,
+        date: "",
+        time: "",
+        notes: `${reminder.title}. ${reminder.message}`,
+      });
+
+      onComplete?.({
+        actionLabel: "View Requests",
+        actionTab: "schedule",
+        details: [
+          ["Service", savedRequest?.service || reminder.service],
+          ["Vehicle", savedRequest?.vehicle || reminder.vehicle],
+          ["Status", savedRequest?.status || "Requested"],
+        ],
+        message: "The reminder was turned into a concierge request. White Glove will follow up with timing and next steps.",
+        secondaryLabel: "Back Home",
+        secondaryTab: "home",
+        title: "Service reminder request sent.",
+      });
+    } catch (error) {
+      setReminderError(error.message || "Could not send that service request.");
+    }
   }
 
   return (
@@ -3521,6 +3649,7 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
         </div>
         {serviceReminders.length > 0 && (
           <div className="booking-reminder-strip">
+            {reminderError && <div className="error-message" role="alert">{reminderError}</div>}
             {serviceReminders.slice(0, 2).map((reminder) => (
               <button key={reminder.id} type="button" onClick={() => chooseService(reminder.service)}>
                 <span>{reminder.urgency}</span>
@@ -3565,6 +3694,7 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
           </div>
         </div>
         <ScheduleForm
+          appointments={appointments}
           garage={garage}
           member={member}
           onAddAppointment={onAddAppointment}
@@ -3999,20 +4129,26 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
 }
 
 function VehicleForm({ onAddVehicle, onClose, onComplete }) {
-  const [imagePreview, setImagePreview] = useState("");
+  const [imagePreviews, setImagePreviews] = useState([]);
+  const [savingVehicle, setSavingVehicle] = useState(false);
   const [vehicleError, setVehicleError] = useState("");
 
-  function handleImage(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setImagePreview(reader.result);
-    reader.readAsDataURL(file);
+  async function handleImage(event) {
+    try {
+      const photos = await readFilesAsDataUrls(event.target.files, 10);
+      setImagePreviews(photos);
+    } catch (error) {
+      setVehicleError(error.message || "Could not read those photos.");
+    }
   }
 
   async function submitVehicle(event) {
     event.preventDefault();
+    if (savingVehicle) return;
+
     setVehicleError("");
+    setSavingVehicle(true);
+    const form = event.currentTarget;
     const formData = new FormData(event.currentTarget);
     const ownershipNotes = [
       formData.get("notes"),
@@ -4074,10 +4210,12 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         }),
         horsepower: formData.get("horsepower") || "HP pending",
         workDone: splitWorkList(formData.get("workDone")),
-        image: imagePreview || "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=85",
+        image: imagePreviews[0] || "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=85",
+        images: imagePreviews.length ? imagePreviews : [],
       });
-      event.currentTarget.reset();
-      setImagePreview("");
+      form.reset();
+      setImagePreviews([]);
+      setSavingVehicle(false);
       onClose();
       onComplete?.({
         actionLabel: "View Garage",
@@ -4094,6 +4232,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
       });
     } catch (error) {
       setVehicleError(error.message || "Could not save this vehicle.");
+      setSavingVehicle(false);
     }
   }
 
@@ -4104,9 +4243,20 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
           {vehicleError}
         </div>
       )}
-      <label className="upload-tile">
-        {imagePreview ? <img alt="Vehicle preview" src={imagePreview} /> : <><Upload size={24} /><span>Upload vehicle photo</span></>}
-        <input accept="image/*" name="photo" onChange={handleImage} type="file" />
+      <label className={savingVehicle ? "upload-tile disabled-upload" : "upload-tile"}>
+        {imagePreviews.length ? (
+          <div className="upload-preview-grid">
+            {imagePreviews.map((image, index) => (
+              <img alt={`Vehicle preview ${index + 1}`} key={`${image}-${index}`} src={image} />
+            ))}
+          </div>
+        ) : (
+          <>
+            <Upload size={24} />
+            <span>Upload up to 10 vehicle photos</span>
+          </>
+        )}
+        <input accept="image/*" disabled={savingVehicle} multiple name="photo" onChange={handleImage} type="file" />
       </label>
       <div className="app-form-grid">
         <label>
@@ -4242,12 +4392,14 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         Notes
         <textarea name="notes" rows="3" placeholder="Storage needs, preferred services, modifications, or special care notes." />
       </label>
-      <button className="button primary submit" type="submit">Save Vehicle</button>
+      <button className="button primary submit" type="submit" disabled={savingVehicle}>
+        {savingVehicle ? "Saving Vehicle..." : "Save Vehicle"}
+      </button>
     </form>
   );
 }
 
-function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onComplete, servicePricing, selectedService, selectedServiceOption, selectedVehicle, setSelectedService, setSelectedServiceOption }) {
+function ScheduleForm({ appointments, garage, member, onAddAppointment, onChangeVehicle, onComplete, servicePricing, selectedService, selectedServiceOption, selectedVehicle, setSelectedService, setSelectedServiceOption }) {
   const [bookingStep, setBookingStep] = useState("details");
   const [pendingBooking, setPendingBooking] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("card-on-file");
@@ -4311,6 +4463,10 @@ function ScheduleForm({ garage, member, onAddAppointment, onChangeVehicle, onCom
 
       if (!canBookService(member.plan, appointment.service)) {
         throw new Error(`${appointment.service} is not included in your ${member.plan} package.`);
+      }
+
+      if (hasOpenMatchingServiceRequest(appointments, appointment)) {
+        throw new Error(`You already have an open ${appointment.service} request for ${appointment.vehicle}. Wait until it is approved before booking that same service again.`);
       }
 
       setPendingBooking({
@@ -4674,10 +4830,12 @@ function VehicleCard({ onSelect, vehicle }) {
 }
 
 function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle, onGetOffer, onUpdateVehicle, vehicle }) {
-  const [photoPreview, setPhotoPreview] = useState("");
+  const [photoPreviews, setPhotoPreviews] = useState([]);
   const [detailError, setDetailError] = useState("");
   const [deletingVehicle, setDeletingVehicle] = useState(false);
   const [offerRequested, setOfferRequested] = useState(false);
+  const vehicleImages = vehicleImageGallery(vehicle);
+  const heroImage = photoPreviews[0] || vehicleImages[0] || vehicle.image || fallbackVehicleImage;
   const workHistory = ensureList(vehicle.workDone);
   const workDone = workHistory.length ? workHistory : ["No work logged yet"];
   const vehicleLabel = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
@@ -4703,12 +4861,13 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
     event.currentTarget.src = fallbackVehicleImage;
   };
 
-  function handlePhoto(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setPhotoPreview(reader.result);
-    reader.readAsDataURL(file);
+  async function handlePhoto(event) {
+    try {
+      const photos = await readFilesAsDataUrls(event.target.files, 10);
+      setPhotoPreviews(photos);
+    } catch (error) {
+      setDetailError(error.message || "Could not read those photos.");
+    }
   }
 
   async function saveDetails(event) {
@@ -4766,9 +4925,10 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
         batteryAge: formData.get("batteryAge") || vehicle.batteryAge,
         registration: formData.get("registration") || vehicle.registration,
         notes: ownershipNotes,
-        image: photoPreview || vehicle.image,
+        image: photoPreviews[0] || vehicleImages[0] || vehicle.image,
+        images: photoPreviews.length ? photoPreviews : vehicleImages,
       });
-      setPhotoPreview("");
+      setPhotoPreviews([]);
       onComplete?.({
         actionLabel: "View Garage",
         actionTab: "garage",
@@ -4868,13 +5028,21 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
         <button className="text-button danger-text-button" type="button" onClick={deleteThisVehicle} disabled={deletingVehicle}>
           {deletingVehicle ? "Deleting..." : "Delete Car"}
         </button>
-        <img alt={vehicleLabel} onError={handleImageError} src={photoPreview || vehicle.image || fallbackVehicleImage} />
+        <img alt={vehicleLabel} onError={handleImageError} src={heroImage} />
         <div>
           <span>{vehicle.use || "Collection"}</span>
           <h2>{vehicleLabel}</h2>
           <p>{vehicle.status || "Active"} · {marketValue}</p>
         </div>
       </section>
+
+      {vehicleImages.length > 1 && (
+        <section className="vehicle-gallery-strip" aria-label={`${vehicleLabel} photo gallery`}>
+          {vehicleImages.map((image, index) => (
+            <img alt={`${vehicleLabel} photo ${index + 1}`} key={`${image}-${index}`} onError={handleImageError} src={image} />
+          ))}
+        </section>
+      )}
 
       <section className="vehicle-stat-grid">
         <article>
@@ -4985,8 +5153,19 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
             </div>
           )}
           <label className="upload-tile small-upload">
-            {photoPreview ? <img alt="Updated vehicle preview" src={photoPreview} /> : <><Upload size={24} /><span>Upload new vehicle photo</span></>}
-            <input accept="image/*" name="photo" onChange={handlePhoto} type="file" />
+            {photoPreviews.length ? (
+              <div className="upload-preview-grid">
+                {photoPreviews.map((image, index) => (
+                  <img alt={`Updated vehicle preview ${index + 1}`} key={`${image}-${index}`} src={image} />
+                ))}
+              </div>
+            ) : (
+              <>
+                <Upload size={24} />
+                <span>Upload up to 10 vehicle photos</span>
+              </>
+            )}
+            <input accept="image/*" multiple name="photo" onChange={handlePhoto} type="file" />
           </label>
           <div className="app-form-grid">
             <label>

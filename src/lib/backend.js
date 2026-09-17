@@ -15,6 +15,11 @@ const defaultNotifications = {
   serviceReminders: true,
 };
 
+function ensureList(value) {
+  if (Array.isArray(value)) return value;
+  return value ? [value] : [];
+}
+
 function getAuthRedirectUrl() {
   if (typeof window === "undefined") return productionSiteUrl;
 
@@ -229,8 +234,10 @@ export async function loadVehicles(userId) {
 export async function createVehicle(userId, vehicle) {
   if (!supabase || !userId) return vehicle;
 
-  const imageUrl = await safeUploadVehicleImage(userId, vehicle.image);
-  const payload = toVehicleRow(userId, { ...vehicle, image: imageUrl || reusableImageUrl(vehicle.image) });
+  const imageUrls = await safeUploadVehicleImages(userId, vehicle.images?.length ? vehicle.images : [vehicle.image]);
+  const fallbackImages = ensureImageList(vehicle.images?.length ? vehicle.images : [vehicle.image]).map(reusableImageUrl).filter(Boolean);
+  const images = imageUrls.length ? imageUrls : fallbackImages;
+  const payload = toVehicleRow(userId, { ...vehicle, image: images[0] || reusableImageUrl(vehicle.image), images });
 
   const { data, error } = await supabase.from("vehicles").insert(payload).select("*").single();
   if (error) throw new Error(`Could not save vehicle: ${error.message}`);
@@ -240,8 +247,15 @@ export async function createVehicle(userId, vehicle) {
 export async function updateVehicleRecord(vehicleId, updates) {
   if (!supabase || !vehicleId) return updates;
 
-  const imageUrl = await safeUploadVehicleImage(null, updates.image);
-  const payload = toVehicleUpdateRow({ ...updates, image: imageUrl || reusableImageUrl(updates.image) });
+  const updateImages = updates.images?.length ? updates.images : updates.image ? [updates.image] : [];
+  const imageUrls = await safeUploadVehicleImages("vehicle-updates", updateImages);
+  const fallbackImages = ensureImageList(updateImages).map(reusableImageUrl).filter(Boolean);
+  const images = imageUrls.length ? imageUrls : fallbackImages;
+  const payload = toVehicleUpdateRow({
+    ...updates,
+    image: images[0] || reusableImageUrl(updates.image),
+    images: images.length ? images : updates.images,
+  });
 
   const { data, error } = await supabase.from("vehicles").update(payload).eq("id", vehicleId).select("*").single();
   if (error) throw new Error(`Could not update vehicle: ${error.message}`);
@@ -432,6 +446,30 @@ async function safeUploadVehicleImage(userId, image) {
   }
 }
 
+function ensureImageList(images) {
+  return ensureList(images).filter(Boolean).slice(0, 10);
+}
+
+async function safeUploadVehicleImages(userId, images) {
+  const uploadedImages = [];
+
+  for (const image of ensureImageList(images)) {
+    if (String(image).startsWith("data:")) {
+      try {
+        const imageUrl = await uploadStorageImage("vehicle-photos", userId || "vehicle-updates", image);
+        if (imageUrl) uploadedImages.push(imageUrl);
+      } catch (error) {
+        console.warn("Vehicle photo upload failed.", error);
+      }
+    } else {
+      const reusableUrl = reusableImageUrl(image);
+      if (reusableUrl) uploadedImages.push(reusableUrl);
+    }
+  }
+
+  return uploadedImages;
+}
+
 async function safeUploadFeedImage(userId, image) {
   try {
     return await uploadStorageImage("vehicle-photos", `${userId}/feed`, image);
@@ -466,6 +504,9 @@ function reusableImageUrl(image) {
 }
 
 function fromVehicleRow(row) {
+  const galleryImages = parseVehicleGallery(row.notes);
+  const images = ensureImageList([row.image_url, ...galleryImages]);
+
   return {
     id: row.id,
     year: row.year || "",
@@ -477,8 +518,9 @@ function fromVehicleRow(row) {
     marketValue: row.market_value || "Value pending",
     horsepower: row.horsepower || "HP pending",
     workDone: row.work_done || [],
-    notes: row.notes || "",
-    image: row.image_url || "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=85",
+    notes: stripVehicleGallery(row.notes),
+    image: images[0] || "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=85",
+    images,
   };
 }
 
@@ -494,7 +536,7 @@ function toVehicleRow(userId, vehicle) {
     market_value: vehicle.marketValue || "Value pending",
     horsepower: vehicle.horsepower || "HP pending",
     work_done: vehicle.workDone || [],
-    notes: vehicle.notes || "",
+    notes: serializeVehicleNotes(vehicle.notes, vehicle.images?.length ? vehicle.images : [vehicle.image]),
     image_url: vehicle.image || "",
   };
 }
@@ -507,8 +549,40 @@ function toVehicleUpdateRow(updates) {
   if (updates.horsepower !== undefined) row.horsepower = updates.horsepower;
   if (updates.workDone !== undefined) row.work_done = updates.workDone;
   if (updates.image !== undefined) row.image_url = updates.image;
-  if (updates.notes !== undefined) row.notes = updates.notes;
+  if (updates.notes !== undefined || updates.images !== undefined) row.notes = serializeVehicleNotes(updates.notes, updates.images);
   return row;
+}
+
+const vehicleGalleryPrefix = "Photo gallery:";
+
+function parseVehicleGallery(notes) {
+  const galleryLine = String(notes || "")
+    .split("\n")
+    .find((line) => line.trim().startsWith(vehicleGalleryPrefix));
+
+  if (!galleryLine) return [];
+
+  try {
+    const parsed = JSON.parse(galleryLine.slice(vehicleGalleryPrefix.length).trim());
+    return ensureImageList(parsed);
+  } catch {
+    return [];
+  }
+}
+
+function stripVehicleGallery(notes) {
+  return String(notes || "")
+    .split("\n")
+    .filter((line) => !line.trim().startsWith(vehicleGalleryPrefix))
+    .join("\n")
+    .trim();
+}
+
+function serializeVehicleNotes(notes, images) {
+  const cleanNotes = stripVehicleGallery(notes);
+  const galleryImages = ensureImageList(images);
+  if (!galleryImages.length) return cleanNotes;
+  return [cleanNotes, `${vehicleGalleryPrefix} ${JSON.stringify(galleryImages)}`].filter(Boolean).join("\n");
 }
 
 function fromRequestRow(row) {
