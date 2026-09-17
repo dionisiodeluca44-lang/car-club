@@ -58,14 +58,15 @@ export async function getCurrentMember() {
     stripeSubscriptionId: profile?.stripe_subscription_id || "",
     username: profile?.username || user.user_metadata?.username || "",
     avatarUrl: profile?.avatar_url || user.user_metadata?.avatar_url || "",
+    phone: user.user_metadata?.phone || "",
     addresses: user.user_metadata?.addresses || [],
     notifications: profile?.notifications || defaultNotifications,
   };
 }
 
-export async function createAccount({ addresses = [], email, name, password, plan, username }) {
+export async function createAccount({ addresses = [], email, name, password, phone, plan, username }) {
   if (!supabase) {
-    return { addresses, avatarUrl: "", email, name, plan, subscriptionStatus: "active", username, notifications: defaultNotifications };
+    return { addresses, avatarUrl: "", email, name, phone, plan, subscriptionStatus: "active", username, notifications: defaultNotifications };
   }
 
   const { data, error } = await supabase.auth.signUp({
@@ -76,6 +77,7 @@ export async function createAccount({ addresses = [], email, name, password, pla
       data: {
         full_name: name,
         username,
+        phone,
         plan,
         addresses,
       },
@@ -87,10 +89,15 @@ export async function createAccount({ addresses = [], email, name, password, pla
 
   if (!data.session) {
     return {
+      id: data.user.id,
+      addresses,
       email,
       name,
+      phone,
       plan,
+      subscriptionStatus: "pending",
       pendingConfirmation: true,
+      username,
     };
   }
 
@@ -108,6 +115,7 @@ export async function createAccount({ addresses = [], email, name, password, pla
     id: data.user.id,
     email,
     name,
+    phone,
     plan,
     subscriptionStatus: "pending",
     username,
@@ -144,7 +152,7 @@ export async function requestPasswordReset(email) {
 
 export async function signIn({ email, password }) {
   if (!supabase) {
-    return { avatarUrl: "", email, name: email.split("@")[0] || "Member", plan: "Club Drive", subscriptionStatus: "active", username: "", notifications: defaultNotifications };
+    return { avatarUrl: "", email, name: email.split("@")[0] || "Member", phone: "", plan: "Club Drive", subscriptionStatus: "active", username: "", notifications: defaultNotifications };
   }
 
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -166,6 +174,7 @@ export async function signIn({ email, password }) {
     stripeSubscriptionId: profile?.stripe_subscription_id || "",
     username: profile?.username || data.user.user_metadata?.username || "",
     avatarUrl: profile?.avatar_url || data.user.user_metadata?.avatar_url || "",
+    phone: data.user.user_metadata?.phone || "",
     addresses: data.user.user_metadata?.addresses || [],
     notifications: profile?.notifications || defaultNotifications,
   };

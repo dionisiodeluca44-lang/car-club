@@ -9,7 +9,12 @@ const paymentSource = "white_glove_concierge";
 function json(statusCode, body) {
   return {
     statusCode,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Origin": "*",
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(body),
   };
 }
@@ -19,6 +24,10 @@ function clean(value, fallback = "") {
 }
 
 export async function handler(event) {
+  if (event.httpMethod === "OPTIONS") {
+    return json(204, {});
+  }
+
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed" });
   }

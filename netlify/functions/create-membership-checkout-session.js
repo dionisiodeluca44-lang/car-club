@@ -21,7 +21,12 @@ const defaultMembershipPricing = {
 function json(statusCode, body) {
   return {
     statusCode,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Origin": "*",
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(body),
   };
 }
@@ -57,6 +62,34 @@ async function pricingForPlan(planName) {
   };
 }
 
+async function verifySignupMember(payload) {
+  if (!supabase || !payload.signupActivation) return null;
+
+  const userId = clean(payload.userId);
+  const memberEmail = clean(payload.memberEmail).toLowerCase();
+
+  if (!userId || !memberEmail) {
+    const error = new Error("Create your account before starting membership checkout.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const { data, error } = await supabase.auth.admin.getUserById(userId);
+  if (error || !data.user) {
+    const authError = new Error("We could not verify the new member account before checkout.");
+    authError.statusCode = 404;
+    throw authError;
+  }
+
+  if (String(data.user.email || "").toLowerCase() !== memberEmail) {
+    const mismatchError = new Error("This checkout does not match the new member account.");
+    mismatchError.statusCode = 403;
+    throw mismatchError;
+  }
+
+  return data.user;
+}
+
 async function verifyMember(event, payload) {
   if (!supabase) return null;
 
@@ -64,6 +97,9 @@ async function verifyMember(event, payload) {
   const accessToken = authorization.replace(/^Bearer\s+/i, "").trim();
 
   if (!accessToken) {
+    if (payload.signupActivation) {
+      return verifySignupMember(payload);
+    }
     const error = new Error("Sign in before starting membership checkout.");
     error.statusCode = 401;
     throw error;
@@ -85,6 +121,27 @@ async function verifyMember(event, payload) {
   return data.user;
 }
 
+async function ensureSignupBillingProfile(user, payload, plan) {
+  if (!supabase || !payload.signupActivation || !user?.id) return;
+
+  const { error } = await supabase
+    .from("profiles")
+    .upsert({
+      id: user.id,
+      email: user.email,
+      full_name: clean(payload.memberName, user.user_metadata?.full_name || user.email),
+      username: user.user_metadata?.username || null,
+      avatar_url: user.user_metadata?.avatar_url || null,
+      plan,
+      subscription_status: "pending",
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "id" });
+
+  if (error) {
+    throw new Error(`Could not prepare the new member billing profile: ${error.message}`);
+  }
+}
+
 async function billingProfileForMember(userId) {
   if (!supabase || !userId) return null;
 
@@ -102,6 +159,10 @@ async function billingProfileForMember(userId) {
 }
 
 export async function handler(event) {
+  if (event.httpMethod === "OPTIONS") {
+    return json(204, {});
+  }
+
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed" });
   }
@@ -112,12 +173,13 @@ export async function handler(event) {
 
   try {
     const payload = JSON.parse(event.body || "{}");
-    const verifiedUser = await verifyMember(event, payload);
     const plan = clean(payload.plan, "Club Drive");
+    const verifiedUser = await verifyMember(event, payload);
     const pricing = await pricingForPlan(plan);
+    await ensureSignupBillingProfile(verifiedUser, payload, plan);
     const billingProfile = await billingProfileForMember(verifiedUser?.id);
     if (!billingProfile) {
-      throw new Error("The signed-in member does not have a billing profile.");
+      throw new Error("The member does not have a billing profile.");
     }
     const existingCustomerId = billingProfile?.stripe_customer_id || null;
 
@@ -143,6 +205,7 @@ export async function handler(event) {
       source: "White Glove Concierge app",
       memberEmail: clean(verifiedUser?.email || payload.memberEmail),
       memberName: clean(payload.memberName, "Member"),
+      memberPhone: clean(payload.memberPhone),
       plan,
       userId: clean(verifiedUser?.id || payload.userId),
     };
@@ -151,8 +214,12 @@ export async function handler(event) {
       mode: "subscription",
       payment_method_types: ["card"],
       client_reference_id: clean(`white-glove-membership-${verifiedUser?.id || payload.userId || payload.memberEmail || Date.now()}`),
-      success_url: `${siteUrl}/?membership=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl}/?membership=cancelled`,
+      success_url: payload.signupActivation
+        ? `${siteUrl}/?signup=confirm-email&session_id={CHECKOUT_SESSION_ID}`
+        : `${siteUrl}/?membership=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: payload.signupActivation
+        ? `${siteUrl}/?signup=payment-cancelled`
+        : `${siteUrl}/?membership=cancelled`,
       line_items: [
         {
           quantity: 1,

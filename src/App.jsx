@@ -100,6 +100,7 @@ const services = [
   },
 ];
 
+const publicSiteUrl = import.meta.env.VITE_PUBLIC_SITE_URL || "https://vocal-pie-c034af.netlify.app";
 const appStoreUrl = import.meta.env.VITE_APP_STORE_URL || "https://apps.apple.com/search?term=White%20Glove%20Concierge";
 
 function isNativeAppRuntime() {
@@ -107,6 +108,10 @@ function isNativeAppRuntime() {
   const capacitor = window.Capacitor;
   const platform = capacitor?.getPlatform?.();
   return capacitor?.isNativePlatform?.() === true || platform === "ios" || platform === "android" || /^(capacitor|ionic):\/\/localhost$/i.test(window.location.origin);
+}
+
+function netlifyFunctionUrl(path) {
+  return isNativeAppRuntime() ? `${publicSiteUrl}${path}` : path;
 }
 
 const plans = [
@@ -1466,6 +1471,7 @@ function App() {
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [appError, setAppError] = useState("");
+  const [signupConfirmationEmail, setSignupConfirmationEmail] = useState("");
   const [checkoutCompletion, setCheckoutCompletion] = useState(null);
   const [adminMode, setAdminMode] = useState(() => window.location.hash === "#admin");
   const [runtimeError, setRuntimeError] = useState("");
@@ -1599,6 +1605,25 @@ function App() {
     const params = new URLSearchParams(window.location.search);
     const bookingStatus = params.get("booking");
     const membershipStatus = params.get("membership");
+    const signupStatus = params.get("signup");
+
+    if (signupStatus === "confirm-email") {
+      const pendingEmail = localStorage.getItem("whiteGlovePendingSignupEmail") || "";
+      setMember(null);
+      setSignupConfirmationEmail(pendingEmail);
+      setAppError("");
+      setLoadingAccount(false);
+      setMode("signup-confirmation");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
+    if (signupStatus === "payment-cancelled") {
+      setMember(null);
+      setAppError("Membership checkout was cancelled. Create your account again or sign in if you already confirmed your email.");
+      setLoadingAccount(false);
+      setMode("login");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
 
     if (bookingStatus === "success") {
       setCheckoutCompletion({
@@ -1652,7 +1677,8 @@ function App() {
     let active = true;
 
     async function loadAccount() {
-      if (new URLSearchParams(window.location.search).get("password") === "recovery") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("password") === "recovery" || params.has("signup")) {
         setLoadingAccount(false);
         return;
       }
@@ -1781,6 +1807,37 @@ function App() {
     }
   }
 
+  async function startSignupMembershipCheckout(signedInMember, profile) {
+    if (!signedInMember?.id) {
+      throw new Error("The account was created, but checkout could not start. Sign in after confirming your email and start membership activation.");
+    }
+
+    const accessToken = await getCurrentAccessToken();
+    const response = await fetch(netlifyFunctionUrl("/.netlify/functions/create-membership-checkout-session"), {
+      method: "POST",
+      headers: {
+        "Authorization": accessToken ? `Bearer ${accessToken}` : "",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        signupActivation: true,
+        memberEmail: signedInMember.email || profile.email,
+        memberName: signedInMember.name || profile.name,
+        memberPhone: signedInMember.phone || profile.phone,
+        plan: signedInMember.plan || profile.plan,
+        userId: signedInMember.id,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok || !payload.url) {
+      throw new Error(payload.error || "Could not start membership checkout.");
+    }
+
+    localStorage.setItem("whiteGlovePendingSignupEmail", signedInMember.email || profile.email || "");
+    window.location.href = payload.url;
+  }
+
   async function handleLogin(profile) {
     setAppError("");
 
@@ -1788,6 +1845,10 @@ function App() {
       const signedInMember = profile.authAction === "create"
         ? await createAccount(profile)
         : await signIn(profile);
+      if (profile.authAction === "create") {
+        await startSignupMembershipCheckout(signedInMember, profile);
+        return;
+      }
       if (signedInMember.pendingConfirmation) {
         setAppError(`Account created for ${signedInMember.email}. Check your email to confirm your account, then sign in.`);
         return;
@@ -2015,6 +2076,10 @@ function App() {
 
   if (mode === "login") {
     return <LoginScreen appError={appError} backendEnabled={isBackendConfigured} membershipPricing={membershipPricing} onForgotPassword={requestPasswordReset} onLogin={handleLogin} onBack={() => setMode("site")} />;
+  }
+
+  if (mode === "signup-confirmation") {
+    return <SignupConfirmationScreen email={signupConfirmationEmail} onBack={() => setMode("site")} onSignIn={() => { setAppError(""); setMode("login"); }} />;
   }
 
   if (mode === "password-recovery") {
@@ -2903,6 +2968,7 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
         name: formData.get("name") || "Member",
         email: formData.get("email") || "member@example.com",
         password: formData.get("password"),
+        phone: formData.get("phone") || "",
         plan: formData.get("plan") || "Club Drive",
         addresses,
       });
@@ -2988,7 +3054,7 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
           <span>White Glove Member App</span>
         </div>
         <h1>{authMode === "create" ? "Create your member account." : "Sign in to your member account."}</h1>
-        <p>{backendEnabled ? authMode === "create" ? "Choose your package and create your secure account before activation." : "Use your member email and password to access saved vehicles and service requests." : "Backend keys are not connected yet, so this runs in local prototype mode."}</p>
+        <p>{backendEnabled ? authMode === "create" ? "Choose your package, create your account, then continue to secure membership payment." : "Use your member email and password to access saved vehicles and service requests." : "Backend keys are not connected yet, so this runs in local prototype mode."}</p>
         <div className="auth-mode-switch" aria-label="Account access options">
           <button className={authMode === "signin" ? "active" : ""} type="button" onClick={() => showAuthMode("signin")}>Sign In</button>
           <button className={authMode === "create" ? "active" : ""} type="button" onClick={() => showAuthMode("create")}>Create Account</button>
@@ -3014,6 +3080,10 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
               <label>
                 Full name
                 <input name="name" type="text" placeholder="Full name" required />
+              </label>
+              <label>
+                Phone number
+                <input name="phone" type="tel" autoComplete="tel" placeholder="Phone number" required />
               </label>
               <label>
                 Membership
@@ -3072,7 +3142,7 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
             </div>
           )}
           <button className="button primary submit" type="submit" disabled={authLoading}>
-            {authLoading ? "Working..." : authMode === "create" ? "Create Account" : "Sign In"} <ArrowRight size={18} />
+            {authLoading ? "Working..." : authMode === "create" ? "Create Account & Continue To Payment" : "Sign In"} <ArrowRight size={18} />
           </button>
           {authMode === "signin" && (
             <button className="button ghost submit" type="button" onClick={handleResendConfirmation} disabled={authLoading || !backendEnabled}>
@@ -3080,6 +3150,33 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
             </button>
           )}
         </form>
+      </section>
+    </main>
+  );
+}
+
+function SignupConfirmationScreen({ email, onBack, onSignIn }) {
+  return (
+    <main className="login-screen">
+      <section className="phone-auth signup-confirmation-card">
+        <button className="text-button" type="button" onClick={onBack}>Back to site</button>
+        <div className="auth-brand">
+          <span className="brand-mark">WG</span>
+          <span>White Glove Member App</span>
+        </div>
+        <div className="completion-mark">
+          <Check size={36} />
+        </div>
+        <h1>Your membership is almost ready.</h1>
+        <p>
+          Payment is complete. Confirm your email{email ? ` at ${email}` : ""} to finish activating your account, then sign in with the password you created.
+        </p>
+        <div className="success-message" role="status">
+          Open your inbox and look for the White Glove confirmation email. If it is not there, check spam or promotions.
+        </div>
+        <button className="button primary submit" type="button" onClick={onSignIn}>
+          Go To Sign In <ArrowRight size={18} />
+        </button>
       </section>
     </main>
   );
@@ -3169,7 +3266,7 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
     try {
       setLoading(true);
       const accessToken = await getCurrentAccessToken();
-      const response = await fetch("/.netlify/functions/create-membership-checkout-session", {
+      const response = await fetch(netlifyFunctionUrl("/.netlify/functions/create-membership-checkout-session"), {
         method: "POST",
         headers: {
           "Authorization": accessToken ? `Bearer ${accessToken}` : "",
@@ -4674,7 +4771,7 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
       setProcessingPayment(true);
 
       if (amountCents > 0 && window.location.hostname !== "127.0.0.1" && window.location.hostname !== "localhost") {
-        const response = await fetch("/.netlify/functions/create-checkout-session", {
+        const response = await fetch(netlifyFunctionUrl("/.netlify/functions/create-checkout-session"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
