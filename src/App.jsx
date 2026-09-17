@@ -114,6 +114,25 @@ function netlifyFunctionUrl(path) {
   return isNativeAppRuntime() ? `${publicSiteUrl}${path}` : path;
 }
 
+function readableError(error, fallback = "Something went wrong. Please try again.") {
+  if (!error) return fallback;
+  if (typeof error === "string") return error === "{}" ? fallback : error;
+
+  const message = error.message || error.error_description || error.error || error.msg;
+  if (typeof message === "string" && message && message !== "{}") return message;
+  if (message && typeof message === "object") {
+    const nestedMessage = message.message || message.error_description || message.error || message.msg;
+    if (typeof nestedMessage === "string" && nestedMessage && nestedMessage !== "{}") return nestedMessage;
+  }
+
+  try {
+    const serialized = JSON.stringify(error);
+    return serialized && serialized !== "{}" ? serialized : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 const plans = [
   {
     name: "Silver",
@@ -1828,10 +1847,16 @@ function App() {
         userId: signedInMember.id,
       }),
     });
-    const payload = await response.json().catch(() => ({}));
+    const responseText = await response.text();
+    let payload = {};
+    try {
+      payload = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      payload = { error: responseText };
+    }
 
     if (!response.ok || !payload.url) {
-      throw new Error(payload.error || "Could not start membership checkout.");
+      throw new Error(readableError(payload.error || payload, "Could not start membership checkout. Check that Stripe and Supabase environment variables are set in Netlify."));
     }
 
     localStorage.setItem("whiteGlovePendingSignupEmail", signedInMember.email || profile.email || "");
@@ -2973,7 +2998,7 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
         addresses,
       });
     } catch (error) {
-      setAuthError(error.message || "Could not access your account.");
+      setAuthError(readableError(error, "Could not access your account."));
     } finally {
       setAuthLoading(false);
     }
@@ -3279,15 +3304,21 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
           userId: member.id,
         }),
       });
-      const payload = await response.json().catch(() => ({}));
+      const responseText = await response.text();
+      let payload = {};
+      try {
+        payload = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        payload = { error: responseText };
+      }
 
       if (!response.ok || !payload.url) {
-        throw new Error(payload.error || "Could not start membership checkout.");
+        throw new Error(readableError(payload.error || payload, "Could not start membership checkout."));
       }
 
       window.location.href = payload.url;
     } catch (error) {
-      setActivationError(error.message || "Could not start membership checkout.");
+      setActivationError(readableError(error, "Could not start membership checkout."));
       setLoading(false);
     }
   }

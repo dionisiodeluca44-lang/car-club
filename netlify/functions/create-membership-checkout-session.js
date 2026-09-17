@@ -35,6 +35,25 @@ function clean(value, fallback = "") {
   return String(value || fallback).slice(0, 480);
 }
 
+function describeError(error, fallback = "Could not start membership checkout") {
+  if (!error) return fallback;
+  if (typeof error === "string") return error === "{}" ? fallback : error;
+
+  const message = error.message || error.error_description || error.error || error.msg;
+  if (typeof message === "string" && message && message !== "{}") return message;
+  if (message && typeof message === "object") {
+    const nestedMessage = message.message || message.error_description || message.error || message.msg;
+    if (typeof nestedMessage === "string" && nestedMessage && nestedMessage !== "{}") return nestedMessage;
+  }
+
+  try {
+    const serialized = JSON.stringify(error);
+    return serialized && serialized !== "{}" ? serialized : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function billingInterval(cadence) {
   return cadence === "/year" ? "year" : "month";
 }
@@ -257,8 +276,8 @@ export async function handler(event) {
   } catch (error) {
     console.error("Could not create membership Stripe Checkout Session", error);
     if (error.statusCode) {
-      return json(error.statusCode, { error: error.message });
+      return json(error.statusCode, { error: describeError(error) });
     }
-    return json(500, { error: "Could not start membership checkout" });
+    return json(500, { error: describeError(error) });
   }
 }
