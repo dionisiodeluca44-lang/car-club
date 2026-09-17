@@ -58,13 +58,14 @@ export async function getCurrentMember() {
     stripeSubscriptionId: profile?.stripe_subscription_id || "",
     username: profile?.username || user.user_metadata?.username || "",
     avatarUrl: profile?.avatar_url || user.user_metadata?.avatar_url || "",
+    addresses: user.user_metadata?.addresses || [],
     notifications: profile?.notifications || defaultNotifications,
   };
 }
 
-export async function createAccount({ email, name, password, plan, username }) {
+export async function createAccount({ addresses = [], email, name, password, plan, username }) {
   if (!supabase) {
-    return { avatarUrl: "", email, name, plan, subscriptionStatus: "active", username, notifications: defaultNotifications };
+    return { addresses, avatarUrl: "", email, name, plan, subscriptionStatus: "active", username, notifications: defaultNotifications };
   }
 
   const { data, error } = await supabase.auth.signUp({
@@ -76,6 +77,7 @@ export async function createAccount({ email, name, password, plan, username }) {
         full_name: name,
         username,
         plan,
+        addresses,
       },
     },
   });
@@ -110,6 +112,7 @@ export async function createAccount({ email, name, password, plan, username }) {
     subscriptionStatus: "pending",
     username,
     avatarUrl: "",
+    addresses,
     notifications: defaultNotifications,
   };
 }
@@ -163,6 +166,7 @@ export async function signIn({ email, password }) {
     stripeSubscriptionId: profile?.stripe_subscription_id || "",
     username: profile?.username || data.user.user_metadata?.username || "",
     avatarUrl: profile?.avatar_url || data.user.user_metadata?.avatar_url || "",
+    addresses: data.user.user_metadata?.addresses || [],
     notifications: profile?.notifications || defaultNotifications,
   };
 }

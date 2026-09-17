@@ -219,6 +219,10 @@ const serviceOptions = [
     allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
   },
   {
+    label: "Book an inspection",
+    allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
     label: "Diagnostics",
     allowedPlans: ["Silver", "Club Drive", "Gold", "Platinum", "Collector"],
   },
@@ -284,6 +288,14 @@ const serviceOptions = [
   },
   {
     label: "Buy a vehicle",
+    allowedPlans: ["Platinum", "Collector"],
+  },
+  {
+    label: "Rent a car",
+    allowedPlans: ["Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Rent a driver",
     allowedPlans: ["Platinum", "Collector"],
   },
   {
@@ -380,6 +392,12 @@ const bookingServiceCatalog = {
     options: ["Brake Pads", "Brake Discs / Rotors", "Pads and Discs / Rotors", "Brake Inspection", "Not Sure What I Need"],
     questions: ["Front, rear, or not sure", "Grinding, squeaking, vibration, warning light, or reduced braking"],
   },
+  "Book an inspection": {
+    category: "Inspection",
+    deposit: 100,
+    options: ["Pre-Purchase Inspection", "Annual Safety Inspection", "Post-Service Inspection", "Condition Report", "Lease Return Inspection", "Not Sure"],
+    questions: ["Reason for inspection", "Preferred inspection location", "Deadline or purchase timeline", "Any concerns you want checked first"],
+  },
   "Oil change": {
     category: "Maintenance & Repair",
     deposit: 50,
@@ -437,9 +455,9 @@ const bookingServiceCatalog = {
   "Pickup and delivery": {
     category: "Transport",
     options: [
-      { name: "Montreal Island", price: 175 },
-      { name: "Outside Montreal Island - Nearby", displayPrice: "From $225 CAD" },
-      { name: "Outside Montreal Island - Extended Distance", displayPrice: "From $250 CAD" },
+      { name: "Local service area", price: 175 },
+      { name: "Nearby service area", displayPrice: "From $225 CAD" },
+      { name: "Extended distance", displayPrice: "From $250 CAD" },
       { name: "Custom Distance / Not Sure", deposit: 100 },
     ],
   },
@@ -451,6 +469,18 @@ const bookingServiceCatalog = {
     category: "Buying & Selling",
     deposit: 250,
     options: ["Find a Specific Vehicle", "Help Me Choose", "Pre-Purchase Inspection", "Negotiation Assistance", "Full Buying Concierge"],
+  },
+  "Rent a car": {
+    category: "Rental Concierge",
+    deposit: 250,
+    options: ["Luxury Sedan", "SUV", "Sports Car", "Exotic Vehicle", "Executive Vehicle", "Not Sure"],
+    questions: ["Vehicle style and seating needs", "Rental start date and return date", "Delivery address", "Driver age and insurance needs"],
+  },
+  "Rent a driver": {
+    category: "Chauffeur",
+    deposit: 200,
+    options: ["Airport Transfer", "Hourly Driver", "Full-Day Driver", "Event Driver", "Out-of-Town Trip", "Not Sure"],
+    questions: ["Pickup and drop-off addresses", "Start and end time", "Passenger count", "Stops or waiting time needed"],
   },
   "Sell my vehicle": {
     category: "Buying & Selling",
@@ -506,6 +536,44 @@ function serviceOptionsForBooking(serviceLabel) {
 
 function serviceQuestionsForBooking(serviceLabel) {
   return serviceCatalogForLabel(serviceLabel)?.questions || [];
+}
+
+function serviceDetailFieldsForBooking(serviceLabel) {
+  if (serviceLabel === "Rent a car") {
+    return [
+      { name: "rentalVehicleType", label: "Vehicle preference", placeholder: "SUV, sports car, luxury sedan, or similar" },
+      { name: "rentalStartDate", label: "Start date", type: "date" },
+      { name: "rentalEndDate", label: "Return date", type: "date" },
+      { name: "rentalDeliveryAddress", label: "Delivery address", placeholder: "Where should the rental be delivered?" },
+      { name: "rentalPassengers", label: "Passengers and luggage", placeholder: "Passengers, luggage, child seats, or special needs" },
+    ];
+  }
+
+  if (serviceLabel === "Rent a driver") {
+    return [
+      { name: "driverPickupAddress", label: "Pickup address", placeholder: "Where should the driver meet you?" },
+      { name: "driverDropoffAddress", label: "Destination", placeholder: "Main destination or route" },
+      { name: "driverStartDate", label: "Service date", type: "date" },
+      { name: "driverStartTime", label: "Start time", type: "time" },
+      { name: "driverHours", label: "Estimated time needed", placeholder: "One way, hourly, full day, or not sure" },
+      { name: "driverPassengers", label: "Passenger details", placeholder: "Passenger count, stops, luggage, waiting time" },
+    ];
+  }
+
+  if (serviceLabel === "Book an inspection") {
+    return [
+      { name: "inspectionReason", label: "Inspection goal", placeholder: "Pre-purchase, annual safety, condition report, or concern" },
+      { name: "inspectionLocation", label: "Inspection location", placeholder: "Seller, dealer, home, storage, or shop address" },
+      { name: "inspectionDeadline", label: "Needed by", type: "date" },
+      { name: "inspectionConcerns", label: "Main concerns", placeholder: "Leaks, brakes, electronics, accident history, warning lights" },
+    ];
+  }
+
+  return [];
+}
+
+function serviceRequiresSavedVehicle(serviceLabel) {
+  return !["Rent a car", "Rent a driver"].includes(serviceLabel);
 }
 
 function formatCad(amount) {
@@ -1057,19 +1125,19 @@ const defaultGarage = [
   {
     id: "demo-911",
     year: "2021",
-    make: "Porsche",
-    model: "911 Carrera",
+    make: "Sample",
+    model: "Performance Coupe",
     mileage: "18,400",
     use: "Seasonal",
     status: "Detail due",
     marketValue: "$142,000",
     horsepower: "379 hp",
-    vin: "WP0AB2A9-DEMO-911",
-    location: "Montreal storage",
+    vin: "VIN-SAMPLE-COUPE",
+    location: "Storage location",
     insurance: "Collector policy active",
     warranty: "Factory warranty expired",
-    preferredDealer: "Porsche Centre",
-    pickupLocation: "Home garage",
+    preferredDealer: "Preferred service center",
+    pickupLocation: "Primary address",
     nextService: "Oil change in 42 days",
     tireAge: "2 years",
     batteryAge: "18 months",
@@ -1080,19 +1148,19 @@ const defaultGarage = [
   {
     id: "demo-range",
     year: "2024",
-    make: "Range Rover",
-    model: "Sport",
+    make: "Sample",
+    model: "Daily SUV",
     mileage: "7,950",
     use: "Daily",
     status: "Health report ready",
     marketValue: "$118,000",
     horsepower: "355 hp",
-    vin: "SALWR2SE-DEMO-RR",
+    vin: "VIN-SAMPLE-SUV",
     location: "Daily driver",
     insurance: "Personal policy active",
     warranty: "Factory warranty active",
-    preferredDealer: "Land Rover dealer",
-    pickupLocation: "Office",
+    preferredDealer: "Preferred dealer",
+    pickupLocation: "Work address",
     nextService: "Service in 63 days",
     tireAge: "1 year",
     batteryAge: "9 months",
@@ -1105,7 +1173,7 @@ const defaultGarage = [
 const defaultAppointments = [
   {
     id: "appt-1",
-    vehicle: "2021 Porsche 911 Carrera",
+    vehicle: "2021 Sample Performance Coupe",
     service: "Full detail",
     date: "2026-07-08",
     time: "10:00",
@@ -2806,6 +2874,8 @@ function AdminPortal({ onBack }) {
 }
 
 function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onForgotPassword, onLogin }) {
+  const [authMode, setAuthMode] = useState("signin");
+  const [signupAddresses, setSignupAddresses] = useState([{ id: "primary-address", label: "Home" }]);
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
@@ -2819,15 +2889,22 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
     setAuthLoading(true);
 
     const formData = new FormData(event.currentTarget);
-    const authAction = event.nativeEvent.submitter?.value || "signin";
+    const authAction = authMode === "create" ? "create" : "signin";
+    const addresses = signupAddresses
+      .map((address) => ({
+        label: formData.get(`addressLabel-${address.id}`) || address.label,
+        address: formData.get(`addressValue-${address.id}`) || "",
+      }))
+      .filter((address) => address.address);
 
     try {
       await onLogin({
         authAction,
         name: formData.get("name") || "Member",
-        email: formData.get("email") || "member@whitegloveconcierge.com",
+        email: formData.get("email") || "member@example.com",
         password: formData.get("password"),
         plan: formData.get("plan") || "Club Drive",
+        addresses,
       });
     } catch (error) {
       setAuthError(error.message || "Could not access your account.");
@@ -2888,6 +2965,20 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
     }
   }
 
+  function showAuthMode(nextMode) {
+    setAuthMode(nextMode);
+    setAuthError("");
+    setAuthNotice("");
+  }
+
+  function addSignupAddress() {
+    setSignupAddresses((addresses) => [...addresses, { id: crypto.randomUUID(), label: "Other" }]);
+  }
+
+  function removeSignupAddress(addressId) {
+    setSignupAddresses((addresses) => (addresses.length > 1 ? addresses.filter((address) => address.id !== addressId) : addresses));
+  }
+
   return (
     <main className="login-screen">
       <section className="phone-auth">
@@ -2896,8 +2987,12 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
           <span className="brand-mark">WG</span>
           <span>White Glove Member App</span>
         </div>
-        <h1>Log in to your vehicle concierge account.</h1>
-        <p>{backendEnabled ? "Use your member email and password to access saved vehicles and service requests." : "Backend keys are not connected yet, so this runs in local prototype mode."}</p>
+        <h1>{authMode === "create" ? "Create your member account." : "Sign in to your member account."}</h1>
+        <p>{backendEnabled ? authMode === "create" ? "Choose your package and create your secure account before activation." : "Use your member email and password to access saved vehicles and service requests." : "Backend keys are not connected yet, so this runs in local prototype mode."}</p>
+        <div className="auth-mode-switch" aria-label="Account access options">
+          <button className={authMode === "signin" ? "active" : ""} type="button" onClick={() => showAuthMode("signin")}>Sign In</button>
+          <button className={authMode === "create" ? "active" : ""} type="button" onClick={() => showAuthMode("create")}>Create Account</button>
+        </div>
         <form className="app-form" ref={formRef} onSubmit={submitLogin}>
           {authError && (
             <div className="error-message" role="alert">
@@ -2914,40 +3009,76 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
               {appError}
             </div>
           )}
-          <label>
-            Full name
-            <input name="name" type="text" placeholder="Dionisio De Luca" />
-          </label>
+          {authMode === "create" && (
+            <>
+              <label>
+                Full name
+                <input name="name" type="text" placeholder="Full name" required />
+              </label>
+              <label>
+                Membership
+                <select name="plan" required>
+                  {plans.map((plan) => (
+                    <option key={plan.name} value={plan.name}>
+                      {plan.name} - {membershipPriceLabel(plan.name, membershipPricing)}{membershipPricingForPlan(plan.name, membershipPricing).cadence}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
           <label>
             Email
-            <input name="email" type="email" placeholder="you@example.com" required />
+            <input name="email" type="email" placeholder="email@example.com" required />
           </label>
           <label>
             Password
             <input name="password" type="password" minLength="6" placeholder="Minimum 6 characters" required />
           </label>
-          <button className="forgot-password-button" type="button" onClick={handleForgotPassword} disabled={authLoading || !backendEnabled}>
-            Forgot your password?
-          </button>
-          <label>
-            Membership
-            <select name="plan">
-              {plans.map((plan) => (
-                <option key={plan.name} value={plan.name}>
-                  {plan.name} - {membershipPriceLabel(plan.name, membershipPricing)}{membershipPricingForPlan(plan.name, membershipPricing).cadence}
-                </option>
+          {authMode === "signin" && (
+            <button className="forgot-password-button" type="button" onClick={handleForgotPassword} disabled={authLoading || !backendEnabled}>
+              Forgot your password?
+            </button>
+          )}
+          {authMode === "create" && (
+            <div className="signup-address-list">
+              <div className="signup-address-header">
+                <span>Saved addresses</span>
+                <button className="icon-button" type="button" onClick={addSignupAddress} aria-label="Add address">
+                  <Plus size={18} />
+                </button>
+              </div>
+              {signupAddresses.map((address, index) => (
+                <div className="signup-address-row" key={address.id}>
+                  <label>
+                    Type
+                    <select name={`addressLabel-${address.id}`} defaultValue={address.label}>
+                      <option>Home</option>
+                      <option>Work</option>
+                      <option>Storage</option>
+                      <option>Dealership</option>
+                      <option>Other</option>
+                    </select>
+                  </label>
+                  <label>
+                    Address
+                    <input name={`addressValue-${address.id}`} type="text" placeholder="Street address, city, province/state" required={index === 0} />
+                  </label>
+                  <button className="icon-button" type="button" onClick={() => removeSignupAddress(address.id)} aria-label="Remove address" disabled={signupAddresses.length === 1}>
+                    <X size={18} />
+                  </button>
+                </div>
               ))}
-            </select>
-          </label>
-          <button className="button primary submit" name="authAction" type="submit" value="signin" disabled={authLoading}>
-            {authLoading ? "Working..." : "Sign In"} <ArrowRight size={18} />
+            </div>
+          )}
+          <button className="button primary submit" type="submit" disabled={authLoading}>
+            {authLoading ? "Working..." : authMode === "create" ? "Create Account" : "Sign In"} <ArrowRight size={18} />
           </button>
-          <button className="button secondary submit" name="authAction" type="submit" value="create" disabled={authLoading}>
-            Create Account
-          </button>
-          <button className="button ghost submit" type="button" onClick={handleResendConfirmation} disabled={authLoading || !backendEnabled}>
-            Resend Confirmation Email
-          </button>
+          {authMode === "signin" && (
+            <button className="button ghost submit" type="button" onClick={handleResendConfirmation} disabled={authLoading || !backendEnabled}>
+              Resend Confirmation Email
+            </button>
+          )}
         </form>
       </section>
     </main>
@@ -4265,39 +4396,39 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         </label>
         <label>
           Make
-          <input name="make" required type="text" placeholder="Porsche" />
+          <input name="make" required type="text" placeholder="Vehicle make" />
         </label>
         <label>
           Model
-          <input name="model" required type="text" placeholder="911" />
+          <input name="model" required type="text" placeholder="Vehicle model" />
         </label>
         <label>
           Mileage
-          <input name="mileage" type="text" placeholder="12,500" />
+          <input name="mileage" type="text" placeholder="Current mileage" />
         </label>
         <label>
           VIN
-          <input name="vin" type="text" placeholder="WP0AB2A9..." />
+          <input name="vin" type="text" placeholder="Vehicle identification number" />
         </label>
         <label>
           License plate
-          <input name="plate" type="text" placeholder="ABC 123" />
+          <input name="plate" type="text" placeholder="License plate" />
         </label>
         <label>
           Color
-          <input name="color" type="text" placeholder="Guards Red" />
+          <input name="color" type="text" placeholder="Vehicle color" />
         </label>
         <label>
           Vehicle location
-          <input name="location" type="text" placeholder="Montreal, QC" />
+          <input name="location" type="text" placeholder="Current city or address" />
         </label>
         <label>
           Current market value
-          <input name="marketValue" type="text" placeholder="$85,000" />
+          <input name="marketValue" type="text" placeholder="Estimated value" />
         </label>
         <label>
           Horsepower
-          <input name="horsepower" type="text" placeholder="503 hp" />
+          <input name="horsepower" type="text" placeholder="Horsepower if known" />
         </label>
         <label>
           Use
@@ -4322,7 +4453,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         </label>
         <label>
           Preferred pickup location
-          <input name="pickupLocation" type="text" placeholder="Home, office, storage facility" />
+          <input name="pickupLocation" type="text" placeholder="Preferred pickup address or location" />
         </label>
         <label>
           Condition
@@ -4335,11 +4466,11 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         </label>
         <label>
           Next service
-          <input name="nextService" type="text" placeholder="Oil change in 42 days" />
+          <input name="nextService" type="text" placeholder="Next service timing" />
         </label>
         <label>
           Last oil change
-          <input name="lastOilChange" type="text" placeholder="May 2026 or 8,000 km ago" />
+          <input name="lastOilChange" type="text" placeholder="Date or mileage since last oil change" />
         </label>
         <label>
           Service interval
@@ -4347,11 +4478,11 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         </label>
         <label>
           Last detail
-          <input name="lastDetail" type="text" placeholder="Spring 2026" />
+          <input name="lastDetail" type="text" placeholder="Date of last detail" />
         </label>
         <label>
           Brake service
-          <input name="brakeService" type="text" placeholder="Pads checked June 2026" />
+          <input name="brakeService" type="text" placeholder="Last brake service or concern" />
         </label>
         <label>
           Recall status
@@ -4411,11 +4542,14 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
   const availableServices = getAvailableServices(member.plan);
   const serviceSubOptions = serviceOptionsForBooking(selectedService);
   const serviceQuestions = serviceQuestionsForBooking(selectedService);
-  const hasVehicles = garage.length > 0 && Boolean(selectedVehicle);
+  const serviceDetailFields = serviceDetailFieldsForBooking(selectedService);
+  const needsSavedVehicle = serviceRequiresSavedVehicle(selectedService);
+  const hasVehicles = !needsSavedVehicle || (garage.length > 0 && Boolean(selectedVehicle));
   const basePaymentTerms = paymentTermsForService(selectedService, selectedVehicle, selectedServiceOption, servicePricing);
   const selectedTransportChoice = transportChoices.find((choice) => choice.value === transportChoice) || transportChoices[0];
   const selectedPaymentTerms = bookingPaymentTerms(basePaymentTerms, selectedTransportChoice, warrantyCoverage);
   const selectedVehicleClass = vehicleClassFromVehicle(selectedVehicle);
+  const showVehicleLogistics = needsSavedVehicle;
 
   useEffect(() => {
     setBookingStep("details");
@@ -4429,8 +4563,12 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
     setRequestError("");
 
     const formData = new FormData(event.currentTarget);
+    const serviceDetailNotes = serviceDetailFields
+      .map((field) => [field.label, formData.get(field.name)])
+      .filter(([, value]) => value)
+      .map(([label, value]) => `${label}: ${value}`);
     const appointment = {
-      vehicle: selectedVehicle ? vehicleLabel(selectedVehicle) : "",
+      vehicle: selectedVehicle ? vehicleLabel(selectedVehicle) : needsSavedVehicle ? "" : "No saved vehicle needed",
       vehicleId: selectedVehicle?.id || "",
       vehicleClass: selectedVehicleClass,
       service: formData.get("service"),
@@ -4446,6 +4584,7 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
         `Transportation direction: ${selectedPaymentTerms.transportDirection}`,
         `Transportation charge: ${selectedPaymentTerms.transportAmount}`,
         `Warranty: ${selectedPaymentTerms.warrantyLabel}`,
+        ...serviceDetailNotes,
         formData.get("notes"),
         `Payment: ${selectedPaymentTerms.title} - ${selectedPaymentTerms.amount}. ${selectedPaymentTerms.note}`,
       ].filter(Boolean).join("\n\n"),
@@ -4493,6 +4632,7 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
           transportDirection: selectedPaymentTerms.transportDirection,
           warrantyCoverage,
           warrantyLabel: selectedPaymentTerms.warrantyLabel,
+          ...Object.fromEntries(serviceDetailFields.map((field) => [field.name, formData.get(field.name) || ""])),
           notes: appointment.notes,
         },
       });
@@ -4715,6 +4855,16 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
           <button type="button" onClick={onChangeVehicle}>Change vehicle</button>
         </div>
       )}
+      {!needsSavedVehicle && !selectedVehicle && (
+        <div className="selected-vehicle-summary service-only-summary">
+          <CalendarCheck size={24} />
+          <div>
+            <span>{selectedService}</span>
+            <h3>No garage vehicle required</h3>
+            <p>White Glove will use the request details below to coordinate this service.</p>
+          </div>
+        </div>
+      )}
       <div className="app-form-grid">
         <label>
           Service
@@ -4741,45 +4891,62 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
           <input name="time" required type="time" />
         </label>
       </div>
-      <AddressAutocomplete
-        label="Car's current location"
-        name="currentLocation"
-        onChange={setCurrentLocation}
-        placeholder="Start typing the pickup, home, office, storage, or dealership address"
-        required
-        value={currentLocation}
-      />
-      <div className="booking-choice-section">
-        <div>
-          <span className="eyebrow">Vehicle logistics</span>
-          <h3>How should the vehicle get there?</h3>
+      {serviceDetailFields.length > 0 && (
+        <div className="service-extra-fields">
+          <span className="eyebrow">Service details</span>
+          <div className="app-form-grid">
+            {serviceDetailFields.map((field) => (
+              <label key={field.name}>
+                {field.label}
+                <input name={field.name} required type={field.type || "text"} placeholder={field.placeholder || ""} />
+              </label>
+            ))}
+          </div>
         </div>
-        <div className="booking-choice-grid">
-          {transportChoices.map((choice) => (
-            <label className={transportChoice === choice.value ? "selected-booking-choice" : ""} key={choice.value}>
-              <input checked={transportChoice === choice.value} name="transportChoiceVisible" onChange={() => setTransportChoice(choice.value)} type="radio" value={choice.value} />
-              <span>{choice.label}</span>
-              <small>{choice.description}</small>
-              {choice.amountCents > 0 && <strong>{formatCad(choice.amountCents / 100)}</strong>}
-            </label>
-          ))}
-        </div>
-      </div>
-      <div className="booking-choice-section">
-        <div>
-          <span className="eyebrow">Warranty</span>
-          <h3>Is this covered by warranty?</h3>
-        </div>
-        <div className="booking-choice-grid warranty-choice-grid">
-          {warrantyChoices.map((choice) => (
-            <label className={warrantyCoverage === choice.value ? "selected-booking-choice" : ""} key={choice.value}>
-              <input checked={warrantyCoverage === choice.value} name="warrantyCoverageVisible" onChange={() => setWarrantyCoverage(choice.value)} type="radio" value={choice.value} />
-              <span>{choice.label}</span>
-              <small>{choice.value === "not-warranty" ? "Use normal service pricing." : "Warranty work is free today unless pickup is selected."}</small>
-            </label>
-          ))}
-        </div>
-      </div>
+      )}
+      {showVehicleLogistics && (
+        <>
+          <AddressAutocomplete
+            label="Car's current location"
+            name="currentLocation"
+            onChange={setCurrentLocation}
+            placeholder="Start typing a saved address, storage location, dealership, or shop"
+            required
+            value={currentLocation}
+          />
+          <div className="booking-choice-section">
+            <div>
+              <span className="eyebrow">Vehicle logistics</span>
+              <h3>How should the vehicle get there?</h3>
+            </div>
+            <div className="booking-choice-grid">
+              {transportChoices.map((choice) => (
+                <label className={transportChoice === choice.value ? "selected-booking-choice" : ""} key={choice.value}>
+                  <input checked={transportChoice === choice.value} name="transportChoiceVisible" onChange={() => setTransportChoice(choice.value)} type="radio" value={choice.value} />
+                  <span>{choice.label}</span>
+                  <small>{choice.description}</small>
+                  {choice.amountCents > 0 && <strong>{formatCad(choice.amountCents / 100)}</strong>}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="booking-choice-section">
+            <div>
+              <span className="eyebrow">Warranty</span>
+              <h3>Is this covered by warranty?</h3>
+            </div>
+            <div className="booking-choice-grid warranty-choice-grid">
+              {warrantyChoices.map((choice) => (
+                <label className={warrantyCoverage === choice.value ? "selected-booking-choice" : ""} key={choice.value}>
+                  <input checked={warrantyCoverage === choice.value} name="warrantyCoverageVisible" onChange={() => setWarrantyCoverage(choice.value)} type="radio" value={choice.value} />
+                  <span>{choice.label}</span>
+                  <small>{choice.value === "not-warranty" ? "Use normal service pricing." : "Warranty work is free today unless pickup is selected."}</small>
+                </label>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
       {selectedService && (
         <div className={selectedPaymentTerms.mode === "full" ? "payment-terms full-payment-card" : "payment-terms deposit-payment-card"}>
           <CreditCard size={22} />
@@ -5170,15 +5337,15 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
           <div className="app-form-grid">
             <label>
               Current market value
-              <input defaultValue={vehicle.marketValue || ""} name="marketValue" placeholder="$85,000" type="text" />
+              <input defaultValue={vehicle.marketValue || ""} name="marketValue" placeholder="Estimated value" type="text" />
             </label>
             <label>
               Horsepower
-              <input defaultValue={vehicle.horsepower || ""} name="horsepower" placeholder="503 hp" type="text" />
+              <input defaultValue={vehicle.horsepower || ""} name="horsepower" placeholder="Horsepower if known" type="text" />
             </label>
             <label>
               Mileage
-              <input defaultValue={vehicle.mileage || ""} name="mileage" placeholder="12,500" type="text" />
+              <input defaultValue={vehicle.mileage || ""} name="mileage" placeholder="Current mileage" type="text" />
             </label>
             <label>
               Status
@@ -5186,15 +5353,15 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
             </label>
             <label>
               VIN
-              <input defaultValue={vehicle.vin || ""} name="vin" placeholder="WP0AB2A9..." type="text" />
+              <input defaultValue={vehicle.vin || ""} name="vin" placeholder="Vehicle identification number" type="text" />
             </label>
             <label>
               License plate
-              <input defaultValue={vehicle.plate || ""} name="plate" placeholder="ABC 123" type="text" />
+              <input defaultValue={vehicle.plate || ""} name="plate" placeholder="License plate" type="text" />
             </label>
             <label>
               Color
-              <input defaultValue={vehicle.color || ""} name="color" placeholder="Guards Red" type="text" />
+              <input defaultValue={vehicle.color || ""} name="color" placeholder="Vehicle color" type="text" />
             </label>
             <label>
               Condition
@@ -5202,7 +5369,7 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
             </label>
             <label>
               Location
-              <input defaultValue={vehicle.location || ""} name="location" placeholder="Home, office, storage" type="text" />
+              <input defaultValue={vehicle.location || ""} name="location" placeholder="Current city or address" type="text" />
             </label>
             <label>
               Insurance
@@ -5218,15 +5385,15 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
             </label>
             <label>
               Preferred pickup
-              <input defaultValue={vehicle.pickupLocation || ""} name="pickupLocation" placeholder="Home, office, storage" type="text" />
+              <input defaultValue={vehicle.pickupLocation || ""} name="pickupLocation" placeholder="Preferred pickup address or location" type="text" />
             </label>
             <label>
               Next service
-              <input defaultValue={vehicle.nextService || ""} name="nextService" placeholder="Oil change in 42 days" type="text" />
+              <input defaultValue={vehicle.nextService || ""} name="nextService" placeholder="Next service timing" type="text" />
             </label>
             <label>
               Last oil change
-              <input defaultValue={vehicle.lastOilChange || ""} name="lastOilChange" placeholder="May 2026 or 8,000 km ago" type="text" />
+              <input defaultValue={vehicle.lastOilChange || ""} name="lastOilChange" placeholder="Date or mileage since last oil change" type="text" />
             </label>
             <label>
               Service interval
@@ -5234,11 +5401,11 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
             </label>
             <label>
               Last detail
-              <input defaultValue={vehicle.lastDetail || ""} name="lastDetail" placeholder="Spring 2026" type="text" />
+              <input defaultValue={vehicle.lastDetail || ""} name="lastDetail" placeholder="Date of last detail" type="text" />
             </label>
             <label>
               Brake service
-              <input defaultValue={vehicle.brakeService || ""} name="brakeService" placeholder="Pads checked June 2026" type="text" />
+              <input defaultValue={vehicle.brakeService || ""} name="brakeService" placeholder="Last brake service or concern" type="text" />
             </label>
             <label>
               Recall status
