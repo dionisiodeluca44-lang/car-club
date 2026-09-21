@@ -117,6 +117,9 @@ function netlifyFunctionUrl(path) {
 function readableError(error, fallback = "Something went wrong. Please try again.") {
   if (!error) return fallback;
   if (typeof error === "string") return error === "{}" ? fallback : error;
+  if (error.name === "AuthRetryableFetchError") {
+    return "Supabase could not create the account right now. Try a real email address, then check Supabase Auth URL and email settings if it keeps happening.";
+  }
 
   const message = error.message || error.error_description || error.error || error.msg;
   if (typeof message === "string" && message && message !== "{}") return message;

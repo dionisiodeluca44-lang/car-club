@@ -20,6 +20,17 @@ function ensureList(value) {
   return value ? [value] : [];
 }
 
+function friendlyAuthError(error, fallback = "Could not complete authentication.") {
+  if (!error) return fallback;
+  if (error.name === "AuthRetryableFetchError") {
+    return "Supabase could not create the account right now. Try a real email address, then check Supabase Auth URL and email settings if it keeps happening.";
+  }
+  if (typeof error.message === "string" && error.message && error.message !== "{}") return error.message;
+  if (typeof error.error_description === "string" && error.error_description) return error.error_description;
+  if (typeof error.error === "string" && error.error && error.error !== "{}") return error.error;
+  return fallback;
+}
+
 function getAuthRedirectUrl() {
   if (typeof window === "undefined") return productionSiteUrl;
 
@@ -84,7 +95,7 @@ export async function createAccount({ addresses = [], email, name, password, pho
     },
   });
 
-  if (error) throw error;
+  if (error) throw new Error(friendlyAuthError(error, "Account could not be created."));
   if (!data.user) throw new Error("Account could not be created.");
 
   if (!data.session) {
@@ -135,7 +146,7 @@ export async function resendConfirmationEmail(email) {
     },
   });
 
-  if (error) throw error;
+  if (error) throw new Error(friendlyAuthError(error, "Could not resend the confirmation email."));
 }
 
 export async function requestPasswordReset(email) {
@@ -147,7 +158,7 @@ export async function requestPasswordReset(email) {
     redirectTo: getPasswordRecoveryRedirectUrl(),
   });
 
-  if (error) throw error;
+  if (error) throw new Error(friendlyAuthError(error, "Could not send the password reset email."));
 }
 
 export async function signIn({ email, password }) {
@@ -156,7 +167,7 @@ export async function signIn({ email, password }) {
   }
 
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw error;
+  if (error) throw new Error(friendlyAuthError(error, "Could not sign in."));
   if (!data.user) throw new Error("Could not sign in.");
 
   const { data: profile, error: profileError } = await supabase.from("profiles").select("*").eq("id", data.user.id).maybeSingle();
