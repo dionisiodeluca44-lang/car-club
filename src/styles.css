@@ -1336,28 +1336,38 @@ textarea:focus {
   background: rgba(0, 0, 0, 0.24);
 }
 
-.calendar-countdown {
+.service-clock-countdown {
   display: grid;
   place-items: center;
-  width: 3.8rem;
-  height: 3.8rem;
+  gap: 0.12rem;
+  width: 5.35rem;
+  min-height: 4.35rem;
+  padding: 0.45rem;
   border: 1px solid rgba(229, 200, 121, 0.35);
   border-radius: var(--radius);
   background: rgba(201, 164, 92, 0.12);
-}
-
-.calendar-countdown span {
   color: var(--gold-bright);
-  font-size: 0.68rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-align: center;
 }
 
-.calendar-countdown strong {
+.service-clock-countdown svg {
+  color: var(--gold-bright);
+}
+
+.service-clock-countdown strong {
   color: var(--ink);
-  font-size: 1.55rem;
-  line-height: 1;
+  font-size: 0.92rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1.05;
+}
+
+.service-clock-countdown span {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 850;
+  line-height: 1.1;
 }
 
 .countdown-copy {
@@ -1409,6 +1419,56 @@ textarea:focus {
 
 .garage-intelligence-section {
   border-color: rgba(141, 153, 166, 0.25);
+}
+
+.home-smart-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.home-smart-grid article {
+  display: grid;
+  gap: 0.45rem;
+  min-height: 150px;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.home-smart-grid svg,
+.home-smart-grid span {
+  color: var(--gold-bright);
+}
+
+.home-smart-grid span {
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.home-smart-grid h3 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.home-smart-grid p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.home-smart-grid a,
+.home-smart-grid button {
+  align-self: end;
+  width: fit-content;
+  padding: 0.35rem 0;
+  color: var(--gold-bright);
+  font-size: 0.82rem;
+  font-weight: 900;
 }
 
 .garage-insight-grid {
@@ -1551,6 +1611,18 @@ textarea:focus {
   text-align: left;
 }
 
+.compact-service-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.compact-service-grid button {
+  min-height: 72px;
+  grid-template-columns: auto 1fr;
+  align-content: center;
+  justify-items: start;
+  text-align: left;
+}
+
 .quick-action-grid button:hover,
 .service-category-grid button:hover {
   border-color: rgba(229, 200, 121, 0.5);
@@ -1571,6 +1643,76 @@ textarea:focus {
   font-size: 0.82rem;
   font-weight: 700;
   line-height: 1.45;
+}
+
+.feed-type-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 0.85rem;
+}
+
+.feed-type-toggle button {
+  min-height: 2.8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.feed-type-toggle button.active {
+  border-color: rgba(229, 200, 121, 0.48);
+  background: rgba(201, 164, 92, 0.13);
+  color: var(--gold-bright);
+}
+
+.feed-event-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+}
+
+.feed-event-card img {
+  display: none;
+}
+
+.feed-event-icon {
+  display: grid;
+  place-items: center;
+  width: 4.2rem;
+  height: 4.2rem;
+  border: 1px solid rgba(229, 200, 121, 0.3);
+  border-radius: var(--radius);
+  color: var(--gold-bright);
+  background: rgba(201, 164, 92, 0.12);
+}
+
+.feed-grid .feed-event-icon {
+  padding: 0;
+}
+
+.feed-event-card small {
+  display: block;
+  margin-bottom: 0.45rem;
+  color: var(--soft);
+  line-height: 1.45;
+}
+
+.shop-search-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+}
+
+.shop-search-row a {
+  display: grid;
+  place-items: center;
+  min-width: 4rem;
+  padding: 0 0.75rem;
+  border: 1px solid rgba(229, 200, 121, 0.3);
+  border-radius: var(--radius);
+  color: var(--gold-bright);
+  font-weight: 900;
 }
 
 .vehicle-card,
@@ -3188,6 +3330,7 @@ textarea:focus {
   .feed-preview-grid,
   .garage-list.compact,
   .garage-insight-grid,
+  .home-smart-grid,
   .quick-action-grid,
   .service-category-grid,
   .app-form-grid,

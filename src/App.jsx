@@ -952,6 +952,76 @@ function AddressAutocomplete({ label, name, onChange, placeholder, required, val
   );
 }
 
+function ShopAutocomplete({ label, name, onChange, placeholder, searchTerm, value }) {
+  const inputRef = useRef(null);
+  const [placesReady, setPlacesReady] = useState(false);
+  const [placesError, setPlacesError] = useState(false);
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  const searchUrl = mapSearchUrl(`${searchTerm} near me`);
+
+  useEffect(() => {
+    if (!apiKey || !inputRef.current) return undefined;
+
+    let autocomplete;
+    let listener;
+    let mounted = true;
+
+    loadGooglePlacesScript(apiKey)
+      .then((google) => {
+        if (!mounted || !inputRef.current) return;
+        autocomplete = new google.maps.places.Autocomplete(inputRef.current, {
+          componentRestrictions: { country: ["ca", "us"] },
+          fields: ["formatted_address", "geometry", "name", "business_status"],
+          types: ["establishment"],
+        });
+        listener = autocomplete.addListener("place_changed", () => {
+          const place = autocomplete.getPlace();
+          const selected = [place.name, place.formatted_address].filter(Boolean).join(" - ");
+          onChange(selected || inputRef.current.value);
+        });
+        setPlacesReady(true);
+      })
+      .catch(() => {
+        if (mounted) setPlacesError(true);
+      });
+
+    return () => {
+      mounted = false;
+      if (listener?.remove) listener.remove();
+      if (autocomplete && window.google?.maps?.event) {
+        window.google.maps.event.clearInstanceListeners(autocomplete);
+      }
+    };
+  }, [apiKey, onChange]);
+
+  return (
+    <label className="address-autocomplete-field shop-autocomplete-field">
+      {label}
+      <div className="shop-search-row">
+        <input
+          ref={inputRef}
+          autoComplete="off"
+          name={name}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          type="text"
+          value={value}
+        />
+        <a href={searchUrl} target="_blank" rel="noreferrer">Maps</a>
+      </div>
+      <small>
+        {apiKey
+          ? placesReady
+            ? `Start typing to choose a ${searchTerm}.`
+            : placesError
+              ? "Shop suggestions are unavailable right now. You can still type a shop or use Maps."
+              : "Loading shop suggestions..."
+          : "Type a preferred shop, or use Maps to search nearby providers."}
+      </small>
+    </label>
+  );
+}
+
 const transportChoices = [
   {
     amountCents: 0,
@@ -1378,12 +1448,15 @@ function appointmentDateTime(appointment) {
 
 function countdownLabel(target, nowMs) {
   const differenceMs = target.getTime() - nowMs;
-  if (differenceMs <= 0) return { primary: "Today", secondary: "Service day" };
-  const totalMinutes = Math.ceil(differenceMs / 60000);
-  const days = Math.floor(totalMinutes / 1440);
-  const hours = Math.floor((totalMinutes % 1440) / 60);
-  if (days > 0) return { primary: `${days}d`, secondary: `${hours}h remaining` };
-  return { primary: `${Math.max(1, hours)}h`, secondary: "remaining today" };
+  if (differenceMs <= 0) return { primary: "00:00:00", secondary: "Service day" };
+  const totalSeconds = Math.max(0, Math.floor(differenceMs / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const twoDigits = (value) => String(value).padStart(2, "0");
+  if (days > 0) return { primary: `${days}d ${twoDigits(hours)}h`, secondary: `${twoDigits(minutes)}m ${twoDigits(seconds)}s` };
+  return { primary: `${twoDigits(hours)}:${twoDigits(minutes)}:${twoDigits(seconds)}`, secondary: "until service" };
 }
 
 function upcomingAppointmentCountdowns(appointments, nowMs) {
@@ -1708,6 +1781,106 @@ function garageInsightItems(garage) {
 
     return items.slice(0, 4);
   }).slice(0, 8);
+}
+
+function webSearchUrl(query) {
+  return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+}
+
+function mapSearchUrl(query) {
+  return `https://www.google.com/maps/search/${encodeURIComponent(query)}`;
+}
+
+function primaryGarageVehicle(garage) {
+  return ensureList(garage)[0] || {};
+}
+
+function homeSmartCards({ feedPosts, garage, insights, reminders }) {
+  const vehicle = primaryGarageVehicle(garage);
+  const label = vehicleLabel(vehicle);
+  const hasVehicle = Boolean(vehicle.make || vehicle.model);
+  const maintenance = insights.find((item) => item.type === "Maintenance" || item.type === "Common watch item") || reminders[0];
+  const tuning = insights.find((item) => item.type === "Recommended mod") || insights.find((item) => item.type === "Maintenance");
+  const eventCount = feedEventPosts(feedPosts).length;
+  const vehicleQuery = hasVehicle ? label : "cars";
+
+  return [
+    {
+      cta: "Research",
+      href: webSearchUrl(`${vehicleQuery} common problems maintenance recommended service`),
+      icon: Wrench,
+      label: "Recommended services",
+      text: maintenance?.detail || maintenance?.message || (hasVehicle ? `Find common maintenance needs for ${label}.` : "Add a vehicle to unlock smart service recommendations."),
+      title: maintenance?.title || "Common maintenance needs",
+    },
+    {
+      cta: "Research",
+      href: webSearchUrl(`${vehicleQuery} recommended tuning upgrades forum`),
+      icon: Gauge,
+      label: "Recommended tuning",
+      text: tuning?.detail || (hasVehicle ? `Explore common upgrades and tuning ideas for ${label}.` : "Add a vehicle to unlock tuning recommendations."),
+      title: tuning?.title || "Popular upgrades",
+    },
+    {
+      cta: "View feed",
+      href: null,
+      icon: CalendarCheck,
+      label: "Events",
+      text: eventCount ? `${eventCount} member event${eventCount === 1 ? "" : "s"} posted in the feed.` : "No member events posted yet. Add one from the Feed page.",
+      title: eventCount ? "Member events are live" : "Create the next event",
+    },
+    {
+      cta: "News",
+      href: webSearchUrl(`${vehicleQuery} automotive news latest`),
+      icon: Upload,
+      label: "Car news",
+      text: hasVehicle ? `Open current news and owner discussions around ${label}.` : "Open current automotive news and market updates.",
+      title: hasVehicle ? `${label} news` : "Latest car news",
+    },
+  ];
+}
+
+const feedEventPrefix = "[WG_EVENT]";
+const eventFallbackImage = "https://images.unsplash.com/photo-1503736334956-4c8f8e92946d?auto=format&fit=crop&w=900&q=85";
+
+function encodeFeedEvent({ description, place, time, title }) {
+  return [
+    feedEventPrefix,
+    `Title: ${title || "Member event"}`,
+    `Time: ${time || "Time pending"}`,
+    `Place: ${place || "Place pending"}`,
+    `Description: ${description || "Details pending"}`,
+  ].join("\n");
+}
+
+function readEventLine(caption, label) {
+  const line = String(caption || "").split("\n").find((item) => item.startsWith(`${label}:`));
+  return line ? line.slice(label.length + 1).trim() : "";
+}
+
+function parseFeedEvent(post = {}) {
+  if (!String(post.caption || "").startsWith(feedEventPrefix)) return null;
+  return {
+    description: readEventLine(post.caption, "Description"),
+    place: readEventLine(post.caption, "Place"),
+    time: readEventLine(post.caption, "Time"),
+    title: readEventLine(post.caption, "Title") || "Member event",
+  };
+}
+
+function feedEventPosts(posts) {
+  return ensureList(posts).filter((post) => parseFeedEvent(post));
+}
+
+function shopSearchTermForService(serviceLabel) {
+  const label = String(serviceLabel || "").toLowerCase();
+  if (label.includes("tint")) return "window tint shop";
+  if (label.includes("detail") || label.includes("cosmetic") || label.includes("ceramic") || label.includes("paint protection")) return "auto detailing body shop";
+  if (label.includes("tuning") || label.includes("modification") || label.includes("performance")) return "performance tuning shop";
+  if (label.includes("tire")) return "tire shop";
+  if (label.includes("body") || label.includes("paint")) return "auto body shop";
+  if (label.includes("inspection")) return "vehicle inspection shop";
+  return "mechanic auto repair shop";
 }
 
 function serviceHistoryForVehicle(vehicle, appointments) {
@@ -3808,6 +3981,7 @@ function MemberApp({ appointments, feedPosts, garage, initialCompletion, member,
             {!completion && activeTab === "home" && (
               <Dashboard
                 appointments={appointmentList}
+                feedPosts={feedPosts}
                 garage={garageList}
                 member={member}
                 onAddAppointment={onAddAppointment}
@@ -3875,15 +4049,18 @@ function CompletionScreen({ completion, onNavigate }) {
   );
 }
 
-function Dashboard({ appointments, garage, member, onAddAppointment, onComplete, onUpdateAppointment, setActiveTab }) {
+function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, onComplete, onUpdateAppointment, setActiveTab }) {
   const [nowMs, setNowMs] = useState(Date.now());
   const serviceReminders = buildServiceReminders(garage, member.plan);
   const upcomingBookings = upcomingAppointmentCountdowns(appointments, nowMs);
   const garageInsights = garageInsightItems(garage);
+  const smartCards = homeSmartCards({ feedPosts, garage, insights: garageInsights, reminders: serviceReminders });
+  const [servicesExpanded, setServicesExpanded] = useState(false);
+  const visibleServices = servicesExpanded ? services : services.slice(0, 3);
   const [requestError, setRequestError] = useState("");
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(Date.now()), 60000);
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -3933,9 +4110,10 @@ function Dashboard({ appointments, garage, member, onAddAppointment, onComplete,
               const ServiceIcon = serviceIconForRequest(appointment.service);
               return (
                 <article className="appointment-countdown-card" key={appointment.id}>
-                  <div className="calendar-countdown">
-                    <span>{appointment.target.toLocaleString("en", { month: "short" })}</span>
-                    <strong>{appointment.target.getDate()}</strong>
+                  <div className="service-clock-countdown" aria-label={`Countdown to ${appointment.service}`}>
+                    <Clock size={18} />
+                    <strong>{appointment.countdown.primary}</strong>
+                    <span>{appointment.countdown.secondary}</span>
                   </div>
                   <div className="countdown-copy">
                     <span><ServiceIcon size={16} /> {appointment.status || "Requested"}</span>
@@ -3973,6 +4151,22 @@ function Dashboard({ appointments, garage, member, onAddAppointment, onComplete,
         )}
       </section>
 
+      <section className="home-smart-grid" aria-label="Smart garage overview">
+        {smartCards.map(({ cta, href, icon: Icon, label, text, title }) => (
+          <article key={label}>
+            <Icon size={19} />
+            <span>{label}</span>
+            <h3>{title}</h3>
+            <p>{text}</p>
+            {href ? (
+              <a href={href} target="_blank" rel="noreferrer">{cta}</a>
+            ) : (
+              <button type="button" onClick={() => setActiveTab("feed")}>{cta}</button>
+            )}
+          </article>
+        ))}
+      </section>
+
       {garageInsights.length > 0 && (
         <section className="app-section garage-intelligence-section">
           <div className="app-section-title">
@@ -4001,16 +4195,17 @@ function Dashboard({ appointments, garage, member, onAddAppointment, onComplete,
         <div className="app-section-title">
           <div>
             <h2>Services</h2>
-            <p>Every membership is built around clear concierge categories. Select a service when you are ready to book.</p>
+            <p>Select a service category when you are ready to book.</p>
           </div>
-          <button type="button" onClick={() => setActiveTab("schedule")}>Book</button>
+          <button type="button" onClick={() => setServicesExpanded((expanded) => !expanded)}>
+            {servicesExpanded ? "Show less" : "Show all"}
+          </button>
         </div>
-        <div className="service-category-grid">
-          {services.map(({ icon: Icon, items, title }) => (
+        <div className="service-category-grid compact-service-grid">
+          {visibleServices.map(({ icon: Icon, title }) => (
             <button key={title} type="button" onClick={() => setActiveTab("schedule")}>
               <Icon size={20} />
               <span>{title}</span>
-              <small>{items.slice(0, 3).join(" / ")}</small>
             </button>
           ))}
         </div>
@@ -4493,14 +4688,7 @@ function FeedScreen({ feedPosts, member, onAddFeedPost, onComplete, onRefreshFee
         ) : (
           <div className="feed-grid">
             {feedPosts.map((post) => (
-              <article key={post.id}>
-                <img alt={post.caption || "Vehicle feed post"} src={post.image} />
-                <div>
-                  <span>{post.vehicle || "Garage update"}</span>
-                  <h3>{post.caption || "White Glove member post"}</h3>
-                  <p>{post.author || "Member"} · {formatPostDate(post.createdAt)}</p>
-                </div>
-              </article>
+              <FeedPostCard key={post.id} post={post} />
             ))}
           </div>
         )}
@@ -4510,6 +4698,7 @@ function FeedScreen({ feedPosts, member, onAddFeedPost, onComplete, onRefreshFee
 }
 
 function FeedUploadForm({ onAddFeedPost, onComplete, vehicleOptions }) {
+  const [postType, setPostType] = useState("vehicle");
   const [imagePreview, setImagePreview] = useState("");
   const [feedError, setFeedError] = useState("");
 
@@ -4525,7 +4714,7 @@ function FeedUploadForm({ onAddFeedPost, onComplete, vehicleOptions }) {
     event.preventDefault();
     setFeedError("");
 
-    if (!imagePreview) {
+    if (postType === "vehicle" && !imagePreview) {
       setFeedError("Upload a photo before posting to the feed.");
       return;
     }
@@ -4533,10 +4722,18 @@ function FeedUploadForm({ onAddFeedPost, onComplete, vehicleOptions }) {
     const form = event.currentTarget;
     const formData = new FormData(form);
 
+    const eventTitle = formData.get("eventTitle");
+    const eventTime = formData.get("eventTime");
+    const eventPlace = formData.get("eventPlace");
+    const eventDescription = formData.get("eventDescription");
+    const caption = postType === "event"
+      ? encodeFeedEvent({ description: eventDescription, place: eventPlace, time: eventTime, title: eventTitle })
+      : formData.get("caption");
+
     try {
       const savedPost = await onAddFeedPost({
-        caption: formData.get("caption"),
-        image: imagePreview,
+        caption,
+        image: postType === "event" ? eventFallbackImage : imagePreview,
         vehicle: formData.get("vehicle"),
       });
 
@@ -4546,14 +4743,15 @@ function FeedUploadForm({ onAddFeedPost, onComplete, vehicleOptions }) {
         actionLabel: "View Feed",
         actionTab: "feed",
         details: [
-          ["Vehicle", savedPost.vehicle || "Garage update"],
-          ["Post", savedPost.caption || "Photo uploaded"],
+          ["Type", postType === "event" ? "Event" : "Vehicle post"],
+          ["Vehicle", savedPost.vehicle || (postType === "event" ? "Member event" : "Garage update")],
+          ["Post", postType === "event" ? eventTitle || "Event posted" : savedPost.caption || "Photo uploaded"],
           ["Status", "Posted"],
         ],
-        message: "Your photo has been added to the member feed.",
+        message: postType === "event" ? "Your event has been added to the member feed." : "Your photo has been added to the member feed.",
         secondaryLabel: "Back Home",
         secondaryTab: "home",
-        title: "Feed post successfully updated.",
+        title: postType === "event" ? "Event successfully posted." : "Feed post successfully updated.",
       });
     } catch (error) {
       setFeedError(error.message || "Could not upload this feed post.");
@@ -4567,10 +4765,20 @@ function FeedUploadForm({ onAddFeedPost, onComplete, vehicleOptions }) {
           {feedError}
         </div>
       )}
-      <label className="upload-tile feed-upload-tile">
-        {imagePreview ? <img alt="Feed preview" src={imagePreview} /> : <><Upload size={24} /><span>Upload feed photo</span></>}
-        <input accept="image/*" name="photo" onChange={handleImage} type="file" />
-      </label>
+      <div className="feed-type-toggle">
+        <button className={postType === "vehicle" ? "active" : ""} type="button" onClick={() => setPostType("vehicle")}>
+          Vehicle post
+        </button>
+        <button className={postType === "event" ? "active" : ""} type="button" onClick={() => setPostType("event")}>
+          Add event
+        </button>
+      </div>
+      {postType === "vehicle" && (
+        <label className="upload-tile feed-upload-tile">
+          {imagePreview ? <img alt="Feed preview" src={imagePreview} /> : <><Upload size={24} /><span>Upload feed photo</span></>}
+          <input accept="image/*" name="photo" onChange={handleImage} type="file" />
+        </label>
+      )}
       <div className="app-form-grid">
         <label>
           Vehicle
@@ -4581,13 +4789,66 @@ function FeedUploadForm({ onAddFeedPost, onComplete, vehicleOptions }) {
             ))}
           </select>
         </label>
-        <label>
-          Caption
-          <input name="caption" type="text" placeholder="Fresh detail, delivery day, service update..." />
-        </label>
+        {postType === "vehicle" ? (
+          <label>
+            Caption
+            <input name="caption" type="text" placeholder="Fresh detail, delivery day, service update..." />
+          </label>
+        ) : (
+          <>
+            <label>
+              Event title
+              <input name="eventTitle" required type="text" placeholder="Cars and coffee, rally, track day..." />
+            </label>
+            <label>
+              Time
+              <input name="eventTime" required type="datetime-local" />
+            </label>
+            <label>
+              Place
+              <input name="eventPlace" required type="text" placeholder="Venue, city, or meeting point" />
+            </label>
+            <label>
+              Description
+              <input name="eventDescription" required type="text" placeholder="What members should know before attending" />
+            </label>
+          </>
+        )}
       </div>
-      <button className="button primary submit" type="submit">Post To Feed</button>
+      <button className="button primary submit" type="submit">{postType === "event" ? "Post Event" : "Post To Feed"}</button>
     </form>
+  );
+}
+
+function FeedPostCard({ post }) {
+  const event = parseFeedEvent(post);
+
+  if (event) {
+    return (
+      <article className="feed-event-card">
+        <div className="feed-event-icon">
+          <CalendarCheck size={24} />
+        </div>
+        <div>
+          <span>{event.time || "Event"}</span>
+          <h3>{event.title}</h3>
+          <p>{event.place}</p>
+          <small>{event.description}</small>
+          <p>{post.author || "Member"} · {formatPostDate(post.createdAt)}</p>
+        </div>
+      </article>
+    );
+  }
+
+  return (
+    <article>
+      <img alt={post.caption || "Vehicle feed post"} src={post.image || eventFallbackImage} />
+      <div>
+        <span>{post.vehicle || "Garage update"}</span>
+        <h3>{post.caption || "White Glove member post"}</h3>
+        <p>{post.author || "Member"} · {formatPostDate(post.createdAt)}</p>
+      </div>
+    </article>
   );
 }
 
@@ -5106,6 +5367,7 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
   const [pendingBooking, setPendingBooking] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("card-on-file");
   const [currentLocation, setCurrentLocation] = useState(selectedVehicle?.pickupLocation || selectedVehicle?.location || "");
+  const [preferredShop, setPreferredShop] = useState("");
   const [transportChoice, setTransportChoice] = useState("self-dropoff");
   const [warrantyCoverage, setWarrantyCoverage] = useState("not-warranty");
   const [processingPayment, setProcessingPayment] = useState(false);
@@ -5121,12 +5383,14 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
   const selectedPaymentTerms = bookingPaymentTerms(basePaymentTerms, selectedTransportChoice, warrantyCoverage);
   const selectedVehicleClass = vehicleClassFromVehicle(selectedVehicle);
   const showVehicleLogistics = needsSavedVehicle;
+  const shopSearchTerm = shopSearchTermForService(selectedService);
 
   useEffect(() => {
     setBookingStep("details");
     setPendingBooking(null);
     setRequestError("");
     setCurrentLocation(selectedVehicle?.pickupLocation || selectedVehicle?.location || "");
+    setPreferredShop("");
   }, [selectedService, selectedServiceOption, selectedVehicle?.id]);
 
   async function submitAppointment(event) {
@@ -5150,6 +5414,7 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
         `Vehicle ID: ${selectedVehicle?.id || "not selected"}`,
         `Vehicle class: ${selectedVehicleClass}`,
         `Service option: ${formData.get("serviceOption")}`,
+        `Preferred provider: ${formData.get("preferredShop") || "No preferred shop selected"}`,
         `Current vehicle location: ${formData.get("currentLocation")}`,
         `Drop-off / pickup: ${selectedPaymentTerms.transportLabel}`,
         `Transportation direction: ${selectedPaymentTerms.transportDirection}`,
@@ -5191,6 +5456,7 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
           service: appointment.service,
           serviceOption: appointment.serviceOption,
           currentLocation: appointment.currentLocation,
+          preferredShop: formData.get("preferredShop"),
           date: appointment.date,
           time: appointment.time,
           paymentMode: selectedPaymentTerms.mode,
@@ -5257,6 +5523,7 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
             paymentMethod: paymentSummary,
             serviceLabel: `${appointment.service} - ${appointment.serviceOption}`,
             currentLocation: appointment.currentLocation,
+            preferredShop: pendingBooking.formData.preferredShop,
             transportAmount: pendingBooking.formData.transportAmount,
             transportChoice: pendingBooking.formData.transportChoice,
             transportDirection: pendingBooking.formData.transportDirection,
@@ -5298,6 +5565,7 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
           ["Option", appointment.serviceOption],
           ["Vehicle", savedRequest?.vehicle || appointment.vehicle],
           ["Current location", appointment.currentLocation],
+          ["Preferred shop", pendingBooking.formData.preferredShop || "No preference"],
           ["Preferred date", savedRequest?.date || appointment.date || "Date pending"],
           ["Payment", appointment.paymentTitle],
           ["Transport", pendingBooking.formData.transportAmount],
@@ -5401,6 +5669,7 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
       <input type="hidden" name="transportAmount" value={selectedPaymentTerms.transportAmount} />
       <input type="hidden" name="warrantyCoverage" value={warrantyCoverage} />
       <input type="hidden" name="warrantyLabel" value={selectedPaymentTerms.warrantyLabel} />
+      <input type="hidden" name="preferredShop" value={preferredShop} />
       <label className="hidden-field">
         Do not fill this out
         <input name="bot-field" tabIndex="-1" autoComplete="off" />
@@ -5453,6 +5722,14 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
             ))}
           </select>
         </label>
+        <ShopAutocomplete
+          label="Preferred shop or provider"
+          name="preferredShopSearch"
+          onChange={setPreferredShop}
+          placeholder={`Search ${shopSearchTerm}, or type a shop you trust`}
+          searchTerm={shopSearchTerm}
+          value={preferredShop}
+        />
         <label>
           Preferred date
           <input name="date" required type="date" />
