@@ -213,7 +213,6 @@ export async function upsertProfile({ avatarUrl, email, id, name, notifications,
     full_name: name,
     username: username || null,
     avatar_url: avatarUrl || null,
-    plan,
     notifications: notifications || defaultNotifications,
   };
 
@@ -410,6 +409,36 @@ export async function loadMembershipPricing() {
     };
     return pricing;
   }, {});
+}
+
+export async function loadMembershipBenefitUsage(userId) {
+  if (!supabase || !userId) return [];
+
+  const today = new Date().toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from("membership_benefit_usage")
+    .select("id, service_request_id, benefit_key, credit_cents, description, period_start, period_end, status, used_at")
+    .eq("user_id", userId)
+    .lte("period_start", today)
+    .gt("period_end", today)
+    .order("used_at", { ascending: false });
+
+  if (error) {
+    console.warn("Could not load membership benefit usage. Run the membership benefits migration.", error);
+    return [];
+  }
+
+  return (data || []).map((row) => ({
+    id: row.id,
+    serviceRequestId: row.service_request_id || "",
+    benefitKey: row.benefit_key,
+    creditCents: Number(row.credit_cents || 0),
+    description: row.description || "",
+    periodStart: row.period_start,
+    periodEnd: row.period_end,
+    status: row.status || "redeemed",
+    usedAt: row.used_at,
+  }));
 }
 
 export function subscribeToFeedPosts(onPostCreated) {

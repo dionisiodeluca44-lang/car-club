@@ -19,7 +19,7 @@ where subscription_status_updated_at is null;
 -- A signed-in member can still edit normal profile settings. Stripe entitlement
 -- fields can only be changed with the Supabase service role used by the webhook.
 revoke update on public.profiles from authenticated;
-grant update (id, email, full_name, username, avatar_url, plan, notifications, updated_at)
+grant update (id, email, full_name, username, avatar_url, notifications, updated_at)
   on public.profiles to authenticated;
 
 create or replace function public.has_active_membership()

@@ -13,7 +13,7 @@ alter table public.profiles
 
 -- Keep subscription access under the service-role webhook's control.
 revoke update on public.profiles from authenticated;
-grant update (id, email, full_name, username, avatar_url, plan, notifications, updated_at)
+grant update (id, email, full_name, username, avatar_url, notifications, updated_at)
   on public.profiles to authenticated;
 
 create or replace function public.has_active_membership()
@@ -132,5 +132,5 @@ values
   ('Club Drive', 14900, '/month', 'For owners who want pickup, delivery, and regular care coordination handled.'),
   ('Gold', 19900, '/month', 'For daily drivers and seasonal vehicles that need consistent care.'),
   ('Platinum', 39900, '/month', 'For owners who want complete white-glove vehicle management.'),
-  ('Collector', null, '/month', 'For multi-car owners, collectors, and specialty storage needs.')
+  ('Collector', 69900, '/month', 'For collections of up to three vehicles, with additional vehicles quoted separately.')
 on conflict (plan_name) do nothing;

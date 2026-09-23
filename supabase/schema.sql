@@ -38,7 +38,7 @@ alter table public.profiles
 -- Members may edit their profile details, but only the service-role webhook may
 -- change Stripe identity or entitlement fields.
 revoke update on public.profiles from authenticated;
-grant update (id, email, full_name, username, avatar_url, plan, notifications, updated_at)
+grant update (id, email, full_name, username, avatar_url, notifications, updated_at)
   on public.profiles to authenticated;
 
 create table if not exists public.vehicles (
@@ -71,6 +71,25 @@ create table if not exists public.service_requests (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+create table if not exists public.membership_benefit_usage (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  service_request_id uuid references public.service_requests(id) on delete set null,
+  benefit_key text not null check (benefit_key in ('maintenance-wash', 'full-detail', 'transport', 'protection')),
+  credit_cents integer not null check (credit_cents >= 0),
+  description text not null,
+  period_start date not null,
+  period_end date not null,
+  status text not null default 'redeemed' check (status in ('redeemed', 'reversed')),
+  used_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (service_request_id, benefit_key),
+  check (period_end > period_start)
+);
+
+create index if not exists membership_benefit_usage_member_period_idx
+  on public.membership_benefit_usage (user_id, period_start, period_end, status);
 
 create table if not exists public.feed_posts (
   id uuid primary key default gen_random_uuid(),
@@ -139,6 +158,9 @@ create trigger on_auth_user_created
 alter table public.profiles enable row level security;
 alter table public.vehicles enable row level security;
 alter table public.service_requests enable row level security;
+alter table public.membership_benefit_usage enable row level security;
+revoke insert, update, delete on public.membership_benefit_usage from authenticated;
+grant select on public.membership_benefit_usage to authenticated;
 alter table public.feed_posts enable row level security;
 alter table public.service_pricing enable row level security;
 alter table public.membership_pricing enable row level security;
@@ -179,6 +201,7 @@ drop policy if exists "Members can delete own vehicles" on public.vehicles;
 drop policy if exists "Members can read own service requests" on public.service_requests;
 drop policy if exists "Members can insert own service requests" on public.service_requests;
 drop policy if exists "Members can update own service requests" on public.service_requests;
+drop policy if exists "Members can read own membership benefits" on public.membership_benefit_usage;
 drop policy if exists "Members can read all feed posts" on public.feed_posts;
 drop policy if exists "Members can create own feed posts" on public.feed_posts;
 drop policy if exists "Members can update own feed posts" on public.feed_posts;
@@ -232,6 +255,10 @@ create policy "Members can update own service requests"
   using (auth.uid() = user_id and public.has_active_membership())
   with check (auth.uid() = user_id and public.has_active_membership());
 
+create policy "Members can read own membership benefits"
+  on public.membership_benefit_usage for select
+  using (auth.uid() = user_id and public.has_active_membership());
+
 create policy "Members can read all feed posts"
   on public.feed_posts for select
   using (public.has_active_membership());
@@ -263,7 +290,7 @@ values
   ('Club Drive', 14900, '/month', 'For owners who want pickup, delivery, and regular care coordination handled.'),
   ('Gold', 19900, '/month', 'For daily drivers and seasonal vehicles that need consistent care.'),
   ('Platinum', 39900, '/month', 'For owners who want complete white-glove vehicle management.'),
-  ('Collector', null, '/month', 'For multi-car owners, collectors, and specialty storage needs.')
+  ('Collector', 69900, '/month', 'For collections of up to three vehicles, with additional vehicles quoted separately.')
 on conflict (plan_name) do nothing;
 
 insert into storage.buckets (id, name, public)

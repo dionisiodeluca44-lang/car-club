@@ -47,7 +47,7 @@ ADMIN_PORTAL_PASSWORD=choose-a-strong-admin-password
 Setup steps:
 
 1. Create a Supabase project.
-2. Run `supabase/schema.sql` in the Supabase SQL editor. For a project that already ran the earlier membership setup, run `supabase/subscription-lifecycle.sql` instead.
+2. Run `supabase/schema.sql` in the Supabase SQL editor. For a project that already ran the earlier membership setup, run `supabase/subscription-lifecycle.sql`, then `supabase/membership-benefits.sql`.
 3. In Supabase Authentication > URL Configuration, add `https://vocal-pie-c034af.netlify.app/?password=recovery` to the allowed redirect URLs so password-reset emails return to the new-password screen.
 4. Copy `.env.example` to `.env.local` for local development and fill in the keys.
 5. Add the same keys in Netlify under Site configuration > Environment variables.
@@ -64,6 +64,8 @@ Setup steps:
 8. Redeploy Netlify.
 
 Once configured, members can create accounts, activate a recurring membership, sign in, save garage vehicles, upload vehicle photos, update vehicle values/horsepower/work history, create paid booking requests, and have those confirmed requests appear in the backend portal. Stripe lifecycle webhooks pause access for `past_due`, `unpaid`, `paused`, and `canceled` subscriptions and restore it when Stripe reports the subscription `active` or `trialing` again. Supabase row-level policies enforce the same rule for garage, service-request, feed, and vehicle-upload operations.
+
+Annual membership benefits are tracked in `membership_benefit_usage`. Members see their remaining wash, detail, Montreal transport, and protection credits on the app home screen. The admin portal suggests eligible credits on matching service requests; applying or restoring one updates the member's annual balance while preserving the ledger entry.
 
 Backend portal:
 

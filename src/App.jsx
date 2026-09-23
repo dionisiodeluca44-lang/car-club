@@ -9,6 +9,7 @@ import {
   Clock,
   CreditCard,
   Gauge,
+  Gift,
   Home,
   KeyRound,
   LogOut,
@@ -34,6 +35,7 @@ import {
   isBackendConfigured,
   loadFeedPosts,
   loadMembershipPricing,
+  loadMembershipBenefitUsage,
   loadServicePricing,
   loadServiceRequests,
   loadVehicles,
@@ -47,6 +49,11 @@ import {
   updateMemberProfile,
   updateVehicleRecord,
 } from "./lib/backend";
+import {
+  membershipBenefitCatalog,
+  suggestedBenefitKeysForRequest,
+  summarizeMembershipBenefits,
+} from "../shared/membershipBenefits";
 
 const services = [
   {
@@ -67,7 +74,7 @@ const services = [
   {
     icon: Sparkles,
     title: "Cosmetic Services",
-    items: ["Detailing", "Ceramic coating", "Paint correction", "Paint protection film", "Window tint"],
+    items: ["Detailing", "Ceramic coating", "Vehicle wraps", "Paint protection film", "Window tint"],
   },
   {
     icon: KeyRound,
@@ -143,14 +150,14 @@ const plans = [
     price: "$99",
     cadence: "/month",
     intro: "For owners who want the essentials managed with priority support.",
-    features: ["Service reminders", "Priority booking", "Basic vehicle health report", "Annual detail credit", "Digital vehicle records"],
+    features: ["1 × $70 annual maintenance-wash credit", "Service reminders", "Priority booking", "Basic vehicle health report", "Digital vehicle records"],
   },
   {
     name: "Club Drive",
     price: "$149",
     cadence: "/month",
     intro: "For owners who want pickup, delivery, and regular care coordination handled.",
-    features: ["Everything in Silver", "Pickup and delivery coordination", "Monthly vehicle check-in", "Wash and care scheduling", "Priority service updates"],
+    features: ["2 × $70 annual wash credits", "1 × $175 Montreal transport credit", "Pickup and delivery coordination", "Monthly vehicle check-in", "Priority service updates"],
   },
   {
     name: "Gold",
@@ -158,21 +165,21 @@ const plans = [
     cadence: "/month",
     intro: "For daily drivers and seasonal vehicles that need consistent care.",
     featured: true,
-    features: ["Everything in Silver", "Quarterly detail", "Seasonal tire coordination", "Oil change coordination", "Brake and battery inspection"],
+    features: ["4 × $70 annual wash credits", "1 × $150 full-detail credit", "1 × $175 Montreal transport credit", "Seasonal tire coordination", "Maintenance concierge"],
   },
   {
     name: "Platinum",
     price: "$399",
     cadence: "/month",
     intro: "For owners who want complete white-glove vehicle management.",
-    features: ["Everything in Gold", "Monthly vehicle care", "Full maintenance concierge", "Emergency coordination", "Premium care coordination"],
+    features: ["6 × $70 annual wash credits", "2 × $150 full-detail credits", "3 × $175 Montreal transport credits", "$300 annual protection credit", "Complete maintenance concierge"],
   },
   {
     name: "Collector",
-    price: "Custom",
-    cadence: "",
-    intro: "For multi-car owners, collectors, and specialty storage needs.",
-    features: ["Dedicated account manager", "Full collection management", "Storage coordination", "Monthly inspections", "Market value tracking"],
+    price: "$699",
+    cadence: "/month",
+    intro: "For collections of up to three vehicles, with additional vehicles quoted separately.",
+    features: ["12 × $70 annual wash credits", "4 × $150 full-detail credits", "6 × $175 Montreal transport credits", "$500 annual protection credit", "Dedicated collection manager"],
   },
 ];
 
@@ -272,6 +279,10 @@ const serviceOptions = [
   },
   {
     label: "Paint protection film",
+    allowedPlans: ["Club Drive", "Gold", "Platinum", "Collector"],
+  },
+  {
+    label: "Vehicle wrap",
     allowedPlans: ["Club Drive", "Gold", "Platinum", "Collector"],
   },
   {
@@ -458,17 +469,25 @@ const bookingServiceCatalog = {
     deposit: 200,
     options: ["Ceramic Coating"],
     basePrices: { car: 800, suv: 900, truck: 900, van: 900 },
-    note: "Base price. Paint correction or extra preparation may increase the final price.",
+    note: "Performed in house. Base price; paint correction or extra preparation may increase the final price.",
   },
   "Paint protection film": {
     category: "Protection",
     deposit: 250,
     options: ["Partial Front", "Full Front", "Rocker Panels", "Door Cups / Door Edges", "Full Vehicle", "Custom / Not Sure"],
+    note: "Performed in house. Final pricing depends on coverage, material, and vehicle condition.",
+  },
+  "Vehicle wrap": {
+    category: "Protection",
+    deposit: 250,
+    options: ["Full Colour Change", "Partial Wrap", "Accent / Chrome Delete", "Commercial / Branding", "Wrap Removal", "Custom / Not Sure"],
+    note: "Performed in house. Final pricing depends on material, coverage, preparation, and vehicle condition.",
   },
   "Window tint": {
     category: "Appearance",
     deposit: 100,
     options: ["Front Two Windows", "Rear Section", "Full Vehicle", "Windshield Sun Strip", "Remove and Replace Existing Tint", "Custom / Not Sure"],
+    note: "Performed in house. Final pricing depends on film selection and vehicle configuration.",
   },
   "Rim or windshield repair": {
     category: "Repair",
@@ -1039,10 +1058,24 @@ const transportChoices = [
   },
   {
     amountCents: 17500,
-    description: "White Glove schedules pickup and return after service.",
+    description: "White Glove schedules pickup and return within Montreal.",
     direction: "two-way",
-    label: "Pickup and return",
+    label: "Montreal pickup and return",
     value: "pickup-two-way",
+  },
+  {
+    amountCents: 22500,
+    description: "Montreal transport rate plus the $50 nearby off-island surcharge.",
+    direction: "two-way-near-off-island",
+    label: "Nearby off-island pickup and return",
+    value: "pickup-two-way-near-off-island",
+  },
+  {
+    amountCents: 25000,
+    description: "Starting price including the $75 extended off-island surcharge.",
+    direction: "two-way-extended-off-island",
+    label: "Extended off-island pickup and return",
+    value: "pickup-two-way-extended-off-island",
   },
 ];
 
@@ -1126,7 +1159,7 @@ function hasCollectionPackage(plan) {
 }
 
 function garageVehicleLimit(plan) {
-  return hasCollectionPackage(plan) ? Infinity : 1;
+  return hasCollectionPackage(plan) ? 3 : 1;
 }
 
 function canAddGarageVehicle(plan, garageCount) {
@@ -1134,7 +1167,7 @@ function canAddGarageVehicle(plan, garageCount) {
 }
 
 function garageLimitLabel(plan) {
-  return hasCollectionPackage(plan) ? "Unlimited vehicles" : "1 vehicle";
+  return hasCollectionPackage(plan) ? "Up to 3 vehicles" : "1 vehicle";
 }
 
 const approvedOrClosedRequestStatuses = new Set(["approved", "booked", "paid / confirmed", "completed", "cancelled", "canceled"]);
@@ -1978,6 +2011,9 @@ function App() {
   const [appointments, setAppointments] = useState(() => {
     return ensureList(readStoredJson("carClubAppointments", defaultAppointments));
   });
+  const [benefitUsage, setBenefitUsage] = useState(() => {
+    return ensureList(readStoredJson("carClubBenefitUsage", []));
+  });
   const [feedPosts, setFeedPosts] = useState(() => {
     return ensureList(readStoredJson("carClubFeedPosts", []));
   });
@@ -2192,14 +2228,16 @@ function App() {
           setGarage([]);
           setAppointments([]);
           setFeedPosts([]);
+          setBenefitUsage([]);
           setMode("app");
           return;
         }
 
-        const [savedGarage, savedAppointments, savedFeedPosts] = await Promise.all([
+        const [savedGarage, savedAppointments, savedFeedPosts, savedBenefitUsage] = await Promise.all([
           loadVehicles(currentMember.id),
           loadServiceRequests(currentMember.id),
           loadFeedPosts(),
+          loadMembershipBenefitUsage(currentMember.id),
         ]);
 
         if (!active) return;
@@ -2207,6 +2245,7 @@ function App() {
         setGarage(ensureList(savedGarage));
         setAppointments(ensureList(savedAppointments));
         setFeedPosts(ensureList(savedFeedPosts));
+        setBenefitUsage(ensureList(savedBenefitUsage));
         setMode("app");
       } catch (error) {
         if (active) setAppError(error.message || "Could not load your account.");
@@ -2233,19 +2272,22 @@ function App() {
         if (!active || !currentMember) return;
 
         if (hasMembershipAccess(currentMember.subscriptionStatus) && !hasMembershipAccess(member.subscriptionStatus)) {
-          const [savedGarage, savedAppointments, savedFeedPosts] = await Promise.all([
+          const [savedGarage, savedAppointments, savedFeedPosts, savedBenefitUsage] = await Promise.all([
             loadVehicles(currentMember.id),
             loadServiceRequests(currentMember.id),
             loadFeedPosts(),
+            loadMembershipBenefitUsage(currentMember.id),
           ]);
           if (!active) return;
           setGarage(ensureList(savedGarage));
           setAppointments(ensureList(savedAppointments));
           setFeedPosts(ensureList(savedFeedPosts));
+          setBenefitUsage(ensureList(savedBenefitUsage));
         } else if (!hasMembershipAccess(currentMember.subscriptionStatus) && hasMembershipAccess(member.subscriptionStatus)) {
           setGarage([]);
           setAppointments([]);
           setFeedPosts([]);
+          setBenefitUsage([]);
         }
 
         setMember(currentMember);
@@ -2351,16 +2393,18 @@ function App() {
         return;
       }
 
-      const [savedGarage, savedAppointments, savedFeedPosts] = await Promise.all([
+      const [savedGarage, savedAppointments, savedFeedPosts, savedBenefitUsage] = await Promise.all([
         loadVehicles(signedInMember.id),
         loadServiceRequests(signedInMember.id),
         loadFeedPosts(),
+        loadMembershipBenefitUsage(signedInMember.id),
       ]);
 
       setMember(signedInMember);
       setGarage(ensureList(savedGarage));
       setAppointments(ensureList(savedAppointments));
       setFeedPosts(ensureList(savedFeedPosts));
+      setBenefitUsage(ensureList(savedBenefitUsage));
       setMode("app");
       return;
     }
@@ -2377,6 +2421,7 @@ function App() {
     await signOut();
     localStorage.removeItem("carClubMember");
     setMember(null);
+    setBenefitUsage([]);
     setMode("site");
   }
 
@@ -2408,10 +2453,12 @@ function App() {
       const storedGarage = ensureList(readStoredJson("carClubGarage", defaultGarage));
       const storedAppointments = ensureList(readStoredJson("carClubAppointments", defaultAppointments));
       const storedFeedPosts = ensureList(readStoredJson("carClubFeedPosts", []));
+      const storedBenefitUsage = ensureList(readStoredJson("carClubBenefitUsage", []));
       setGarage(storedGarage);
       setAppointments(storedAppointments);
       setFeedPosts(storedFeedPosts);
-      return { appointments: storedAppointments, feedPosts: storedFeedPosts, garage: storedGarage };
+      setBenefitUsage(storedBenefitUsage);
+      return { appointments: storedAppointments, benefitUsage: storedBenefitUsage, feedPosts: storedFeedPosts, garage: storedGarage };
     }
 
     const currentMember = await getCurrentMember();
@@ -2427,29 +2474,33 @@ function App() {
       setGarage([]);
       setAppointments([]);
       setFeedPosts([]);
-      return { appointments: [], feedPosts: [], garage: [] };
+      setBenefitUsage([]);
+      return { appointments: [], benefitUsage: [], feedPosts: [], garage: [] };
     }
 
-    const [savedGarage, savedAppointments, savedFeedPosts] = await Promise.all([
+    const [savedGarage, savedAppointments, savedFeedPosts, savedBenefitUsage] = await Promise.all([
       loadVehicles(currentMember.id),
       loadServiceRequests(currentMember.id),
       loadFeedPosts(),
+      loadMembershipBenefitUsage(currentMember.id),
     ]);
 
     const nextGarage = ensureList(savedGarage);
     const nextAppointments = ensureList(savedAppointments);
     const nextFeedPosts = ensureList(savedFeedPosts);
+    const nextBenefitUsage = ensureList(savedBenefitUsage);
     setGarage(nextGarage);
     setAppointments(nextAppointments);
     setFeedPosts(nextFeedPosts);
-    return { appointments: nextAppointments, feedPosts: nextFeedPosts, garage: nextGarage };
+    setBenefitUsage(nextBenefitUsage);
+    return { appointments: nextAppointments, benefitUsage: nextBenefitUsage, feedPosts: nextFeedPosts, garage: nextGarage };
   }, []);
 
   async function handleUpdateMember(settings) {
-    const nextPlan = settings.plan || member?.plan || "Club Drive";
+    const nextPlan = member?.plan || "Club Drive";
 
-    if (!canAddGarageVehicle(nextPlan, garage.length) && garage.length > 1) {
-      throw new Error("This package supports one garage vehicle. Keep Collector active to manage multiple vehicles.");
+    if (garage.length > garageVehicleLimit(nextPlan)) {
+      throw new Error(`This package supports ${garageLimitLabel(nextPlan).toLowerCase()}. Remove extra vehicles before changing packages.`);
     }
 
     const nextMember = {
@@ -2639,7 +2690,7 @@ function App() {
       );
     }
 
-    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteVehicle={deleteVehicle} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onRefreshMemberAppData={refreshMemberAppData} onUpdateAppointment={updateAppointment} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} servicePricing={servicePricing} />;
+    return <MemberApp appointments={appointments} benefitUsage={benefitUsage} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteVehicle={deleteVehicle} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onRefreshMemberAppData={refreshMemberAppData} onUpdateAppointment={updateAppointment} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} servicePricing={servicePricing} />;
   }
 
   if (mode === "app") {
@@ -3123,6 +3174,48 @@ function AdminMembershipPriceRow({ membershipPricing, onSave, plan }) {
   );
 }
 
+function AdminBenefitControls({ onUpdate, request }) {
+  const activeUsage = ensureList(request.benefit_usage).filter((usage) => usage.status === "redeemed");
+  const benefitKeys = [...new Set([
+    ...suggestedBenefitKeysForRequest(request),
+    ...activeUsage.map((usage) => usage.benefit_key),
+  ])];
+
+  if (!benefitKeys.length) return null;
+
+  return (
+    <div className="admin-benefit-controls">
+      <div>
+        <Gift size={18} />
+        <strong>Included benefits</strong>
+        <span>Apply a credit only after confirming it with the member.</span>
+      </div>
+      <div className="admin-benefit-actions">
+        {benefitKeys.map((benefitKey) => {
+          const catalogItem = membershipBenefitCatalog[benefitKey];
+          const balance = ensureList(request.member_benefits).find((benefit) => benefit.key === benefitKey);
+          const applied = activeUsage.some((usage) => usage.benefit_key === benefitKey);
+          if (!catalogItem || (!balance && !applied)) return null;
+
+          return (
+            <button
+              className={applied ? "benefit-applied" : ""}
+              disabled={!applied && (!balance || balance.remaining <= 0)}
+              key={benefitKey}
+              onClick={() => onUpdate(request.id, benefitKey, applied ? "restore-benefit" : "redeem-benefit")}
+              type="button"
+            >
+              {applied
+                ? `Restore ${catalogItem.shortLabel}`
+                : `${catalogItem.shortLabel}: use 1 (${balance.remaining} left)`}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function AdminPortal({ onBack }) {
   const [adminToken, setAdminToken] = useState("");
   const [draftToken, setDraftToken] = useState(() => localStorage.getItem("whiteGloveAdminToken") || "");
@@ -3262,6 +3355,32 @@ function AdminPortal({ onBack }) {
       setServiceRequests((requests) => requests.map((request) => (request.id === id ? { ...request, ...payload.request } : request)));
     } catch (error) {
       setAdminError(error.message || "Could not update the service demand.");
+    }
+  }
+
+  async function updateDemandBenefit(id, benefitKey, action) {
+    setAdminError("");
+    setAdminNotice("");
+
+    try {
+      const response = await fetch("/.netlify/functions/admin-service-requests", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": adminToken,
+        },
+        body: JSON.stringify({ action, benefitKey, id }),
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Could not update the member benefit.");
+      }
+
+      await loadAdminRequests(adminToken);
+      setAdminNotice(action === "restore-benefit" ? "The benefit was restored to the member's balance." : "The benefit was recorded in the member's annual balance.");
+    } catch (error) {
+      setAdminError(error.message || "Could not update the member benefit.");
     }
   }
 
@@ -3437,6 +3556,7 @@ function AdminPortal({ onBack }) {
                     </div>
                   </dl>
                   {request.notes && <pre>{request.notes}</pre>}
+                  <AdminBenefitControls onUpdate={updateDemandBenefit} request={request} />
                   <div className="admin-status-actions">
                     {["Requested", "In Review", "Approved", "Booked", "Paid / Confirmed", "Completed"].map((status) => (
                       <button key={status} type="button" onClick={() => updateDemandStatus(request.id, status)}>
@@ -3906,13 +4026,14 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
   );
 }
 
-function MemberApp({ appointments, feedPosts, garage, initialCompletion, member, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteVehicle, onLogout, onRefreshFeedPosts, onRefreshMemberAppData, onUpdateAppointment, onUpdateMember, onUpdateVehicle, servicePricing }) {
+function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompletion, member, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteVehicle, onLogout, onRefreshFeedPosts, onRefreshMemberAppData, onUpdateAppointment, onUpdateMember, onUpdateVehicle, servicePricing }) {
   const [activeTab, setActiveTab] = useState("home");
   const [completion, setCompletion] = useState(null);
   const [tabRefreshKey, setTabRefreshKey] = useState(0);
   const appMainRef = useRef(null);
   const garageList = ensureList(garage).map(normalizeVehicle);
   const appointmentList = ensureList(appointments);
+  const benefitSummary = useMemo(() => summarizeMembershipBenefits(member.plan, ensureList(benefitUsage)), [benefitUsage, member.plan]);
   const vehicleOptions = useMemo(() => garageList.map((vehicle) => `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle"), [garageList]);
   const firstName = member.name?.split(" ")[0] || "Member";
   const navigateToTab = (tab) => {
@@ -3981,6 +4102,7 @@ function MemberApp({ appointments, feedPosts, garage, initialCompletion, member,
             {!completion && activeTab === "home" && (
               <Dashboard
                 appointments={appointmentList}
+                benefitSummary={benefitSummary}
                 feedPosts={feedPosts}
                 garage={garageList}
                 member={member}
@@ -3991,7 +4113,7 @@ function MemberApp({ appointments, feedPosts, garage, initialCompletion, member,
               />
             )}
             {!completion && activeTab === "garage" && <GarageScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={setCompletion} />}
-            {!completion && activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onComplete={setCompletion} onUpdateAppointment={onUpdateAppointment} servicePricing={servicePricing} setActiveTab={navigateToTab} vehicleOptions={vehicleOptions} />}
+            {!completion && activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} benefitSummary={benefitSummary} garage={garageList} member={member} onAddAppointment={onAddAppointment} onComplete={setCompletion} onUpdateAppointment={onUpdateAppointment} servicePricing={servicePricing} setActiveTab={navigateToTab} vehicleOptions={vehicleOptions} />}
             {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedPost={onAddFeedPost} onComplete={setCompletion} onRefreshFeedPosts={onRefreshFeedPosts} vehicleOptions={vehicleOptions} />}
             {!completion && activeTab === "account" && <AccountScreen garageCount={garageList.length} member={member} onLogout={onLogout} onUpdateMember={onUpdateMember} />}
           </div>
@@ -4049,7 +4171,7 @@ function CompletionScreen({ completion, onNavigate }) {
   );
 }
 
-function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, onComplete, onUpdateAppointment, setActiveTab }) {
+function Dashboard({ appointments, benefitSummary, feedPosts, garage, member, onAddAppointment, onComplete, onUpdateAppointment, setActiveTab }) {
   const [nowMs, setNowMs] = useState(Date.now());
   const serviceReminders = buildServiceReminders(garage, member.plan);
   const upcomingBookings = upcomingAppointmentCountdowns(appointments, nowMs);
@@ -4190,6 +4312,37 @@ function Dashboard({ appointments, feedPosts, garage, member, onAddAppointment, 
           </div>
         </section>
       )}
+
+      <section className="app-section member-benefits-section">
+        <div className="app-section-title">
+          <div>
+            <p className="eyebrow">{member.plan} membership</p>
+            <h2>Your Included Benefits</h2>
+            <p>Annual credits are counted here when White Glove applies them to a service request.</p>
+          </div>
+          <button type="button" onClick={() => setActiveTab("schedule")}>Use A Benefit</button>
+        </div>
+        <div className="member-benefit-grid">
+          {benefitSummary.map((benefit) => {
+            const percentage = benefit.annualQuantity ? Math.round((benefit.remaining / benefit.annualQuantity) * 100) : 0;
+            return (
+              <article className={benefit.remaining > 0 ? "" : "benefit-exhausted"} key={benefit.key}>
+                <div className="member-benefit-icon"><Gift size={20} /></div>
+                <div className="member-benefit-heading">
+                  <span>{benefit.label}</span>
+                  <strong>{benefit.remaining} of {benefit.annualQuantity} left</strong>
+                </div>
+                <div className="member-benefit-progress" aria-label={`${benefit.remaining} of ${benefit.annualQuantity} ${benefit.label} benefits remaining`}>
+                  <span style={{ width: `${percentage}%` }} />
+                </div>
+                <p>{formatCad(benefit.creditCents / 100)} credit each</p>
+                <small>{benefit.note}</small>
+              </article>
+            );
+          })}
+        </div>
+        <p className="member-benefit-footnote">Credits reset each membership year, do not roll over, have no cash value, and cannot be stacked with another discount.</p>
+      </section>
 
       <section className="app-section">
         <div className="app-section-title">
@@ -4377,7 +4530,7 @@ function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVeh
   );
 }
 
-function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComplete, onUpdateAppointment, servicePricing, setActiveTab, vehicleOptions }) {
+function ScheduleScreen({ appointments, benefitSummary, garage, member, onAddAppointment, onComplete, onUpdateAppointment, servicePricing, setActiveTab, vehicleOptions }) {
   const includedServices = useMemo(() => getAvailableServices(member.plan), [member.plan]);
   const serviceReminders = useMemo(() => buildServiceReminders(garage, member.plan), [garage, member.plan]);
   const [selectedService, setSelectedService] = useState(includedServices[0]?.label || "");
@@ -4452,6 +4605,25 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
 
   return (
     <div className="app-stack">
+      <section className="app-section booking-benefit-balance">
+        <div className="app-section-title">
+          <div>
+            <p className="eyebrow">Included with {member.plan}</p>
+            <h2>Benefits Available To Use</h2>
+            <p>Tell the concierge you want to use an eligible credit. Your balance updates when it is applied to the request.</p>
+          </div>
+        </div>
+        <div>
+          {benefitSummary.map((benefit) => (
+            <article className={benefit.remaining > 0 ? "" : "benefit-exhausted"} key={benefit.key}>
+              <Gift size={18} />
+              <span>{benefit.shortLabel}</span>
+              <strong>{benefit.remaining}/{benefit.annualQuantity} left</strong>
+            </article>
+          ))}
+        </div>
+      </section>
+
       <section className="app-section" ref={vehicleSectionRef}>
         <div className="app-section-title">
           <div>
@@ -4941,7 +5113,6 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
         avatarUrl: avatarPreview,
         name: formData.get("name"),
         username: formData.get("username"),
-        plan: formData.get("plan"),
         notifications: nextNotifications,
         password: formData.get("password"),
       });
@@ -4994,11 +5165,7 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
             </label>
             <label>
               Package
-              <select name="plan" defaultValue={member.plan || "Club Drive"}>
-                {plans.map((plan) => (
-                  <option key={plan.name} value={plan.name}>{plan.name}</option>
-                ))}
-              </select>
+              <input type="text" value={`${member.plan || "Club Drive"} · managed through your subscription`} readOnly />
             </label>
             <label>
               New password

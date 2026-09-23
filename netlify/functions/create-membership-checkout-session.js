@@ -15,7 +15,7 @@ const defaultMembershipPricing = {
   "Club Drive": { amountCents: 14900, cadence: "/month" },
   Gold: { amountCents: 19900, cadence: "/month" },
   Platinum: { amountCents: 39900, cadence: "/month" },
-  Collector: { amountCents: null, cadence: "" },
+  Collector: { amountCents: 69900, cadence: "/month" },
 };
 
 function json(statusCode, body) {
