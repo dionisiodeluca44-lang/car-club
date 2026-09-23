@@ -327,6 +327,26 @@ export async function createServiceRequest(userId, request) {
   return fromRequestRow(data);
 }
 
+export async function updateServiceRequestRecord(requestId, updates) {
+  if (!supabase || !requestId) return { id: requestId, ...updates };
+
+  const payload = {};
+  if (updates.date !== undefined) payload.preferred_date = updates.date || null;
+  if (updates.time !== undefined) payload.preferred_time = updates.time || null;
+  if (updates.notes !== undefined) payload.notes = updates.notes || "";
+  payload.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from("service_requests")
+    .update(payload)
+    .eq("id", requestId)
+    .select("*")
+    .single();
+
+  if (error) throw new Error(`Could not update service request: ${error.message}`);
+  return fromRequestRow(data);
+}
+
 export async function loadFeedPosts() {
   if (!supabase) return [];
 

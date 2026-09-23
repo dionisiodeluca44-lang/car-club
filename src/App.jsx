@@ -42,6 +42,7 @@ import {
   signIn,
   signOut,
   subscribeToFeedPosts,
+  updateServiceRequestRecord,
   updateMemberPassword,
   updateMemberProfile,
   updateVehicleRecord,
@@ -1209,6 +1210,67 @@ const defaultAppointments = [
 ];
 
 const fallbackVehicleImage = "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=85";
+const vehicleLookupApiBase = "https://vpic.nhtsa.dot.gov/api/vehicles";
+const fallbackVehicleMakes = [
+  "Acura",
+  "Alfa Romeo",
+  "Aston Martin",
+  "Audi",
+  "Bentley",
+  "BMW",
+  "Bugatti",
+  "Buick",
+  "Cadillac",
+  "Chevrolet",
+  "Chrysler",
+  "Dodge",
+  "Ferrari",
+  "Fiat",
+  "Ford",
+  "Genesis",
+  "GMC",
+  "Honda",
+  "Hyundai",
+  "Infiniti",
+  "Jaguar",
+  "Jeep",
+  "Kia",
+  "Lamborghini",
+  "Land Rover",
+  "Lexus",
+  "Lincoln",
+  "Lotus",
+  "Maserati",
+  "Mazda",
+  "McLaren",
+  "Mercedes-Benz",
+  "Mini",
+  "Mitsubishi",
+  "Nissan",
+  "Porsche",
+  "Ram",
+  "Rolls-Royce",
+  "Subaru",
+  "Tesla",
+  "Toyota",
+  "Volkswagen",
+  "Volvo",
+];
+
+const fallbackModelSuggestions = {
+  audi: ["A3", "A4", "A5", "A6", "A7", "A8", "Q3", "Q5", "Q7", "Q8", "RS 3", "RS 5", "RS 6", "R8"],
+  bmw: ["2 Series", "3 Series", "4 Series", "5 Series", "7 Series", "X3", "X5", "X7", "M2", "M3", "M4", "M5", "M8"],
+  chevrolet: ["Camaro", "Corvette", "Malibu", "Tahoe", "Suburban", "Silverado", "Blazer", "Equinox"],
+  ferrari: ["Roma", "Portofino", "296", "F8", "SF90", "812", "Purosangue"],
+  ford: ["Bronco", "Escape", "Explorer", "F-150", "Mustang", "Ranger", "Super Duty"],
+  honda: ["Accord", "Civic", "CR-V", "HR-V", "Odyssey", "Passport", "Pilot", "Ridgeline"],
+  lamborghini: ["Aventador", "Huracan", "Revuelto", "Urus"],
+  lexus: ["ES", "IS", "LC", "LS", "LX", "NX", "RC", "RX", "TX", "UX"],
+  "mercedes-benz": ["A-Class", "C-Class", "E-Class", "S-Class", "CLA", "CLS", "GLA", "GLC", "GLE", "GLS", "G-Class", "AMG GT"],
+  porsche: ["718", "911", "Cayenne", "Macan", "Panamera", "Taycan"],
+  tesla: ["Model 3", "Model S", "Model X", "Model Y", "Cybertruck"],
+  toyota: ["4Runner", "Camry", "Corolla", "Crown", "GR86", "Highlander", "Land Cruiser", "Prius", "RAV4", "Sequoia", "Supra", "Tacoma", "Tundra"],
+};
 
 function ensureList(value) {
   if (Array.isArray(value)) return value;
@@ -1219,8 +1281,125 @@ function uniqueImageList(images) {
   return [...new Set(ensureList(images).filter(Boolean))].slice(0, 10);
 }
 
+function uniqueSortedStrings(values) {
+  return [...new Set(ensureList(values).map((value) => String(value || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
 function vehicleImageGallery(vehicle = {}) {
   return uniqueImageList([...(Array.isArray(vehicle.images) ? vehicle.images : []), vehicle.image]);
+}
+
+function primaryVehicleImage(vehicle = {}) {
+  return vehicleImageGallery(vehicle)[0] || fallbackVehicleImage;
+}
+
+function handleVehicleImageError(event) {
+  event.currentTarget.src = fallbackVehicleImage;
+}
+
+function dateInputValue(value) {
+  const text = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
+function isFutureServiceDate(value) {
+  if (!dateInputValue(value)) return true;
+  const serviceDate = new Date(`${value}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return serviceDate.getTime() > today.getTime();
+}
+
+function serviceIconForRequest(service = "") {
+  const label = service.toLowerCase();
+  if (label.includes("detail") || label.includes("cosmetic") || label.includes("ceramic") || label.includes("paint")) return Sparkles;
+  if (label.includes("transport") || label.includes("pickup") || label.includes("delivery")) return MapPin;
+  if (label.includes("storage")) return Warehouse;
+  if (label.includes("inspection") || label.includes("insurance") || label.includes("document")) return ClipboardCheck;
+  if (label.includes("buy") || label.includes("sell") || label.includes("offer") || label.includes("rent a car")) return Car;
+  if (label.includes("driver")) return KeyRound;
+  if (label.includes("tire") || label.includes("brake") || label.includes("oil") || label.includes("battery") || label.includes("maintenance")) return Wrench;
+  return CalendarCheck;
+}
+
+function normalizeVehicleLookupKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+async function fetchVehicleMakes() {
+  const response = await fetch(`${vehicleLookupApiBase}/GetMakesForVehicleType/car?format=json`);
+  if (!response.ok) throw new Error("Vehicle makes could not load.");
+  const payload = await response.json();
+  return uniqueSortedStrings((payload.Results || []).map((item) => item.MakeName));
+}
+
+async function fetchVehicleModels({ make, year }) {
+  if (!make) return [];
+  const safeMake = encodeURIComponent(make);
+  const safeYear = String(year || "").trim();
+  const endpoint = safeYear
+    ? `${vehicleLookupApiBase}/GetModelsForMakeYear/make/${safeMake}/modelyear/${encodeURIComponent(safeYear)}?format=json`
+    : `${vehicleLookupApiBase}/GetModelsForMake/${safeMake}?format=json`;
+  const response = await fetch(endpoint);
+  if (!response.ok) throw new Error("Vehicle models could not load.");
+  const payload = await response.json();
+  return uniqueSortedStrings((payload.Results || []).map((item) => item.Model_Name));
+}
+
+function fallbackModelsForMake(make) {
+  return fallbackModelSuggestions[normalizeVehicleLookupKey(make)] || [];
+}
+
+function parseVehicleDate(value) {
+  const text = dateInputValue(value);
+  return text ? new Date(`${text}T00:00:00`) : null;
+}
+
+function daysUntilDate(value, now = new Date()) {
+  const target = parseVehicleDate(value);
+  if (!target) return null;
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  return Math.ceil((target.getTime() - start.getTime()) / 86400000);
+}
+
+function daysSinceDate(value, now = new Date()) {
+  const target = parseVehicleDate(value);
+  if (!target) return null;
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.floor((start.getTime() - target.getTime()) / 86400000));
+}
+
+function appointmentDateTime(appointment) {
+  if (!dateInputValue(appointment?.date)) return null;
+  return new Date(`${appointment.date}T${appointment.time || "09:00"}`);
+}
+
+function countdownLabel(target, nowMs) {
+  const differenceMs = target.getTime() - nowMs;
+  if (differenceMs <= 0) return { primary: "Today", secondary: "Service day" };
+  const totalMinutes = Math.ceil(differenceMs / 60000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  if (days > 0) return { primary: `${days}d`, secondary: `${hours}h remaining` };
+  return { primary: `${Math.max(1, hours)}h`, secondary: "remaining today" };
+}
+
+function upcomingAppointmentCountdowns(appointments, nowMs) {
+  return ensureList(appointments)
+    .map((appointment) => {
+      const target = appointmentDateTime(appointment);
+      if (!target) return null;
+      const countdown = countdownLabel(target, nowMs);
+      return {
+        ...appointment,
+        countdown,
+        target,
+      };
+    })
+    .filter((appointment) => appointment && appointment.target.getTime() >= nowMs - 86400000)
+    .sort((a, b) => a.target.getTime() - b.target.getTime());
 }
 
 function readFilesAsDataUrls(fileList, limit = 10) {
@@ -1364,16 +1543,30 @@ function buildServiceReminders(garage, plan) {
 
   ensureList(garage).forEach((vehicle) => {
     const label = vehicleLabel(vehicle);
-    const dueDays = parseDueDays(vehicle.nextService);
+    const dueDays = daysUntilDate(vehicle.nextService) ?? parseDueDays(vehicle.nextService);
+    const oilAgeDays = daysSinceDate(vehicle.lastOilChange);
+    const tireAgeDays = daysSinceDate(vehicle.tireAge);
+    const batteryAgeDays = daysSinceDate(vehicle.batteryAge);
 
     if (dueDays !== null && canBookService(plan, "Oil change")) {
       reminders.push({
         id: `${vehicle.id}-oil`,
         vehicle: label,
         service: "Oil change",
-        title: `Oil change due in ${dueDays} days`,
+        title: dueDays >= 0 ? `Service due in ${dueDays} days` : `Service overdue by ${Math.abs(dueDays)} days`,
         message: `Would you like White Glove to schedule service for your ${label}?`,
-        urgency: dueDays <= 14 ? "Due soon" : "Upcoming",
+        urgency: dueDays <= 0 ? "Overdue" : dueDays <= 14 ? "Due soon" : "Upcoming",
+      });
+    }
+
+    if (oilAgeDays !== null && oilAgeDays >= 180 && canBookService(plan, "Oil change")) {
+      reminders.push({
+        id: `${vehicle.id}-oil-age`,
+        vehicle: label,
+        service: "Oil change",
+        title: "Oil service should be reviewed",
+        message: `${label} has not logged an oil change in about ${Math.round(oilAgeDays / 30)} months.`,
+        urgency: oilAgeDays >= 365 ? "Overdue" : "Preventive",
       });
     }
 
@@ -1388,30 +1581,133 @@ function buildServiceReminders(garage, plan) {
       });
     }
 
-    if (String(vehicle.batteryAge).match(/18|24|2 year|3 year/i) && canBookService(plan, "Battery service")) {
+    if (((batteryAgeDays !== null && batteryAgeDays >= 540) || String(vehicle.batteryAge).match(/18|24|2 year|3 year/i)) && canBookService(plan, "Battery service")) {
       reminders.push({
         id: `${vehicle.id}-battery`,
         vehicle: label,
         service: "Battery service",
         title: "Battery check recommended",
-        message: `Your ${label} battery age is ${vehicle.batteryAge}. We can coordinate a test or replacement.`,
+        message: `Your ${label} battery timing suggests a test or replacement should be considered.`,
         urgency: "Preventive",
       });
     }
 
-    if (String(vehicle.tireAge).match(/2 year|3 year|4 year|5 year/i) && canBookService(plan, "Tires")) {
+    if (((tireAgeDays !== null && tireAgeDays >= 730) || String(vehicle.tireAge).match(/2 year|3 year|4 year|5 year/i)) && canBookService(plan, "Tires")) {
       reminders.push({
         id: `${vehicle.id}-tires`,
         vehicle: label,
         service: "Tires",
         title: "Tire inspection recommended",
-        message: `Your ${label} tire age is ${vehicle.tireAge}. We can arrange inspection, changeover, or replacement.`,
+        message: `Your ${label} tire timing suggests inspection, changeover, or replacement planning.`,
         urgency: "Preventive",
       });
     }
   });
 
   return reminders.slice(0, 6);
+}
+
+function vehiclePerformanceClass(vehicle = {}) {
+  const text = `${vehicle.make || ""} ${vehicle.model || ""} ${vehicle.use || ""}`.toLowerCase();
+  if (text.match(/ferrari|lamborghini|mclaren|aston|bugatti|gt3|911|amg|\bm\b|\brs\b|corvette|track/)) return "performance";
+  if (text.match(/range rover|g-class|g wagon|cayenne|macan|x5|x7|q7|q8|suv|truck/)) return "suv";
+  if (text.match(/tesla|taycan|ev|electric|model 3|model y|model s|model x/)) return "ev";
+  return "daily";
+}
+
+function garageInsightItems(garage) {
+  return ensureList(garage).flatMap((vehicle) => {
+    const label = vehicleLabel(vehicle);
+    const make = String(vehicle.make || "").toLowerCase();
+    const modelText = `${vehicle.make || ""} ${vehicle.model || ""}`.toLowerCase();
+    const mileage = Number.parseInt(String(vehicle.mileage || "").replace(/\D/g, ""), 10) || 0;
+    const vehicleClass = vehiclePerformanceClass(vehicle);
+    const items = [];
+
+    if (!vehicle.lastOilChange || daysSinceDate(vehicle.lastOilChange) >= 180) {
+      items.push({
+        id: `${vehicle.id}-insight-oil`,
+        type: "Maintenance",
+        title: "Plan an oil and filter service",
+        detail: `${label} should have a fresh oil record for reliability and resale history.`,
+        icon: Wrench,
+      });
+    }
+
+    if (vehicleClass === "performance") {
+      items.push({
+        id: `${vehicle.id}-insight-performance`,
+        type: "Recommended mod",
+        title: "Protect paint and wheels",
+        detail: `${label} would benefit from paint protection film, ceramic coating, and wheel/tire inspection records.`,
+        icon: Sparkles,
+      });
+    } else if (vehicleClass === "ev") {
+      items.push({
+        id: `${vehicle.id}-insight-ev`,
+        type: "Maintenance",
+        title: "Check tires, brakes, and battery health",
+        detail: `${label} should have tire wear, brake condition, and high-voltage battery health tracked.`,
+        icon: Gauge,
+      });
+    } else if (vehicleClass === "suv") {
+      items.push({
+        id: `${vehicle.id}-insight-suv`,
+        type: "Recommended mod",
+        title: "Add all-weather protection",
+        detail: `${label} is a good candidate for all-weather mats, cargo protection, and seasonal tire planning.`,
+        icon: ShieldCheck,
+      });
+    }
+
+    if (mileage >= 60000) {
+      items.push({
+        id: `${vehicle.id}-insight-mileage`,
+        type: "Maintenance",
+        title: "Mileage-based inspection",
+        detail: `${label} is in the range where brakes, fluids, suspension, tires, and battery condition should be reviewed.`,
+        icon: ClipboardCheck,
+      });
+    }
+
+    if (make.match(/bmw|mercedes|audi|porsche|land rover|jaguar|volkswagen/)) {
+      items.push({
+        id: `${vehicle.id}-insight-euro`,
+        type: "Common watch item",
+        title: "Watch electronics, cooling, and suspension",
+        detail: `${label} should be watched for battery health, cooling-system leaks, suspension wear, and warning-light history.`,
+        icon: Clock,
+      });
+    } else if (make.match(/toyota|lexus|honda|acura|mazda|subaru|nissan|infiniti/)) {
+      items.push({
+        id: `${vehicle.id}-insight-japanese`,
+        type: "Common watch item",
+        title: "Watch fluids, tires, and wear items",
+        detail: `${label} usually benefits from clean fluid records, tire rotation history, brake inspection, and alignment checks.`,
+        icon: ClipboardCheck,
+      });
+    } else if (make.match(/ford|chevrolet|gmc|cadillac|dodge|jeep|ram|lincoln/)) {
+      items.push({
+        id: `${vehicle.id}-insight-domestic`,
+        type: "Common watch item",
+        title: "Watch driveline, brakes, and software updates",
+        detail: `${label} should have brakes, drivetrain service, tire wear, and software/service campaign checks tracked.`,
+        icon: Wrench,
+      });
+    }
+
+    if (modelText.match(/turbo|amg|\bm\b|\brs\b|gt|911|corvette|hellcat|track/)) {
+      items.push({
+        id: `${vehicle.id}-insight-sport`,
+        type: "Recommended mod",
+        title: "Performance ownership records",
+        detail: `${label} should keep alignment, tire, brake, and fluid history especially clean.`,
+        icon: Gauge,
+      });
+    }
+
+    return items.slice(0, 4);
+  }).slice(0, 8);
 }
 
 function serviceHistoryForVehicle(vehicle, appointments) {
@@ -2083,6 +2379,25 @@ function App() {
     return nextAppointments[0];
   }
 
+  async function updateAppointment(appointmentId, updates) {
+    const currentAppointment = appointments.find((appointment) => appointment.id === appointmentId);
+    if (!currentAppointment) throw new Error("Could not find that service request.");
+    if (!isFutureServiceDate(currentAppointment.date)) {
+      throw new Error("Same-day service requests are locked. Contact the concierge for urgent changes.");
+    }
+
+    if (isBackendConfigured && member?.id) {
+      const savedRequest = await updateServiceRequestRecord(appointmentId, updates);
+      setAppointments((currentAppointments) => currentAppointments.map((appointment) => (appointment.id === appointmentId ? savedRequest : appointment)));
+      return savedRequest;
+    }
+
+    const nextAppointments = appointments.map((appointment) => (appointment.id === appointmentId ? { ...appointment, ...updates } : appointment));
+    localStorage.setItem("carClubAppointments", JSON.stringify(nextAppointments));
+    setAppointments(nextAppointments);
+    return nextAppointments.find((appointment) => appointment.id === appointmentId);
+  }
+
   async function addFeedPost(post) {
     if (isBackendConfigured && member?.id) {
       const savedPost = await createFeedPost(member.id, post, member.name);
@@ -2151,7 +2466,7 @@ function App() {
       );
     }
 
-    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteVehicle={deleteVehicle} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onRefreshMemberAppData={refreshMemberAppData} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} servicePricing={servicePricing} />;
+    return <MemberApp appointments={appointments} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteVehicle={deleteVehicle} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onRefreshMemberAppData={refreshMemberAppData} onUpdateAppointment={updateAppointment} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} servicePricing={servicePricing} />;
   }
 
   if (mode === "app") {
@@ -3418,7 +3733,7 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
   );
 }
 
-function MemberApp({ appointments, feedPosts, garage, initialCompletion, member, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteVehicle, onLogout, onRefreshFeedPosts, onRefreshMemberAppData, onUpdateMember, onUpdateVehicle, servicePricing }) {
+function MemberApp({ appointments, feedPosts, garage, initialCompletion, member, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteVehicle, onLogout, onRefreshFeedPosts, onRefreshMemberAppData, onUpdateAppointment, onUpdateMember, onUpdateVehicle, servicePricing }) {
   const [activeTab, setActiveTab] = useState("home");
   const [completion, setCompletion] = useState(null);
   const [tabRefreshKey, setTabRefreshKey] = useState(0);
@@ -3496,12 +3811,13 @@ function MemberApp({ appointments, feedPosts, garage, initialCompletion, member,
                 garage={garageList}
                 member={member}
                 onAddAppointment={onAddAppointment}
+                onUpdateAppointment={onUpdateAppointment}
                 setActiveTab={navigateToTab}
                 onComplete={setCompletion}
               />
             )}
             {!completion && activeTab === "garage" && <GarageScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={setCompletion} />}
-            {!completion && activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onComplete={setCompletion} servicePricing={servicePricing} setActiveTab={navigateToTab} vehicleOptions={vehicleOptions} />}
+            {!completion && activeTab === "schedule" && <ScheduleScreen appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onComplete={setCompletion} onUpdateAppointment={onUpdateAppointment} servicePricing={servicePricing} setActiveTab={navigateToTab} vehicleOptions={vehicleOptions} />}
             {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedPost={onAddFeedPost} onComplete={setCompletion} onRefreshFeedPosts={onRefreshFeedPosts} vehicleOptions={vehicleOptions} />}
             {!completion && activeTab === "account" && <AccountScreen garageCount={garageList.length} member={member} onLogout={onLogout} onUpdateMember={onUpdateMember} />}
           </div>
@@ -3559,9 +3875,17 @@ function CompletionScreen({ completion, onNavigate }) {
   );
 }
 
-function Dashboard({ appointments, garage, member, onAddAppointment, onComplete, setActiveTab }) {
+function Dashboard({ appointments, garage, member, onAddAppointment, onComplete, onUpdateAppointment, setActiveTab }) {
+  const [nowMs, setNowMs] = useState(Date.now());
   const serviceReminders = buildServiceReminders(garage, member.plan);
+  const upcomingBookings = upcomingAppointmentCountdowns(appointments, nowMs);
+  const garageInsights = garageInsightItems(garage);
   const [requestError, setRequestError] = useState("");
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   async function sendReminderRequest(reminder) {
     setRequestError("");
@@ -3599,11 +3923,34 @@ function Dashboard({ appointments, garage, member, onAddAppointment, onComplete,
         <div className="app-section-title">
           <div>
             <h2>Upcoming Services</h2>
-            <p>White Glove watches your garage and prompts the next useful request before it becomes a problem.</p>
+            <p>Live countdowns for booked requests, plus the next useful reminders from your garage.</p>
           </div>
           <button type="button" onClick={() => setActiveTab("schedule")}>Schedule</button>
         </div>
-        {serviceReminders.length === 0 ? (
+        {upcomingBookings.length > 0 ? (
+          <div className="appointment-countdown-list">
+            {upcomingBookings.slice(0, 2).map((appointment) => {
+              const ServiceIcon = serviceIconForRequest(appointment.service);
+              return (
+                <article className="appointment-countdown-card" key={appointment.id}>
+                  <div className="calendar-countdown">
+                    <span>{appointment.target.toLocaleString("en", { month: "short" })}</span>
+                    <strong>{appointment.target.getDate()}</strong>
+                  </div>
+                  <div className="countdown-copy">
+                    <span><ServiceIcon size={16} /> {appointment.status || "Requested"}</span>
+                    <h3>{appointment.service}</h3>
+                    <p>{appointment.vehicle}</p>
+                  </div>
+                  <div className="countdown-time">
+                    <strong>{appointment.countdown.primary}</strong>
+                    <span>{appointment.countdown.secondary}</span>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : serviceReminders.length === 0 ? (
           <div className="empty-state compact-empty">
             <CalendarCheck size={24} />
             <h3>No reminders due yet</h3>
@@ -3625,6 +3972,30 @@ function Dashboard({ appointments, garage, member, onAddAppointment, onComplete,
           </div>
         )}
       </section>
+
+      {garageInsights.length > 0 && (
+        <section className="app-section garage-intelligence-section">
+          <div className="app-section-title">
+            <div>
+              <h2>Recommended For Your Garage</h2>
+              <p>Maintenance, upgrades, and common watch items based on the cars you uploaded.</p>
+            </div>
+            <button type="button" onClick={() => setActiveTab("garage")}>Garage</button>
+          </div>
+          <div className="garage-insight-grid">
+            {garageInsights.map(({ detail, icon: Icon, id, title, type }) => (
+              <article key={id}>
+                <Icon size={20} />
+                <div>
+                  <span>{type}</span>
+                  <h3>{title}</h3>
+                  <p>{detail}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="app-section">
         <div className="app-section-title">
@@ -3670,7 +4041,7 @@ function Dashboard({ appointments, garage, member, onAddAppointment, onComplete,
             <button type="button" onClick={() => setActiveTab("schedule")}>View all</button>
           </div>
           {appointments.slice(0, 3).map((appointment) => (
-            <ServiceRequestCard appointment={appointment} key={appointment.id} />
+            <ServiceRequestCard appointment={appointment} key={appointment.id} onUpdateAppointment={onUpdateAppointment} />
           ))}
         </section>
       )}
@@ -3811,7 +4182,7 @@ function GarageScreen({ appointments, garage, member, onAddAppointment, onAddVeh
   );
 }
 
-function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComplete, servicePricing, setActiveTab, vehicleOptions }) {
+function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComplete, onUpdateAppointment, servicePricing, setActiveTab, vehicleOptions }) {
   const includedServices = useMemo(() => getAvailableServices(member.plan), [member.plan]);
   const serviceReminders = useMemo(() => buildServiceReminders(garage, member.plan), [garage, member.plan]);
   const [selectedService, setSelectedService] = useState(includedServices[0]?.label || "");
@@ -3976,7 +4347,7 @@ function ScheduleScreen({ appointments, garage, member, onAddAppointment, onComp
           <span>{appointments.length} total</span>
         </div>
         {appointments.map((appointment) => (
-          <ServiceRequestCard appointment={appointment} key={appointment.id} />
+          <ServiceRequestCard appointment={appointment} key={appointment.id} onUpdateAppointment={onUpdateAppointment} />
         ))}
       </section>
     </div>
@@ -4056,7 +4427,7 @@ function SavedVehicleSelector({ onVehicleSelect, selectedVehicleId, vehicles }) 
             type="button"
             onClick={() => onVehicleSelect(vehicle.id)}
           >
-            <img alt={label} src={vehicle.image || fallbackVehicleImage} />
+            <img alt={label} onError={handleVehicleImageError} src={primaryVehicleImage(vehicle)} />
             <div>
               <span>{selected ? "Selected vehicle" : "Saved Garage vehicle"}</span>
               <h3>{label}</h3>
@@ -4392,8 +4763,61 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
 
 function VehicleForm({ onAddVehicle, onClose, onComplete }) {
   const [imagePreviews, setImagePreviews] = useState([]);
+  const [makeSuggestions, setMakeSuggestions] = useState(fallbackVehicleMakes);
+  const [modelSuggestions, setModelSuggestions] = useState([]);
+  const [vehicleMake, setVehicleMake] = useState("");
+  const [vehicleModel, setVehicleModel] = useState("");
+  const [vehicleYear, setVehicleYear] = useState("");
+  const [vehicleLookupStatus, setVehicleLookupStatus] = useState("");
   const [savingVehicle, setSavingVehicle] = useState(false);
   const [vehicleError, setVehicleError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    fetchVehicleMakes()
+      .then((makes) => {
+        if (active && makes.length) setMakeSuggestions(makes);
+      })
+      .catch(() => {
+        if (active) setMakeSuggestions(fallbackVehicleMakes);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const fallbackModels = fallbackModelsForMake(vehicleMake);
+
+    if (!vehicleMake.trim()) {
+      setModelSuggestions([]);
+      setVehicleLookupStatus("");
+      return () => {
+        active = false;
+      };
+    }
+
+    setVehicleLookupStatus("Loading models...");
+    fetchVehicleModels({ make: vehicleMake, year: vehicleYear })
+      .then((models) => {
+        if (!active) return;
+        const nextModels = models.length ? models : fallbackModels;
+        setModelSuggestions(nextModels);
+        setVehicleLookupStatus(nextModels.length ? `${nextModels.length} model suggestions loaded` : "Type the model if it does not appear.");
+      })
+      .catch(() => {
+        if (!active) return;
+        setModelSuggestions(fallbackModels);
+        setVehicleLookupStatus(fallbackModels.length ? "Using offline model suggestions." : "Type the model if it does not appear.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [vehicleMake, vehicleYear]);
 
   async function handleImage(event) {
     try {
@@ -4476,6 +4900,11 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         images: imagePreviews.length ? imagePreviews : [],
       });
       form.reset();
+      setVehicleMake("");
+      setVehicleModel("");
+      setVehicleYear("");
+      setModelSuggestions([]);
+      setVehicleLookupStatus("");
       setImagePreviews([]);
       setSavingVehicle(false);
       onClose();
@@ -4523,15 +4952,26 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
       <div className="app-form-grid">
         <label>
           Year
-          <input name="year" required type="number" placeholder="2024" />
+          <input name="year" onChange={(event) => setVehicleYear(event.target.value)} required type="number" placeholder="2024" value={vehicleYear} />
         </label>
         <label>
           Make
-          <input name="make" required type="text" placeholder="Vehicle make" />
+          <input autoComplete="off" list="vehicle-make-options" name="make" onChange={(event) => setVehicleMake(event.target.value)} required type="text" placeholder="Start typing the make" value={vehicleMake} />
+          <datalist id="vehicle-make-options">
+            {makeSuggestions.map((make) => (
+              <option key={make} value={make} />
+            ))}
+          </datalist>
         </label>
         <label>
           Model
-          <input name="model" required type="text" placeholder="Vehicle model" />
+          <input autoComplete="off" list="vehicle-model-options" name="model" onChange={(event) => setVehicleModel(event.target.value)} required type="text" placeholder="Choose or type the model" value={vehicleModel} />
+          <datalist id="vehicle-model-options">
+            {modelSuggestions.map((model) => (
+              <option key={model} value={model} />
+            ))}
+          </datalist>
+          {vehicleLookupStatus && <small className="field-hint">{vehicleLookupStatus}</small>}
         </label>
         <label>
           Mileage
@@ -4597,11 +5037,11 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         </label>
         <label>
           Next service
-          <input name="nextService" type="text" placeholder="Next service timing" />
+          <input name="nextService" type="date" />
         </label>
         <label>
           Last oil change
-          <input name="lastOilChange" type="text" placeholder="Date or mileage since last oil change" />
+          <input name="lastOilChange" type="date" />
         </label>
         <label>
           Service interval
@@ -4609,11 +5049,11 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         </label>
         <label>
           Last detail
-          <input name="lastDetail" type="text" placeholder="Date of last detail" />
+          <input name="lastDetail" type="date" />
         </label>
         <label>
-          Brake service
-          <input name="brakeService" type="text" placeholder="Last brake service or concern" />
+          Last brake service
+          <input name="brakeService" type="date" />
         </label>
         <label>
           Recall status
@@ -4630,16 +5070,16 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
           </select>
         </label>
         <label>
-          Tire age
-          <input name="tireAge" type="text" placeholder="2 years" />
+          Tire install date
+          <input name="tireAge" type="date" />
         </label>
         <label>
-          Battery age
-          <input name="batteryAge" type="text" placeholder="18 months" />
+          Last battery change
+          <input name="batteryAge" type="date" />
         </label>
         <label>
-          Registration
-          <input name="registration" type="text" placeholder="Active or renewal date" />
+          Registration renewal
+          <input name="registration" type="date" />
         </label>
       </div>
       <label>
@@ -4977,7 +5417,7 @@ function ScheduleForm({ appointments, garage, member, onAddAppointment, onChange
       )}
       {selectedVehicle && (
         <div className="selected-vehicle-summary">
-          <img alt={vehicleLabel(selectedVehicle)} src={selectedVehicle.image || fallbackVehicleImage} />
+          <img alt={vehicleLabel(selectedVehicle)} onError={handleVehicleImageError} src={primaryVehicleImage(selectedVehicle)} />
           <div>
             <span>Your vehicle</span>
             <h3>{vehicleLabel(selectedVehicle)}</h3>
@@ -5109,13 +5549,14 @@ function VehicleCard({ onSelect, vehicle }) {
   const label = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
   const mileage = vehicle.mileage ? `${vehicle.mileage} miles` : "Mileage pending";
   const marketValue = vehicleMarketValue(vehicle);
-  const handleImageError = (event) => {
-    event.currentTarget.src = fallbackVehicleImage;
-  };
+  const vehicleImages = vehicleImageGallery(vehicle);
 
   return (
     <button className="vehicle-card" type="button" onClick={onSelect} disabled={!vehicle.id}>
-      <img alt={label} onError={handleImageError} src={vehicle.image || fallbackVehicleImage} />
+      <div className="vehicle-card-photo">
+        <img alt={label} onError={handleVehicleImageError} src={vehicleImages[0] || fallbackVehicleImage} />
+        {vehicleImages.length > 1 && <small>{vehicleImages.length} photos</small>}
+      </div>
       <div>
         <span>{vehicle.use || "Collection"}</span>
         <h3>{label}</h3>
@@ -5520,11 +5961,11 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
             </label>
             <label>
               Next service
-              <input defaultValue={vehicle.nextService || ""} name="nextService" placeholder="Next service timing" type="text" />
+              <input defaultValue={dateInputValue(vehicle.nextService)} name="nextService" type="date" />
             </label>
             <label>
               Last oil change
-              <input defaultValue={vehicle.lastOilChange || ""} name="lastOilChange" placeholder="Date or mileage since last oil change" type="text" />
+              <input defaultValue={dateInputValue(vehicle.lastOilChange)} name="lastOilChange" type="date" />
             </label>
             <label>
               Service interval
@@ -5532,11 +5973,11 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
             </label>
             <label>
               Last detail
-              <input defaultValue={vehicle.lastDetail || ""} name="lastDetail" placeholder="Date of last detail" type="text" />
+              <input defaultValue={dateInputValue(vehicle.lastDetail)} name="lastDetail" type="date" />
             </label>
             <label>
-              Brake service
-              <input defaultValue={vehicle.brakeService || ""} name="brakeService" placeholder="Last brake service or concern" type="text" />
+              Last brake service
+              <input defaultValue={dateInputValue(vehicle.brakeService)} name="brakeService" type="date" />
             </label>
             <label>
               Recall status
@@ -5547,16 +5988,16 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
               <input defaultValue={vehicle.tireSeason || ""} name="tireSeason" placeholder="Summer, winter, all season" type="text" />
             </label>
             <label>
-              Tire age
-              <input defaultValue={vehicle.tireAge || ""} name="tireAge" placeholder="2 years" type="text" />
+              Tire install date
+              <input defaultValue={dateInputValue(vehicle.tireAge)} name="tireAge" type="date" />
             </label>
             <label>
-              Battery age
-              <input defaultValue={vehicle.batteryAge || ""} name="batteryAge" placeholder="18 months" type="text" />
+              Last battery change
+              <input defaultValue={dateInputValue(vehicle.batteryAge)} name="batteryAge" type="date" />
             </label>
             <label>
-              Registration
-              <input defaultValue={vehicle.registration || ""} name="registration" placeholder="Active or renewal date" type="text" />
+              Registration renewal
+              <input defaultValue={dateInputValue(vehicle.registration)} name="registration" type="date" />
             </label>
           </div>
           <label>
@@ -5590,11 +6031,41 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
   );
 }
 
-function ServiceRequestCard({ appointment }) {
+function ServiceRequestCard({ appointment, onUpdateAppointment }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState("");
   const paymentSummary = appointment.paymentTitle || appointment.notes?.match(/Payment:\s*([^-.\n]+)/i)?.[1]?.trim();
+  const canEdit = Boolean(onUpdateAppointment) && isFutureServiceDate(appointment.date);
+  const ServiceIcon = serviceIconForRequest(appointment.service);
+
+  async function saveRequestEdits(event) {
+    event.preventDefault();
+    if (!canEdit || saving) return;
+
+    setEditError("");
+    setSaving(true);
+    const formData = new FormData(event.currentTarget);
+
+    try {
+      await onUpdateAppointment(appointment.id, {
+        date: formData.get("date"),
+        time: formData.get("time"),
+        notes: formData.get("notes"),
+      });
+      setEditing(false);
+    } catch (error) {
+      setEditError(error.message || "Could not update this service request.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <article className="request-card">
+      <div className="request-icon">
+        <ServiceIcon size={22} />
+      </div>
       <div>
         <span>{appointment.status}</span>
         <h3>{appointment.service}</h3>
@@ -5604,7 +6075,41 @@ function ServiceRequestCard({ appointment }) {
       <div className="request-date">
         <strong>{appointment.date || "Date pending"}</strong>
         <span>{appointment.time || "Time pending"}</span>
+        {canEdit ? (
+          <button type="button" onClick={() => setEditing((open) => !open)}>
+            {editing ? "Close" : "Edit"}
+          </button>
+        ) : (
+          <small>Locked today</small>
+        )}
       </div>
+      {editing && (
+        <form className="request-edit-form" onSubmit={saveRequestEdits}>
+          {editError && <div className="error-message" role="alert">{editError}</div>}
+          <div className="app-form-grid">
+            <label>
+              Preferred date
+              <input defaultValue={dateInputValue(appointment.date)} min={new Date(Date.now() + 86400000).toISOString().slice(0, 10)} name="date" required type="date" />
+            </label>
+            <label>
+              Preferred time
+              <input defaultValue={appointment.time || ""} name="time" required type="time" />
+            </label>
+          </div>
+          <label>
+            Notes
+            <textarea defaultValue={appointment.notes || ""} name="notes" rows="3" placeholder="Add updated notes for the concierge." />
+          </label>
+          <div className="request-card-actions">
+            <button className="button secondary" type="button" onClick={() => setEditing(false)} disabled={saving}>
+              Cancel
+            </button>
+            <button className="button primary" type="submit" disabled={saving}>
+              {saving ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      )}
     </article>
   );
 }
