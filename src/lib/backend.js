@@ -20,6 +20,11 @@ function ensureList(value) {
   return value ? [value] : [];
 }
 
+function effectiveMemberPlan(profile, user) {
+  if (profile?.collector_access_override) return "Collector";
+  return profile?.plan || user?.user_metadata?.plan || "Club Drive";
+}
+
 function friendlyAuthError(error, fallback = "Could not complete authentication.") {
   if (!error) return fallback;
   if (error.name === "AuthRetryableFetchError") {
@@ -61,7 +66,8 @@ export async function getCurrentMember() {
     id: user.id,
     name: profile?.full_name || user.user_metadata?.full_name || user.email,
     email: user.email,
-    plan: profile?.plan || user.user_metadata?.plan || "Club Drive",
+    plan: effectiveMemberPlan(profile, user),
+    collectorAccessOverride: Boolean(profile?.collector_access_override),
     subscriptionStatus: profile?.subscription_status || user.user_metadata?.subscription_status || "pending",
     subscriptionCancelAtPeriodEnd: Boolean(profile?.subscription_cancel_at_period_end),
     subscriptionStatusUpdatedAt: profile?.subscription_status_updated_at || "",
@@ -177,7 +183,8 @@ export async function signIn({ email, password }) {
     id: data.user.id,
     name: profile?.full_name || data.user.user_metadata?.full_name || data.user.email,
     email: data.user.email,
-    plan: profile?.plan || data.user.user_metadata?.plan || "Club Drive",
+    plan: effectiveMemberPlan(profile, data.user),
+    collectorAccessOverride: Boolean(profile?.collector_access_override),
     subscriptionStatus: profile?.subscription_status || data.user.user_metadata?.subscription_status || "pending",
     subscriptionCancelAtPeriodEnd: Boolean(profile?.subscription_cancel_at_period_end),
     subscriptionStatusUpdatedAt: profile?.subscription_status_updated_at || "",
@@ -208,24 +215,33 @@ export async function upsertProfile({ avatarUrl, email, id, name, notifications,
   if (!supabase || !id) return;
 
   const payload = {
-    id,
-    email,
     full_name: name,
     username: username || null,
     avatar_url: avatarUrl || null,
     notifications: notifications || defaultNotifications,
+    updated_at: new Date().toISOString(),
   };
 
-  const { error } = await supabase.from("profiles").upsert(payload);
+  const { error } = await supabase.from("profiles").update(payload).eq("id", id);
 
   if (error) throw error;
 }
 
 export async function updateMemberProfile({ avatarUrl, email, id, name, notifications, plan, username }) {
-  await upsertProfile({ avatarUrl, email, id, name, notifications, plan, username });
+  let savedAvatarUrl = avatarUrl || "";
+
+  if (String(savedAvatarUrl).startsWith("data:")) {
+    try {
+      savedAvatarUrl = await uploadStorageImage("vehicle-photos", `${id}/profile`, savedAvatarUrl);
+    } catch (error) {
+      throw new Error(`Could not upload profile picture: ${error.message}`);
+    }
+  }
+
+  await upsertProfile({ avatarUrl: savedAvatarUrl, email, id, name, notifications, plan, username });
   return {
     id,
-    avatarUrl: avatarUrl || "",
+    avatarUrl: savedAvatarUrl,
     email,
     name,
     notifications: notifications || defaultNotifications,

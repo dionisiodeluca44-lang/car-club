@@ -10,6 +10,7 @@ create table if not exists public.profiles (
   username text,
   avatar_url text,
   plan text not null default 'Club Drive',
+  collector_access_override boolean not null default false,
   subscription_status text not null default 'pending',
   stripe_customer_id text,
   stripe_subscription_id text,
@@ -25,6 +26,7 @@ create table if not exists public.profiles (
 );
 
 alter table public.profiles
+  add column if not exists collector_access_override boolean not null default false,
   add column if not exists subscription_status text not null default 'pending',
   add column if not exists stripe_customer_id text,
   add column if not exists stripe_subscription_id text,

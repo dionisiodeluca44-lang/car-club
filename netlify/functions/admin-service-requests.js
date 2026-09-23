@@ -34,6 +34,10 @@ function benefitPeriodForProfile(profile) {
   );
 }
 
+function effectiveProfilePlan(profile) {
+  return profile?.collector_access_override ? "Collector" : profile?.plan;
+}
+
 async function updateMembershipBenefit({ action, benefitKey, requestId }) {
   const { data: request, error: requestError } = await supabase
     .from("service_requests")
@@ -47,7 +51,7 @@ async function updateMembershipBenefit({ action, benefitKey, requestId }) {
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("id, plan, subscription_activated_at, stripe_subscription_created_at, created_at")
+    .select("id, plan, collector_access_override, subscription_activated_at, stripe_subscription_created_at, created_at")
     .eq("id", request.user_id)
     .single();
 
@@ -55,9 +59,10 @@ async function updateMembershipBenefit({ action, benefitKey, requestId }) {
     return { statusCode: 404, body: { error: "Could not find the member profile." } };
   }
 
-  const allowance = benefitAllowancesForPlan(profile.plan).find((item) => item.key === benefitKey);
+  const effectivePlan = effectiveProfilePlan(profile);
+  const allowance = benefitAllowancesForPlan(effectivePlan).find((item) => item.key === benefitKey);
   if (!allowance) {
-    return { statusCode: 400, body: { error: `${profile.plan} does not include that benefit.` } };
+    return { statusCode: 400, body: { error: `${effectivePlan} does not include that benefit.` } };
   }
 
   const period = benefitPeriodForProfile(profile);
@@ -161,7 +166,7 @@ export async function handler(event) {
     if (userIds.length) {
       const { data: profiles, error: profileError } = await supabase
         .from("profiles")
-        .select("id, email, full_name, plan, subscription_activated_at, stripe_subscription_created_at, created_at")
+        .select("id, email, full_name, plan, collector_access_override, subscription_activated_at, stripe_subscription_created_at, created_at")
         .in("id", userIds);
 
       if (profileError) {
@@ -169,7 +174,7 @@ export async function handler(event) {
       }
 
       for (const profile of profiles || []) {
-        profileMap.set(profile.id, profile);
+        profileMap.set(profile.id, { ...profile, plan: effectiveProfilePlan(profile) });
       }
     }
 

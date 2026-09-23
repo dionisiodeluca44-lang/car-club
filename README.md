@@ -47,7 +47,7 @@ ADMIN_PORTAL_PASSWORD=choose-a-strong-admin-password
 Setup steps:
 
 1. Create a Supabase project.
-2. Run `supabase/schema.sql` in the Supabase SQL editor. For a project that already ran the earlier membership setup, run `supabase/subscription-lifecycle.sql`, then `supabase/membership-benefits.sql`.
+2. Run `supabase/schema.sql` in the Supabase SQL editor. For a project that already ran the earlier membership setup, run `supabase/subscription-lifecycle.sql`, then `supabase/membership-benefits.sql`. Run `supabase/grandfather-current-members-collector.sql` once to give members who are active at that moment permanent Collector app access; this does not change their Stripe billing amount.
 3. In Supabase Authentication > URL Configuration, add `https://vocal-pie-c034af.netlify.app/?password=recovery` to the allowed redirect URLs so password-reset emails return to the new-password screen.
 4. Copy `.env.example` to `.env.local` for local development and fill in the keys.
 5. Add the same keys in Netlify under Site configuration > Environment variables.
