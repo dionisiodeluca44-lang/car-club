@@ -4639,6 +4639,9 @@ function SavedVehicleSelector({ onVehicleSelect, selectedVehicleId, vehicles }) 
 function FeedScreen({ feedPosts, member, onAddFeedPost, onComplete, onRefreshFeedPosts, vehicleOptions }) {
   const [feedNotice, setFeedNotice] = useState("");
   const [refreshingFeed, setRefreshingFeed] = useState(false);
+  const [showComposer, setShowComposer] = useState(false);
+  const eventPosts = feedEventPosts(feedPosts);
+  const photoPosts = feedPosts.filter((post) => !parseFeedEvent(post));
 
   async function refreshFeed() {
     setFeedNotice("");
@@ -4658,38 +4661,53 @@ function FeedScreen({ feedPosts, member, onAddFeedPost, onComplete, onRefreshFee
         <div className="app-section-title">
           <div>
             <h2>Member Feed</h2>
-            <p>Share vehicle photos, service updates, detail results, delivery moments, and collection highlights with every member.</p>
+            <p>Browse member photos and events from the White Glove community.</p>
           </div>
-          <button type="button" onClick={refreshFeed} disabled={refreshingFeed}>
-            {refreshingFeed ? "Refreshing" : `${feedPosts.length} posts`}
-          </button>
+          <div className="feed-header-actions">
+            <button type="button" onClick={refreshFeed} disabled={refreshingFeed}>
+              {refreshingFeed ? "Refreshing" : `${feedPosts.length} posts`}
+            </button>
+            <button
+              aria-label={showComposer ? "Close feed upload" : "Add to feed"}
+              className="icon-button feed-add-button"
+              type="button"
+              onClick={() => setShowComposer((open) => !open)}
+            >
+              {showComposer ? <X size={20} /> : <Plus size={20} />}
+            </button>
+          </div>
         </div>
         {feedNotice && (
           <div className="error-message" role="alert">
             {feedNotice}
           </div>
         )}
-        <FeedUploadForm onAddFeedPost={onAddFeedPost} onComplete={onComplete} vehicleOptions={vehicleOptions} />
-      </section>
-
-      <section className="app-section">
-        <div className="app-section-title">
-          <div>
-            <h2>Garage Feed</h2>
-            <p>All member posts appear here so the community can see each other&apos;s vehicles and updates.</p>
-          </div>
-        </div>
+        {showComposer && (
+          <FeedUploadForm
+            onAddFeedPost={onAddFeedPost}
+            onComplete={onComplete}
+            onPosted={() => setShowComposer(false)}
+            vehicleOptions={vehicleOptions}
+          />
+        )}
         {feedPosts.length === 0 ? (
           <div className="empty-state">
             <Upload size={26} />
             <h3>No feed posts yet</h3>
-            <p>Upload the first car photo from this Feed screen.</p>
+            <p>Tap the plus button to add the first photo or event.</p>
           </div>
         ) : (
-          <div className="feed-grid">
-            {feedPosts.map((post) => (
-              <FeedPostCard key={post.id} post={post} />
-            ))}
+          <div className="feed-sections">
+            <FeedContentSection
+              emptyText="No events have been posted yet."
+              posts={eventPosts}
+              title="Events"
+            />
+            <FeedContentSection
+              emptyText="No photos have been posted yet."
+              posts={photoPosts}
+              title="Photos"
+            />
           </div>
         )}
       </section>
@@ -4697,7 +4715,27 @@ function FeedScreen({ feedPosts, member, onAddFeedPost, onComplete, onRefreshFee
   );
 }
 
-function FeedUploadForm({ onAddFeedPost, onComplete, vehicleOptions }) {
+function FeedContentSection({ emptyText, posts, title }) {
+  return (
+    <section className="feed-content-section" aria-label={title}>
+      <div className="feed-content-heading">
+        <h3>{title}</h3>
+        <span>{posts.length}</span>
+      </div>
+      {posts.length === 0 ? (
+        <div className="feed-empty-row">{emptyText}</div>
+      ) : (
+        <div className="feed-grid">
+          {posts.map((post) => (
+            <FeedPostCard key={post.id} post={post} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function FeedUploadForm({ onAddFeedPost, onComplete, onPosted, vehicleOptions }) {
   const [postType, setPostType] = useState("vehicle");
   const [imagePreview, setImagePreview] = useState("");
   const [feedError, setFeedError] = useState("");
@@ -4739,6 +4777,7 @@ function FeedUploadForm({ onAddFeedPost, onComplete, vehicleOptions }) {
 
       form.reset();
       setImagePreview("");
+      onPosted?.();
       onComplete?.({
         actionLabel: "View Feed",
         actionTab: "feed",
