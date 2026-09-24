@@ -20,6 +20,11 @@ const subscriptionEventTypes = new Set([
 const invoiceEventTypes = new Set([
   "invoice.paid",
   "invoice.payment_failed",
+  "invoice.voided",
+]);
+
+const refundEventTypes = new Set([
+  "charge.refunded",
 ]);
 
 const accessStatuses = new Set(["active", "trialing"]);
@@ -119,12 +124,12 @@ async function syncMembershipSubscription(subscription, stripeEvent, sessionMeta
       throw new Error(`No White Glove member matches Stripe subscription ${subscriptionId || "unknown"}.`);
     }
     console.info(`Ignored unrelated Stripe subscription ${subscriptionId || "unknown"}.`);
-    return;
+    return null;
   }
 
   if (isOlderSubscription(profile, subscription)) {
     console.info(`Ignored lifecycle event for superseded Stripe subscription ${subscriptionId}.`);
-    return;
+    return null;
   }
 
   const status = stripeEvent.type === "customer.subscription.deleted"
@@ -162,6 +167,62 @@ async function syncMembershipSubscription(subscription, stripeEvent, sessionMeta
 
   if (error) throw error;
   if (!data) throw new Error(`Could not update White Glove member ${profile.id}.`);
+  return { ...profile, id: data.id };
+}
+
+function invoiceRevenueCents(invoice) {
+  const paidCents = Math.max(0, Number(invoice?.amount_paid || 0));
+  const beforeTaxCents = Number(invoice?.total_excluding_tax ?? invoice?.subtotal_excluding_tax ?? invoice?.subtotal ?? paidCents);
+  return Math.max(0, Math.min(paidCents, Number.isFinite(beforeTaxCents) ? beforeTaxCents : paidCents));
+}
+
+function invoiceServicePeriod(invoice) {
+  const periods = (invoice?.lines?.data || []).map((line) => line.period).filter(Boolean);
+  const starts = periods.map((period) => Number(period.start)).filter((value) => Number.isFinite(value) && value > 0);
+  const ends = periods.map((period) => Number(period.end)).filter((value) => Number.isFinite(value) && value > 0);
+  return {
+    start: starts.length ? stripeTimestamp(Math.min(...starts)) : null,
+    end: ends.length ? stripeTimestamp(Math.max(...ends)) : null,
+  };
+}
+
+async function recordPaidMembershipInvoice({ invoice, profileId, subscriptionId }) {
+  if (!invoice?.id || !profileId) return;
+  const revenueCents = invoiceRevenueCents(invoice);
+  if (revenueCents <= 0) return;
+  const period = invoiceServicePeriod(invoice);
+  const paidAt = stripeTimestamp(invoice?.status_transitions?.paid_at) || new Date().toISOString();
+  const { error } = await supabase.from("membership_revenue_events").upsert({
+    amount_paid_cents: revenueCents,
+    currency: String(invoice.currency || "cad").toLowerCase(),
+    paid_at: paidAt,
+    service_period_end: period.end,
+    service_period_start: period.start,
+    stripe_invoice_id: invoice.id,
+    stripe_subscription_id: subscriptionId,
+    updated_at: new Date().toISOString(),
+    user_id: profileId,
+  }, { onConflict: "stripe_invoice_id" });
+  if (error) throw new Error(`Could not record membership revenue: ${error.message}`);
+}
+
+async function reverseMembershipInvoiceRevenue(invoiceId, refundedCents = null) {
+  if (!invoiceId) return;
+  const { data, error: loadError } = await supabase
+    .from("membership_revenue_events")
+    .select("id, amount_paid_cents")
+    .eq("stripe_invoice_id", invoiceId)
+    .maybeSingle();
+  if (loadError) throw loadError;
+  if (!data) return;
+  const amountRefundedCents = refundedCents == null
+    ? Number(data.amount_paid_cents) || 0
+    : Math.min(Number(data.amount_paid_cents) || 0, Math.max(0, Number(refundedCents) || 0));
+  const { error } = await supabase
+    .from("membership_revenue_events")
+    .update({ amount_refunded_cents: amountRefundedCents, updated_at: new Date().toISOString() })
+    .eq("id", data.id);
+  if (error) throw error;
 }
 
 async function handleMembershipCheckout(session, stripeEvent) {
@@ -181,11 +242,37 @@ async function handleSubscriptionEvent(stripeEvent) {
 }
 
 async function handleInvoiceEvent(stripeEvent) {
-  const subscriptionId = invoiceSubscriptionId(stripeEvent.data.object);
+  const webhookInvoice = stripeEvent.data.object;
+  const invoice = stripeEvent.type === "invoice.paid"
+    ? await stripe.invoices.retrieve(webhookInvoice.id)
+    : webhookInvoice;
+  const subscriptionId = invoiceSubscriptionId(invoice);
   if (!subscriptionId) return;
 
   const subscription = await currentSubscription(subscriptionId);
-  await syncMembershipSubscription(subscription, stripeEvent);
+  const profile = await syncMembershipSubscription(subscription, stripeEvent);
+  if (stripeEvent.type === "invoice.paid" && invoice.status === "paid" && profile?.id) {
+    await recordPaidMembershipInvoice({ invoice, profileId: profile.id, subscriptionId });
+  }
+  if (stripeEvent.type === "invoice.voided") {
+    await reverseMembershipInvoiceRevenue(invoice.id);
+  }
+}
+
+async function handleRefundEvent(stripeEvent) {
+  const charge = stripeEvent.data.object;
+  const invoiceId = stripeId(charge?.invoice);
+  if (!invoiceId) return;
+  const invoice = await stripe.invoices.retrieve(invoiceId);
+  const subscriptionId = invoiceSubscriptionId(invoice);
+  if (subscriptionId) {
+    const subscription = await currentSubscription(subscriptionId);
+    const profile = await syncMembershipSubscription(subscription, stripeEvent);
+    if (profile?.id) {
+      await recordPaidMembershipInvoice({ invoice, profileId: profile.id, subscriptionId });
+    }
+  }
+  await reverseMembershipInvoiceRevenue(invoiceId, charge.amount_refunded);
 }
 
 async function createPaidServiceRequest(session) {
@@ -258,6 +345,8 @@ export async function handler(event) {
       await handleSubscriptionEvent(stripeEvent);
     } else if (invoiceEventTypes.has(stripeEvent.type)) {
       await handleInvoiceEvent(stripeEvent);
+    } else if (refundEventTypes.has(stripeEvent.type)) {
+      await handleRefundEvent(stripeEvent);
     }
   } catch (error) {
     console.error(`Could not process Stripe webhook ${stripeEvent.id} (${stripeEvent.type})`, error);

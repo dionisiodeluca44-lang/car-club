@@ -64,13 +64,16 @@ export async function getCurrentMember() {
 
   return {
     id: user.id,
+    createdAt: profile?.created_at || user.created_at || "",
     name: profile?.full_name || user.user_metadata?.full_name || user.email,
     email: user.email,
     plan: effectiveMemberPlan(profile, user),
     collectorAccessOverride: Boolean(profile?.collector_access_override),
     subscriptionStatus: profile?.subscription_status || user.user_metadata?.subscription_status || "pending",
     subscriptionCancelAtPeriodEnd: Boolean(profile?.subscription_cancel_at_period_end),
+    subscriptionActivatedAt: profile?.subscription_activated_at || "",
     subscriptionStatusUpdatedAt: profile?.subscription_status_updated_at || "",
+    stripeSubscriptionCreatedAt: profile?.stripe_subscription_created_at || "",
     stripeCustomerId: profile?.stripe_customer_id || "",
     stripeSubscriptionId: profile?.stripe_subscription_id || "",
     username: profile?.username || user.user_metadata?.username || "",
@@ -181,13 +184,16 @@ export async function signIn({ email, password }) {
 
   return {
     id: data.user.id,
+    createdAt: profile?.created_at || data.user.created_at || "",
     name: profile?.full_name || data.user.user_metadata?.full_name || data.user.email,
     email: data.user.email,
     plan: effectiveMemberPlan(profile, data.user),
     collectorAccessOverride: Boolean(profile?.collector_access_override),
     subscriptionStatus: profile?.subscription_status || data.user.user_metadata?.subscription_status || "pending",
     subscriptionCancelAtPeriodEnd: Boolean(profile?.subscription_cancel_at_period_end),
+    subscriptionActivatedAt: profile?.subscription_activated_at || "",
     subscriptionStatusUpdatedAt: profile?.subscription_status_updated_at || "",
+    stripeSubscriptionCreatedAt: profile?.stripe_subscription_created_at || "",
     stripeCustomerId: profile?.stripe_customer_id || "",
     stripeSubscriptionId: profile?.stripe_subscription_id || "",
     username: profile?.username || data.user.user_metadata?.username || "",
@@ -270,6 +276,60 @@ export async function loadVehicles(userId) {
   return data.map(fromVehicleRow);
 }
 
+export async function loadVehicleValuations(userId) {
+  if (!supabase || !userId) return [];
+
+  const { data, error } = await supabase
+    .from("vehicle_valuation_history")
+    .select("*")
+    .eq("user_id", userId)
+    .order("observed_at", { ascending: true });
+
+  if (error) {
+    // Keep the Garage usable until the valuation-history migration is installed.
+    if (error.code === "42P01" || error.code === "PGRST205") return [];
+    console.warn("Could not load vehicle valuation history.", error);
+    return [];
+  }
+
+  return (data || []).map(fromVehicleValuationRow);
+}
+
+export async function createVehicleValuation(userId, vehicleId, valuation) {
+  if (!supabase || !userId || !vehicleId) return valuation;
+
+  const valueCents = valuation.valueCents ?? currencyValueToCents(valuation.value);
+  if (!Number.isFinite(valueCents) || valueCents <= 0) {
+    throw new Error("Enter a valid Canadian-dollar vehicle value.");
+  }
+
+  const { data, error } = await supabase
+    .from("vehicle_valuation_history")
+    .insert({
+      vehicle_id: vehicleId,
+      user_id: userId,
+      value_cents: Math.round(valueCents),
+      low_value_cents: positiveCents(valuation.lowValueCents),
+      high_value_cents: positiveCents(valuation.highValueCents),
+      currency: "CAD",
+      source: valuation.source || "Member update",
+      source_type: valuation.sourceType || "manual",
+      note: valuation.note || "",
+      observed_at: valuation.observedAt || new Date().toISOString(),
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    if (error.code === "42P01" || error.code === "PGRST205") {
+      throw new Error("Run the vehicle valuation history SQL migration in Supabase first.");
+    }
+    throw new Error(`Could not save vehicle value: ${error.message}`);
+  }
+
+  return fromVehicleValuationRow(data);
+}
+
 export async function createVehicle(userId, vehicle) {
   if (!supabase || !userId) return vehicle;
 
@@ -280,6 +340,20 @@ export async function createVehicle(userId, vehicle) {
 
   const { data, error } = await supabase.from("vehicles").insert(payload).select("*").single();
   if (error) throw new Error(`Could not save vehicle: ${error.message}`);
+
+  const valueCents = currencyValueToCents(vehicle.marketValue);
+  if (valueCents > 0) {
+    try {
+      await createVehicleValuation(userId, data.id, {
+        source: vehicle.marketValueSource || "Garage starting value",
+        sourceType: vehicle.marketValueSourceType || "estimated",
+        valueCents,
+      });
+    } catch (valuationError) {
+      console.warn("Vehicle saved, but its starting valuation snapshot could not be recorded.", valuationError);
+    }
+  }
+
   return fromVehicleRow(data);
 }
 
@@ -298,6 +372,25 @@ export async function updateVehicleRecord(vehicleId, updates) {
 
   const { data, error } = await supabase.from("vehicles").update(payload).eq("id", vehicleId).select("*").single();
   if (error) throw new Error(`Could not update vehicle: ${error.message}`);
+
+  const valueCents = currencyValueToCents(updates.marketValue);
+  if (updates.marketValue !== undefined && valueCents > 0) {
+    try {
+      await createVehicleValuation(data.user_id, vehicleId, {
+        highValueCents: updates.highValueCents,
+        lowValueCents: updates.lowValueCents,
+        note: updates.marketValueNote,
+        observedAt: updates.marketValueObservedAt,
+        source: updates.marketValueSource || "Member update",
+        sourceType: updates.marketValueSourceType || "manual",
+        valueCents,
+      });
+    } catch (valuationError) {
+      console.warn("Vehicle details saved, but the valuation snapshot could not be recorded.", valuationError);
+      if (updates.marketValueSource || updates.marketValueObservedAt) throw valuationError;
+    }
+  }
+
   return fromVehicleRow(data);
 }
 
@@ -457,6 +550,33 @@ export async function loadMembershipBenefitUsage(userId) {
   }));
 }
 
+export async function loadMembershipRevenueEvents(userId) {
+  if (!supabase || !userId) return [];
+
+  const { data, error } = await supabase
+    .from("membership_revenue_events")
+    .select("id, stripe_invoice_id, stripe_subscription_id, amount_paid_cents, amount_refunded_cents, currency, paid_at, service_period_start, service_period_end")
+    .eq("user_id", userId)
+    .order("paid_at", { ascending: false });
+
+  if (error) {
+    console.warn("Could not load membership revenue. Run the benefit unlock migration.", error);
+    return [];
+  }
+
+  return (data || []).map((row) => ({
+    id: row.id,
+    stripeInvoiceId: row.stripe_invoice_id,
+    stripeSubscriptionId: row.stripe_subscription_id || "",
+    amountPaidCents: Number(row.amount_paid_cents || 0),
+    amountRefundedCents: Number(row.amount_refunded_cents || 0),
+    currency: row.currency || "cad",
+    paidAt: row.paid_at,
+    servicePeriodStart: row.service_period_start,
+    servicePeriodEnd: row.service_period_end,
+  }));
+}
+
 export function subscribeToFeedPosts(onPostCreated) {
   if (!supabase || typeof onPostCreated !== "function") return () => {};
 
@@ -504,6 +624,73 @@ export async function createFeedPost(userId, post, authorName = "Member") {
 
   if (error) throw new Error(`Could not post to feed: ${error.message}`);
   return fromFeedPostRow(data);
+}
+
+export async function updateFeedPostRecord(userId, postId, updates) {
+  if (!supabase || !userId || !postId) return { ...updates, id: postId, userId };
+
+  const { data: existing, error: loadError } = await supabase
+    .from("feed_posts")
+    .select("*")
+    .eq("id", postId)
+    .eq("user_id", userId)
+    .single();
+
+  if (loadError || !existing) throw new Error("Could not find a feed post owned by this account.");
+
+  let nextImageUrl = existing.image_url || "";
+  if (updates.image && updates.image !== existing.image_url) {
+    try {
+      nextImageUrl = String(updates.image).startsWith("data:")
+        ? await uploadStorageImage("vehicle-photos", `${userId}/feed`, updates.image)
+        : reusableImageUrl(updates.image);
+    } catch (error) {
+      throw new Error(`Could not upload the replacement feed photo: ${error.message}`);
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("feed_posts")
+    .update({
+      caption: updates.caption ?? existing.caption ?? "",
+      image_url: nextImageUrl || existing.image_url,
+      vehicle_label: updates.vehicle ?? existing.vehicle_label ?? "",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", postId)
+    .eq("user_id", userId)
+    .select("*")
+    .single();
+
+  if (error) throw new Error(`Could not update feed post: ${error.message}`);
+
+  if (nextImageUrl && nextImageUrl !== existing.image_url) {
+    await removeOwnedStorageImage(userId, existing.image_url);
+  }
+
+  return fromFeedPostRow(data);
+}
+
+export async function deleteFeedPostRecord(userId, postId) {
+  if (!supabase || !userId || !postId) return;
+
+  const { data: existing, error: loadError } = await supabase
+    .from("feed_posts")
+    .select("id, image_url")
+    .eq("id", postId)
+    .eq("user_id", userId)
+    .single();
+
+  if (loadError || !existing) throw new Error("Could not find a feed post owned by this account.");
+
+  const { error } = await supabase
+    .from("feed_posts")
+    .delete()
+    .eq("id", postId)
+    .eq("user_id", userId);
+
+  if (error) throw new Error(`Could not delete feed post: ${error.message}`);
+  await removeOwnedStorageImage(userId, existing.image_url);
 }
 
 async function uploadVehicleImage(userId, image) {
@@ -568,6 +755,22 @@ async function safeUploadFeedImage(userId, image) {
   }
 }
 
+function ownedStorageImagePath(userId, imageUrl) {
+  if (!userId || !imageUrl) return "";
+  const marker = "/storage/v1/object/public/vehicle-photos/";
+  const markerIndex = String(imageUrl).indexOf(marker);
+  if (markerIndex < 0) return "";
+  const path = decodeURIComponent(String(imageUrl).slice(markerIndex + marker.length).split("?")[0]);
+  return path.startsWith(`${userId}/`) ? path : "";
+}
+
+async function removeOwnedStorageImage(userId, imageUrl) {
+  const path = ownedStorageImagePath(userId, imageUrl);
+  if (!supabase || !path) return;
+  const { error } = await supabase.storage.from("vehicle-photos").remove([path]);
+  if (error) console.warn("Feed post was updated, but the old photo could not be removed from storage.", error);
+}
+
 async function uploadStorageImage(bucket, folder, image) {
   if (!supabase || !image || !String(image).startsWith("data:")) return "";
 
@@ -590,6 +793,35 @@ async function uploadStorageImage(bucket, folder, image) {
 function reusableImageUrl(image) {
   if (!image || String(image).startsWith("data:")) return "";
   return image;
+}
+
+function currencyValueToCents(value) {
+  if (typeof value === "number") return Math.round(value * 100);
+  const normalized = String(value || "").replace(/[^0-9.]/g, "");
+  const amount = Number.parseFloat(normalized);
+  return Number.isFinite(amount) ? Math.round(amount * 100) : 0;
+}
+
+function positiveCents(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? Math.round(amount) : null;
+}
+
+function fromVehicleValuationRow(row) {
+  return {
+    id: row.id,
+    vehicleId: row.vehicle_id,
+    userId: row.user_id,
+    valueCents: Number(row.value_cents) || 0,
+    lowValueCents: row.low_value_cents == null ? null : Number(row.low_value_cents),
+    highValueCents: row.high_value_cents == null ? null : Number(row.high_value_cents),
+    currency: row.currency || "CAD",
+    source: row.source || "Member update",
+    sourceType: row.source_type || "manual",
+    note: row.note || "",
+    observedAt: row.observed_at || row.created_at,
+    createdAt: row.created_at,
+  };
 }
 
 function fromVehicleRow(row) {
@@ -632,7 +864,11 @@ function toVehicleRow(userId, vehicle) {
 
 function toVehicleUpdateRow(updates) {
   const row = {};
+  if (updates.year !== undefined) row.year = updates.year;
+  if (updates.make !== undefined) row.make = updates.make;
+  if (updates.model !== undefined) row.model = updates.model;
   if (updates.mileage !== undefined) row.mileage = updates.mileage;
+  if (updates.use !== undefined) row.usage = updates.use;
   if (updates.status !== undefined) row.status = updates.status;
   if (updates.marketValue !== undefined) row.market_value = updates.marketValue;
   if (updates.horsepower !== undefined) row.horsepower = updates.horsepower;
@@ -689,9 +925,11 @@ function fromRequestRow(row) {
 function fromFeedPostRow(row) {
   return {
     id: row.id,
+    userId: row.user_id,
     author: row.author_name || "Member",
     caption: row.caption || "",
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
     image: row.image_url || "",
     vehicle: row.vehicle_label || "",
   };

@@ -61,6 +61,25 @@ create table if not exists public.vehicles (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.vehicle_valuation_history (
+  id uuid primary key default gen_random_uuid(),
+  vehicle_id uuid not null references public.vehicles(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  value_cents bigint not null check (value_cents > 0),
+  low_value_cents bigint check (low_value_cents is null or low_value_cents > 0),
+  high_value_cents bigint check (high_value_cents is null or high_value_cents > 0),
+  currency text not null default 'CAD' check (currency = 'CAD'),
+  source text not null default 'Member update',
+  source_type text not null default 'manual' check (source_type in ('provider', 'appraisal', 'manual', 'estimated')),
+  note text,
+  observed_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  check (low_value_cents is null or high_value_cents is null or low_value_cents <= high_value_cents)
+);
+
+create index if not exists vehicle_valuation_history_vehicle_date_idx
+  on public.vehicle_valuation_history (vehicle_id, observed_at);
+
 create table if not exists public.service_requests (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -92,6 +111,25 @@ create table if not exists public.membership_benefit_usage (
 
 create index if not exists membership_benefit_usage_member_period_idx
   on public.membership_benefit_usage (user_id, period_start, period_end, status);
+
+create table if not exists public.membership_revenue_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  stripe_invoice_id text not null unique,
+  stripe_subscription_id text,
+  amount_paid_cents integer not null default 0 check (amount_paid_cents >= 0),
+  amount_refunded_cents integer not null default 0 check (amount_refunded_cents >= 0),
+  currency text not null default 'cad',
+  paid_at timestamptz not null,
+  service_period_start timestamptz,
+  service_period_end timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (amount_refunded_cents <= amount_paid_cents)
+);
+
+create index if not exists membership_revenue_events_member_paid_idx
+  on public.membership_revenue_events (user_id, paid_at);
 
 create table if not exists public.feed_posts (
   id uuid primary key default gen_random_uuid(),
@@ -159,10 +197,15 @@ create trigger on_auth_user_created
 
 alter table public.profiles enable row level security;
 alter table public.vehicles enable row level security;
+alter table public.vehicle_valuation_history enable row level security;
 alter table public.service_requests enable row level security;
 alter table public.membership_benefit_usage enable row level security;
 revoke insert, update, delete on public.membership_benefit_usage from authenticated;
 grant select on public.membership_benefit_usage to authenticated;
+
+alter table public.membership_revenue_events enable row level security;
+revoke insert, update, delete on public.membership_revenue_events from authenticated;
+grant select on public.membership_revenue_events to authenticated;
 alter table public.feed_posts enable row level security;
 alter table public.service_pricing enable row level security;
 alter table public.membership_pricing enable row level security;
@@ -200,6 +243,8 @@ drop policy if exists "Members can read own vehicles" on public.vehicles;
 drop policy if exists "Members can insert own vehicles" on public.vehicles;
 drop policy if exists "Members can update own vehicles" on public.vehicles;
 drop policy if exists "Members can delete own vehicles" on public.vehicles;
+drop policy if exists "Members can read own vehicle valuations" on public.vehicle_valuation_history;
+drop policy if exists "Members can insert own vehicle valuations" on public.vehicle_valuation_history;
 drop policy if exists "Members can read own service requests" on public.service_requests;
 drop policy if exists "Members can insert own service requests" on public.service_requests;
 drop policy if exists "Members can update own service requests" on public.service_requests;
@@ -213,6 +258,7 @@ drop policy if exists "Anyone can read membership pricing" on public.membership_
 drop policy if exists "Members can upload vehicle photos" on storage.objects;
 drop policy if exists "Vehicle photos are public" on storage.objects;
 drop policy if exists "Members can update vehicle photos" on storage.objects;
+drop policy if exists "Members can delete own vehicle photos" on storage.objects;
 
 create policy "Members can read own profile"
   on public.profiles for select
@@ -244,6 +290,21 @@ create policy "Members can delete own vehicles"
   on public.vehicles for delete
   using (auth.uid() = user_id and public.has_active_membership());
 
+create policy "Members can read own vehicle valuations"
+  on public.vehicle_valuation_history for select
+  using (auth.uid() = user_id and public.has_active_membership());
+
+create policy "Members can insert own vehicle valuations"
+  on public.vehicle_valuation_history for insert
+  with check (
+    auth.uid() = user_id
+    and public.has_active_membership()
+    and exists (
+      select 1 from public.vehicles
+      where vehicles.id = vehicle_id and vehicles.user_id = auth.uid()
+    )
+  );
+
 create policy "Members can read own service requests"
   on public.service_requests for select
   using (auth.uid() = user_id and public.has_active_membership());
@@ -259,6 +320,12 @@ create policy "Members can update own service requests"
 
 create policy "Members can read own membership benefits"
   on public.membership_benefit_usage for select
+  using (auth.uid() = user_id and public.has_active_membership());
+
+drop policy if exists "Members can read own membership revenue" on public.membership_revenue_events;
+
+create policy "Members can read own membership revenue"
+  on public.membership_revenue_events for select
   using (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can read all feed posts"
@@ -304,6 +371,7 @@ create policy "Members can upload vehicle photos"
   with check (
     bucket_id = 'vehicle-photos'
     and public.has_active_membership()
+    and (storage.foldername(name))[1] = auth.uid()::text
   );
 
 create policy "Vehicle photos are public"
@@ -315,4 +383,18 @@ create policy "Members can update vehicle photos"
   using (
     bucket_id = 'vehicle-photos'
     and public.has_active_membership()
+    and (storage.foldername(name))[1] = auth.uid()::text
+  )
+  with check (
+    bucket_id = 'vehicle-photos'
+    and public.has_active_membership()
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+create policy "Members can delete own vehicle photos"
+  on storage.objects for delete
+  using (
+    bucket_id = 'vehicle-photos'
+    and public.has_active_membership()
+    and (storage.foldername(name))[1] = auth.uid()::text
   );

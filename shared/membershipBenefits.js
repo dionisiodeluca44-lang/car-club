@@ -48,10 +48,40 @@ export const membershipBenefitsByPlan = {
   ],
 };
 
+export const benefitRevenueShare = 0.4;
+
+export const benefitUnlockDaysByPlan = {
+  Silver: {
+    "maintenance-wash": [45],
+  },
+  "Club Drive": {
+    "maintenance-wash": [30, 90],
+    transport: [180],
+  },
+  Gold: {
+    "maintenance-wash": [14, 45, 75, 105],
+    "full-detail": [180],
+    transport: [270],
+  },
+  Platinum: {
+    "maintenance-wash": [14, 45, 75, 105, 135, 165],
+    "full-detail": [180, 240],
+    transport: [210, 270, 300],
+    protection: [330],
+  },
+  Collector: {
+    "maintenance-wash": [14, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180],
+    "full-detail": [90, 150, 210, 270],
+    transport: [120, 180, 210, 240, 300, 330],
+    protection: [330],
+  },
+};
+
 export function benefitAllowancesForPlan(plan) {
   return (membershipBenefitsByPlan[plan] || []).map((allowance) => ({
     ...membershipBenefitCatalog[allowance.key],
     ...allowance,
+    unlockDays: benefitUnlockDaysByPlan[plan]?.[allowance.key] || [],
   }));
 }
 
@@ -88,17 +118,76 @@ export function membershipBenefitPeriod(activationDate, now = new Date()) {
   return { start, end };
 }
 
-export function summarizeMembershipBenefits(plan, usage = []) {
-  return benefitAllowancesForPlan(plan).map((allowance) => {
+function revenueEventDate(event) {
+  return new Date(event.paidAt || event.paid_at || event.createdAt || event.created_at || 0);
+}
+
+function revenueEventNetCents(event) {
+  const paid = Number(event.amountPaidCents ?? event.amount_paid_cents ?? 0);
+  const refunded = Number(event.amountRefundedCents ?? event.amount_refunded_cents ?? 0);
+  return Math.max(0, paid - refunded);
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + Number(days || 0));
+  return next;
+}
+
+export function summarizeMembershipBenefits(plan, usage = [], options = {}) {
+  const allowances = benefitAllowancesForPlan(plan);
+  const now = options.now ? new Date(options.now) : new Date();
+  const period = membershipBenefitPeriod(options.activationDate, now);
+  const paidRevenueCents = (options.revenueEvents || []).reduce((total, event) => {
+    const paidAt = revenueEventDate(event);
+    if (Number.isNaN(paidAt.getTime()) || paidAt < period.start || paidAt >= period.end) return total;
+    return total + revenueEventNetCents(event);
+  }, 0);
+  const benefitBudgetCents = Math.floor(paidRevenueCents * benefitRevenueShare);
+  const units = allowances
+    .flatMap((allowance) => Array.from({ length: allowance.annualQuantity }, (_, index) => ({
+      benefitKey: allowance.key,
+      creditCents: allowance.creditCents,
+      index,
+      unlockAt: addDays(period.start, allowance.unlockDays[index] ?? 365),
+      unlockDay: allowance.unlockDays[index] ?? 365,
+    })))
+    .sort((left, right) => left.unlockDay - right.unlockDay || left.creditCents - right.creditCents || left.index - right.index);
+  const unlockedUnitIds = new Set();
+  let allocatedBudgetCents = 0;
+
+  units.forEach((unit) => {
+    if (unit.unlockAt > now) return;
+    if (allocatedBudgetCents + unit.creditCents > benefitBudgetCents) return;
+    allocatedBudgetCents += unit.creditCents;
+    unlockedUnitIds.add(`${unit.benefitKey}:${unit.index}`);
+  });
+
+  return allowances.map((allowance) => {
     const redeemed = usage.filter((entry) => (
       (entry.benefitKey || entry.benefit_key) === allowance.key
       && (entry.status || "redeemed") === "redeemed"
     )).length;
+    const unlocked = units.filter((unit) => (
+      unit.benefitKey === allowance.key
+      && unlockedUnitIds.has(`${unit.benefitKey}:${unit.index}`)
+    )).length;
+    const nextLockedUnit = units.find((unit) => (
+      unit.benefitKey === allowance.key
+      && !unlockedUnitIds.has(`${unit.benefitKey}:${unit.index}`)
+    ));
 
     return {
       ...allowance,
+      benefitBudgetCents,
+      benefitBudgetUsedCents: allocatedBudgetCents,
+      locked: Math.max(allowance.annualQuantity - unlocked, 0),
+      nextUnlockAt: nextLockedUnit?.unlockAt?.toISOString() || "",
+      waitingForRevenue: Boolean(nextLockedUnit && nextLockedUnit.unlockAt <= now),
+      paidRevenueCents,
+      unlocked,
       used: redeemed,
-      remaining: Math.max(allowance.annualQuantity - redeemed, 0),
+      remaining: Math.max(unlocked - redeemed, 0),
     };
   });
 }

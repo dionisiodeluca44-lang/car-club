@@ -10,6 +10,7 @@ const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const supabase = supabaseUrl && supabaseServiceRoleKey ? createClient(supabaseUrl, supabaseServiceRoleKey) : null;
+const activeMembershipStatuses = new Set(["active", "trialing"]);
 
 function json(statusCode, body) {
   return {
@@ -30,7 +31,7 @@ function dateOnly(value) {
 
 function benefitPeriodForProfile(profile) {
   return membershipBenefitPeriod(
-    profile?.subscription_activated_at || profile?.stripe_subscription_created_at || profile?.created_at,
+    profile?.stripe_subscription_created_at || profile?.subscription_activated_at || profile?.created_at,
   );
 }
 
@@ -51,7 +52,7 @@ async function updateMembershipBenefit({ action, benefitKey, requestId }) {
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("id, plan, collector_access_override, subscription_activated_at, stripe_subscription_created_at, created_at")
+    .select("id, plan, collector_access_override, subscription_status, subscription_activated_at, stripe_subscription_created_at, created_at")
     .eq("id", request.user_id)
     .single();
 
@@ -60,6 +61,9 @@ async function updateMembershipBenefit({ action, benefitKey, requestId }) {
   }
 
   const effectivePlan = effectiveProfilePlan(profile);
+  if (action !== "restore-benefit" && !activeMembershipStatuses.has(String(profile.subscription_status || "").toLowerCase())) {
+    return { statusCode: 409, body: { error: "Benefits can only be applied while the membership is active." } };
+  }
   const allowance = benefitAllowancesForPlan(effectivePlan).find((item) => item.key === benefitKey);
   if (!allowance) {
     return { statusCode: 400, body: { error: `${effectivePlan} does not include that benefit.` } };
@@ -100,21 +104,42 @@ async function updateMembershipBenefit({ action, benefitKey, requestId }) {
     return { statusCode: 200, body: { usage: existing } };
   }
 
-  const { count, error: countError } = await supabase
+  const { data: periodUsage, error: usageError } = await supabase
     .from("membership_benefit_usage")
-    .select("id", { count: "exact", head: true })
+    .select("id, benefit_key, status, period_start, period_end")
     .eq("user_id", request.user_id)
-    .eq("benefit_key", benefitKey)
     .eq("period_start", periodStart)
-    .eq("period_end", periodEnd)
-    .eq("status", "redeemed");
+    .eq("period_end", periodEnd);
 
-  if (countError) {
+  if (usageError) {
     return { statusCode: 500, body: { error: "Could not verify the member's remaining benefits." } };
   }
 
-  if ((count || 0) >= allowance.annualQuantity) {
-    return { statusCode: 409, body: { error: `No ${allowance.label.toLowerCase()} benefits remain this membership year.` } };
+  const { data: revenueEvents, error: revenueError } = await supabase
+    .from("membership_revenue_events")
+    .select("amount_paid_cents, amount_refunded_cents, paid_at")
+    .eq("user_id", request.user_id)
+    .gte("paid_at", period.start.toISOString())
+    .lt("paid_at", period.end.toISOString());
+
+  if (revenueError) {
+    return { statusCode: 500, body: { error: "Could not verify paid membership revenue. Run the membership benefit unlock migration." } };
+  }
+
+  const balances = summarizeMembershipBenefits(effectivePlan, periodUsage || [], {
+    activationDate: profile.stripe_subscription_created_at || profile.subscription_activated_at || profile.created_at,
+    revenueEvents: revenueEvents || [],
+  });
+  const balance = balances.find((item) => item.key === benefitKey);
+
+  if (!balance || balance.remaining <= 0) {
+    const nextDate = balance?.nextUnlockAt && new Date(balance.nextUnlockAt) > new Date()
+      ? new Date(balance.nextUnlockAt).toLocaleDateString("en-CA", { dateStyle: "medium", timeZone: "America/Toronto" })
+      : "after additional successful membership payments";
+    return {
+      statusCode: 409,
+      body: { error: `No earned ${allowance.label.toLowerCase()} credit is available yet. Its earliest unlock is ${nextDate}; the paid-revenue reserve must also be able to cover it.` },
+    };
   }
 
   const benefitRecord = {
@@ -166,7 +191,7 @@ export async function handler(event) {
     if (userIds.length) {
       const { data: profiles, error: profileError } = await supabase
         .from("profiles")
-        .select("id, email, full_name, plan, collector_access_override, subscription_activated_at, stripe_subscription_created_at, created_at")
+        .select("id, email, full_name, plan, collector_access_override, subscription_status, subscription_activated_at, stripe_subscription_created_at, created_at")
         .in("id", userIds);
 
       if (profileError) {
@@ -192,6 +217,20 @@ export async function handler(event) {
       }
     }
 
+    let membershipRevenueEvents = [];
+    if (userIds.length) {
+      const { data: revenueRows, error: revenueError } = await supabase
+        .from("membership_revenue_events")
+        .select("user_id, amount_paid_cents, amount_refunded_cents, paid_at")
+        .in("user_id", userIds);
+
+      if (revenueError) {
+        console.warn("Could not attach paid membership revenue. Run the membership benefit unlock migration.", revenueError);
+      } else {
+        membershipRevenueEvents = revenueRows || [];
+      }
+    }
+
     return json(200, {
       requests: (data || []).map((request) => {
         const profile = profileMap.get(request.user_id) || null;
@@ -208,7 +247,10 @@ export async function handler(event) {
           ...request,
           benefit_usage: benefitUsage.filter((usage) => usage.service_request_id === request.id),
           member: profile,
-          member_benefits: summarizeMembershipBenefits(profile?.plan, currentUsage),
+          member_benefits: summarizeMembershipBenefits(profile?.plan, currentUsage, {
+            activationDate: profile?.stripe_subscription_created_at || profile?.subscription_activated_at || profile?.created_at,
+            revenueEvents: membershipRevenueEvents.filter((entry) => entry.user_id === request.user_id),
+          }),
         };
       }),
     });
