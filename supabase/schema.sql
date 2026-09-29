@@ -147,6 +147,18 @@ create table if not exists public.feed_posts (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.feed_reactions (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.feed_posts(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  emoji text not null check (emoji in ('heart', 'fire', 'applause', 'wow')),
+  created_at timestamptz not null default now(),
+  unique (post_id, user_id, emoji)
+);
+
+create index if not exists feed_reactions_post_idx
+  on public.feed_reactions (post_id, created_at);
+
 create table if not exists public.service_pricing (
   service_label text primary key,
   payment_mode text not null default 'deposit' check (payment_mode in ('deposit', 'full', 'free')),
@@ -212,6 +224,7 @@ alter table public.membership_revenue_events enable row level security;
 revoke insert, update, delete on public.membership_revenue_events from authenticated;
 grant select on public.membership_revenue_events to authenticated;
 alter table public.feed_posts enable row level security;
+alter table public.feed_reactions enable row level security;
 alter table public.service_pricing enable row level security;
 alter table public.membership_pricing enable row level security;
 
@@ -278,6 +291,14 @@ create trigger enforce_vehicle_limit_before_insert
 do $$
 begin
   alter publication supabase_realtime add table public.feed_posts;
+exception
+  when duplicate_object then null;
+end;
+$$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.feed_reactions;
 exception
   when duplicate_object then null;
 end;
@@ -390,6 +411,22 @@ create policy "Members can update own feed posts"
 
 create policy "Members can delete own feed posts"
   on public.feed_posts for delete
+  using (auth.uid() = user_id and public.has_active_membership());
+
+drop policy if exists "Members can read feed reactions" on public.feed_reactions;
+drop policy if exists "Members can create own feed reactions" on public.feed_reactions;
+drop policy if exists "Members can delete own feed reactions" on public.feed_reactions;
+
+create policy "Members can read feed reactions"
+  on public.feed_reactions for select
+  using (public.has_active_membership());
+
+create policy "Members can create own feed reactions"
+  on public.feed_reactions for insert
+  with check (auth.uid() = user_id and public.has_active_membership());
+
+create policy "Members can delete own feed reactions"
+  on public.feed_reactions for delete
   using (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can read service pricing"

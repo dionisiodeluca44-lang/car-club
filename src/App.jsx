@@ -12,11 +12,13 @@ import FileText from "lucide-react/dist/esm/icons/file-text.js";
 import Gauge from "lucide-react/dist/esm/icons/gauge.js";
 import Gift from "lucide-react/dist/esm/icons/gift.js";
 import Home from "lucide-react/dist/esm/icons/house.js";
+import ImageIcon from "lucide-react/dist/esm/icons/image.js";
 import KeyRound from "lucide-react/dist/esm/icons/key-round.js";
 import LogOut from "lucide-react/dist/esm/icons/log-out.js";
 import MapPin from "lucide-react/dist/esm/icons/map-pin.js";
 import Menu from "lucide-react/dist/esm/icons/menu.js";
 import Plus from "lucide-react/dist/esm/icons/plus.js";
+import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw.js";
 import ShieldCheck from "lucide-react/dist/esm/icons/shield-check.js";
 import Sparkles from "lucide-react/dist/esm/icons/sparkles.js";
 import Upload from "lucide-react/dist/esm/icons/upload.js";
@@ -47,6 +49,7 @@ import {
   signIn,
   signOut,
   subscribeToFeedPosts,
+  toggleFeedReactionRecord,
   updateFeedPostRecord,
   updateServiceRequestRecord,
   updateMemberPassword,
@@ -2621,9 +2624,10 @@ function App() {
   useEffect(() => {
     if (!isBackendConfigured || !member?.id) return undefined;
 
-    const unsubscribe = subscribeToFeedPosts((newPost) => {
-      setFeedPosts((currentPosts) => mergeFeedPosts([newPost], currentPosts));
-    });
+    const unsubscribe = subscribeToFeedPosts(
+      (newPost) => setFeedPosts((currentPosts) => mergeFeedPosts([newPost], currentPosts)),
+      () => loadFeedPosts().then((posts) => setFeedPosts(ensureList(posts))).catch(() => {}),
+    );
 
     return unsubscribe;
   }, [member?.id]);
@@ -3317,6 +3321,27 @@ function App() {
     setFeedPosts(nextPosts);
   }
 
+  async function toggleFeedPostReaction(postId, emoji) {
+    const existingPost = feedPosts.find((post) => post.id === postId);
+    if (!existingPost) throw new Error("Could not find that feed post.");
+
+    const reactionUserId = member?.id || "local-member";
+    const reactions = ensureList(existingPost.reactions);
+    const hasReaction = reactions.some((reaction) => reaction.userId === reactionUserId && reaction.emoji === emoji);
+
+    if (isBackendConfigured && member?.id) {
+      await toggleFeedReactionRecord(member.id, postId, emoji, hasReaction);
+    }
+
+    const nextReactions = hasReaction
+      ? reactions.filter((reaction) => !(reaction.userId === reactionUserId && reaction.emoji === emoji))
+      : [...reactions, { emoji, userId: reactionUserId }];
+    const nextPosts = feedPosts.map((post) => (post.id === postId ? { ...post, reactions: nextReactions } : post));
+
+    if (!isBackendConfigured) localStorage.setItem("carClubFeedPosts", JSON.stringify(nextPosts));
+    setFeedPosts(nextPosts);
+  }
+
   if (mode === "login") {
     return <LoginScreen appError={appError} backendEnabled={isBackendConfigured} membershipPricing={membershipPricing} onForgotPassword={requestPasswordReset} onLogin={handleLogin} onBack={() => setMode("site")} />;
   }
@@ -3366,7 +3391,7 @@ function App() {
       );
     }
 
-    return <MemberApp appointments={appointments} benefitUsage={benefitUsage} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} membershipRevenueEvents={membershipRevenueEvents} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteFeedPost={deleteFeedPost} onDeleteVehicle={deleteVehicle} onEditFeedPost={editFeedPost} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onRefreshMemberAppData={refreshMemberAppData} onUpdateAppointment={updateAppointment} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} servicePricing={servicePricing} vehicleValuations={vehicleValuations} />;
+    return <MemberApp appointments={appointments} benefitUsage={benefitUsage} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} membershipRevenueEvents={membershipRevenueEvents} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteFeedPost={deleteFeedPost} onDeleteVehicle={deleteVehicle} onEditFeedPost={editFeedPost} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onRefreshMemberAppData={refreshMemberAppData} onToggleFeedReaction={toggleFeedPostReaction} onUpdateAppointment={updateAppointment} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} servicePricing={servicePricing} vehicleValuations={vehicleValuations} />;
   }
 
   if (mode === "app") {
@@ -4854,7 +4879,7 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
   );
 }
 
-function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompletion, member, membershipRevenueEvents, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteFeedPost, onDeleteVehicle, onEditFeedPost, onLogout, onRefreshFeedPosts, onRefreshMemberAppData, onUpdateAppointment, onUpdateMember, onUpdateVehicle, servicePricing, vehicleValuations }) {
+function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompletion, member, membershipRevenueEvents, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteFeedPost, onDeleteVehicle, onEditFeedPost, onLogout, onRefreshFeedPosts, onRefreshMemberAppData, onToggleFeedReaction, onUpdateAppointment, onUpdateMember, onUpdateVehicle, servicePricing, vehicleValuations }) {
   const [activeTab, setActiveTab] = useState("home");
   const [completion, setCompletion] = useState(null);
   const [instantBooking, setInstantBooking] = useState(null);
@@ -4980,7 +5005,7 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
             )}
             {!completion && activeTab === "garage" && <GarageScreen activeVehicleId={activeVehicleId} appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onSelectVehicle={selectActiveVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={setCompletion} vehicleValuations={vehicleValuations} />}
             {!completion && activeTab === "schedule" && <ScheduleScreen activeVehicleId={activeVehicleId} appointments={appointmentList} benefitSummary={benefitSummary} garage={garageList} instantBooking={instantBooking} member={member} onAddAppointment={onAddAppointment} onCancelInstantBooking={() => setInstantBooking(null)} onComplete={setCompletion} onUpdateAppointment={onUpdateAppointment} servicePricing={servicePricing} setActiveTab={navigateToTab} vehicleOptions={vehicleOptions} />}
-            {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedPost={onAddFeedPost} onComplete={setCompletion} onDeleteFeedPost={onDeleteFeedPost} onEditFeedPost={onEditFeedPost} onRefreshFeedPosts={onRefreshFeedPosts} vehicleOptions={vehicleOptions} />}
+            {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedPost={onAddFeedPost} onComplete={setCompletion} onDeleteFeedPost={onDeleteFeedPost} onEditFeedPost={onEditFeedPost} onRefreshFeedPosts={onRefreshFeedPosts} onToggleFeedReaction={onToggleFeedReaction} vehicleOptions={vehicleOptions} />}
             {!completion && activeTab === "account" && <AccountScreen garageCount={garageList.length} member={member} onLogout={onLogout} onUpdateMember={onUpdateMember} />}
           </div>
         </MemberPanelErrorBoundary>
@@ -5972,12 +5997,14 @@ function SavedVehicleSelector({ onVehicleSelect, selectedVehicleId, vehicles }) 
   );
 }
 
-function FeedScreen({ feedPosts, member, onAddFeedPost, onComplete, onDeleteFeedPost, onEditFeedPost, onRefreshFeedPosts, vehicleOptions }) {
+function FeedScreen({ feedPosts, member, onAddFeedPost, onComplete, onDeleteFeedPost, onEditFeedPost, onRefreshFeedPosts, onToggleFeedReaction, vehicleOptions }) {
+  const [activeFeed, setActiveFeed] = useState("photos");
   const [feedNotice, setFeedNotice] = useState("");
   const [refreshingFeed, setRefreshingFeed] = useState(false);
   const [showComposer, setShowComposer] = useState(false);
   const eventPosts = feedEventPosts(feedPosts);
   const photoPosts = feedPosts.filter((post) => !parseFeedEvent(post));
+  const visiblePosts = activeFeed === "events" ? eventPosts : photoPosts;
 
   async function refreshFeed() {
     setFeedNotice("");
@@ -5992,16 +6019,16 @@ function FeedScreen({ feedPosts, member, onAddFeedPost, onComplete, onDeleteFeed
   }
 
   return (
-    <div className="app-stack">
-      <section className="app-section">
-        <div className="app-section-title">
+    <div className="app-stack social-feed-page">
+      <section className="app-section social-feed-shell">
+        <div className="social-feed-heading">
           <div>
             <h2>Member Feed</h2>
-            <p>Browse member photos and events from the White Glove community.</p>
+            <p>Cars, collections, drives, and gatherings shared by members.</p>
           </div>
           <div className="feed-header-actions">
-            <button type="button" onClick={refreshFeed} disabled={refreshingFeed}>
-              {refreshingFeed ? "Refreshing" : `${feedPosts.length} posts`}
+            <button aria-label="Refresh feed" className="icon-button" type="button" onClick={refreshFeed} disabled={refreshingFeed}>
+              <RefreshCw className={refreshingFeed ? "is-spinning" : ""} size={19} />
             </button>
             <button
               aria-label={showComposer ? "Close feed upload" : "Add to feed"}
@@ -6013,68 +6040,81 @@ function FeedScreen({ feedPosts, member, onAddFeedPost, onComplete, onDeleteFeed
             </button>
           </div>
         </div>
+        <div className="feed-view-tabs" role="tablist" aria-label="Feed type">
+          <button aria-selected={activeFeed === "photos"} className={activeFeed === "photos" ? "active" : ""} onClick={() => setActiveFeed("photos")} role="tab" type="button">
+            <ImageIcon size={18} />
+            <span>Photos</span>
+            <strong>{photoPosts.length}</strong>
+          </button>
+          <button aria-selected={activeFeed === "events"} className={activeFeed === "events" ? "active" : ""} onClick={() => setActiveFeed("events")} role="tab" type="button">
+            <CalendarCheck size={18} />
+            <span>Events</span>
+            <strong>{eventPosts.length}</strong>
+          </button>
+        </div>
         {feedNotice && (
           <div className="error-message" role="alert">
             {feedNotice}
           </div>
         )}
         {showComposer && (
-          <FeedUploadForm
-            onAddFeedPost={onAddFeedPost}
-            onComplete={onComplete}
-            onPosted={() => setShowComposer(false)}
-            vehicleOptions={vehicleOptions}
-          />
-        )}
-        {feedPosts.length === 0 ? (
-          <div className="empty-state">
-            <Upload size={26} />
-            <h3>No feed posts yet</h3>
-            <p>Tap the plus button to add the first photo or event.</p>
-          </div>
-        ) : (
-          <div className="feed-sections">
-            <FeedContentSection
-              member={member}
-              emptyText="No events have been posted yet."
-              onDeleteFeedPost={onDeleteFeedPost}
-              onEditFeedPost={onEditFeedPost}
-              posts={eventPosts}
-              title="Events"
-              vehicleOptions={vehicleOptions}
-            />
-            <FeedContentSection
-              member={member}
-              emptyText="No photos have been posted yet."
-              onDeleteFeedPost={onDeleteFeedPost}
-              onEditFeedPost={onEditFeedPost}
-              posts={photoPosts}
-              title="Photos"
-              vehicleOptions={vehicleOptions}
-            />
+          <div className="feed-composer-backdrop" role="presentation" onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setShowComposer(false);
+          }}>
+            <section aria-label="Create feed post" aria-modal="true" className="feed-composer" role="dialog">
+              <header>
+                <div>
+                  <span>Member community</span>
+                  <h3>Create a post</h3>
+                </div>
+                <button aria-label="Close feed upload" className="icon-button" onClick={() => setShowComposer(false)} type="button">
+                  <X size={20} />
+                </button>
+              </header>
+              <FeedUploadForm
+                initialType={activeFeed === "events" ? "event" : "vehicle"}
+                key={activeFeed}
+                onAddFeedPost={onAddFeedPost}
+                onComplete={onComplete}
+                onPosted={() => setShowComposer(false)}
+                vehicleOptions={vehicleOptions}
+              />
+            </section>
           </div>
         )}
+        <FeedContentSection
+          feedType={activeFeed}
+          member={member}
+          emptyText={activeFeed === "events" ? "No events have been posted yet." : "No photos have been posted yet."}
+          onDeleteFeedPost={onDeleteFeedPost}
+          onEditFeedPost={onEditFeedPost}
+          onToggleFeedReaction={onToggleFeedReaction}
+          posts={visiblePosts}
+          vehicleOptions={vehicleOptions}
+        />
       </section>
     </div>
   );
 }
 
-function FeedContentSection({ emptyText, member, onDeleteFeedPost, onEditFeedPost, posts, title, vehicleOptions }) {
+function FeedContentSection({ emptyText, feedType, member, onDeleteFeedPost, onEditFeedPost, onToggleFeedReaction, posts, vehicleOptions }) {
   return (
-    <section className="feed-content-section" aria-label={title}>
-      <div className="feed-content-heading">
-        <h3>{title}</h3>
-        <span>{posts.length}</span>
-      </div>
+    <section className={`feed-content-section ${feedType === "events" ? "event-feed" : "photo-feed"}`} aria-label={feedType === "events" ? "Events" : "Photos"}>
       {posts.length === 0 ? (
-        <div className="feed-empty-row">{emptyText}</div>
+        <div className="feed-empty-row">
+          {feedType === "events" ? <CalendarCheck size={24} /> : <ImageIcon size={24} />}
+          <strong>{emptyText}</strong>
+          <span>Use the plus button to share with the member community.</span>
+        </div>
       ) : (
         <div className="feed-grid">
           {posts.map((post) => (
             <FeedPostCard
               canManage={post.userId ? post.userId === member?.id : !isBackendConfigured}
+              currentMember={member}
               key={post.id}
               onDelete={onDeleteFeedPost}
+              onToggleReaction={onToggleFeedReaction}
               onUpdate={onEditFeedPost}
               post={post}
               vehicleOptions={vehicleOptions}
@@ -6086,8 +6126,8 @@ function FeedContentSection({ emptyText, member, onDeleteFeedPost, onEditFeedPos
   );
 }
 
-function FeedUploadForm({ onAddFeedPost, onComplete, onPosted, vehicleOptions }) {
-  const [postType, setPostType] = useState("vehicle");
+function FeedUploadForm({ initialType = "vehicle", onAddFeedPost, onComplete, onPosted, vehicleOptions }) {
+  const [postType, setPostType] = useState(initialType);
   const [imagePreview, setImagePreview] = useState("");
   const [feedError, setFeedError] = useState("");
 
@@ -6157,10 +6197,10 @@ function FeedUploadForm({ onAddFeedPost, onComplete, onPosted, vehicleOptions })
       )}
       <div className="feed-type-toggle">
         <button className={postType === "vehicle" ? "active" : ""} type="button" onClick={() => setPostType("vehicle")}>
-          Vehicle post
+          <ImageIcon size={18} /> Photo
         </button>
         <button className={postType === "event" ? "active" : ""} type="button" onClick={() => setPostType("event")}>
-          Add event
+          <CalendarCheck size={18} /> Event
         </button>
       </div>
       {postType === "vehicle" && (
@@ -6210,12 +6250,26 @@ function FeedUploadForm({ onAddFeedPost, onComplete, onPosted, vehicleOptions })
   );
 }
 
-function FeedPostCard({ canManage = false, onDelete, onUpdate, post, vehicleOptions = [] }) {
+const feedReactionOptions = [
+  { emoji: "heart", label: "Love", symbol: "❤️" },
+  { emoji: "fire", label: "Fire", symbol: "🔥" },
+  { emoji: "applause", label: "Applause", symbol: "👏" },
+  { emoji: "wow", label: "Wow", symbol: "😍" },
+];
+
+function FeedPostCard({ canManage = false, currentMember, onDelete, onToggleReaction, onUpdate, post, vehicleOptions = [] }) {
   const event = parseFeedEvent(post);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingReaction, setSavingReaction] = useState("");
   const [postError, setPostError] = useState("");
   const [replacementImage, setReplacementImage] = useState("");
+  const authorName = post.author || "Member";
+  const reactions = ensureList(post.reactions);
+  const currentUserId = currentMember?.id || "local-member";
+  const authorMember = post.userId === currentMember?.id
+    ? { avatarUrl: currentMember?.avatarUrl || "", name: authorName }
+    : { avatarUrl: "", name: authorName };
 
   function handleReplacementImage(changeEvent) {
     const file = changeEvent.target.files?.[0];
@@ -6267,6 +6321,18 @@ function FeedPostCard({ canManage = false, onDelete, onUpdate, post, vehicleOpti
     }
   }
 
+  async function toggleReaction(emoji) {
+    setPostError("");
+    setSavingReaction(emoji);
+    try {
+      await onToggleReaction?.(post.id, emoji);
+    } catch (error) {
+      setPostError(error.message || "Could not save that reaction.");
+    } finally {
+      setSavingReaction("");
+    }
+  }
+
   const actions = canManage && (
     <div className="feed-post-actions">
       <button type="button" onClick={() => { setEditing((open) => !open); setPostError(""); }} disabled={saving}>
@@ -6315,15 +6381,19 @@ function FeedPostCard({ canManage = false, onDelete, onUpdate, post, vehicleOpti
   if (event) {
     return (
       <article className="feed-event-card">
-        <div className="feed-event-icon">
-          <CalendarCheck size={24} />
+        <div className="feed-event-date">
+          <CalendarCheck size={22} />
+          <span>{event.time ? new Date(event.time).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "Event"}</span>
         </div>
-        <div>
-          <span>{event.time || "Event"}</span>
+        <div className="feed-event-copy">
+          <span>{event.time ? new Date(event.time).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Member event"}</span>
           <h3>{event.title}</h3>
-          <p>{event.place}</p>
+          <p className="feed-event-place"><MapPin size={16} /> {event.place}</p>
           <small>{event.description}</small>
-          <p>{post.author || "Member"} · {formatPostDate(post.createdAt)}</p>
+          <div className="feed-event-author">
+            <ProfileAvatar member={authorMember} size={30} />
+            <span>{authorName} · {formatPostDate(post.createdAt)}</span>
+          </div>
           {actions}
           {editor}
           {!editing && postError && <div className="error-message" role="alert">{postError}</div>}
@@ -6333,12 +6403,41 @@ function FeedPostCard({ canManage = false, onDelete, onUpdate, post, vehicleOpti
   }
 
   return (
-    <article>
-      <img alt={post.caption || "Vehicle feed post"} src={post.image || eventFallbackImage} />
-      <div>
-        <span>{post.vehicle || "Garage update"}</span>
-        <h3>{post.caption || "White Glove member post"}</h3>
-        <p>{post.author || "Member"} · {formatPostDate(post.createdAt)}</p>
+    <article className="social-photo-post">
+      <header className="feed-post-header">
+        <ProfileAvatar member={authorMember} size={38} />
+        <div>
+          <strong>{authorName}</strong>
+          <span>{post.vehicle || "Garage update"}</span>
+        </div>
+        <time>{formatPostDate(post.createdAt)}</time>
+      </header>
+      <div className="feed-photo-frame">
+        <img alt={post.caption || "Vehicle feed post"} src={post.image || eventFallbackImage} />
+      </div>
+      <div className="feed-post-body">
+        <div className="feed-reaction-bar" aria-label="React to this photo">
+          {feedReactionOptions.map((option) => {
+            const count = reactions.filter((reaction) => reaction.emoji === option.emoji).length;
+            const active = reactions.some((reaction) => reaction.emoji === option.emoji && reaction.userId === currentUserId);
+            return (
+              <button
+                aria-label={`${option.label}${count ? `, ${count} reactions` : ""}`}
+                aria-pressed={active}
+                className={active ? "active" : ""}
+                disabled={!onToggleReaction || savingReaction === option.emoji}
+                key={option.emoji}
+                onClick={() => toggleReaction(option.emoji)}
+                title={option.label}
+                type="button"
+              >
+                <span aria-hidden="true">{option.symbol}</span>
+                {count > 0 && <strong>{count}</strong>}
+              </button>
+            );
+          })}
+        </div>
+        <p className="feed-photo-caption"><strong>{authorName}</strong> {post.caption || "Shared a garage update."}</p>
         {actions}
         {editor}
         {!editing && postError && <div className="error-message" role="alert">{postError}</div>}

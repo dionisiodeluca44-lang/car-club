@@ -474,11 +474,21 @@ export async function updateServiceRequestRecord(requestId, updates) {
 export async function loadFeedPosts() {
   if (!supabase) return [];
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("feed_posts")
-    .select("*")
+    .select("*, feed_reactions(user_id, emoji)")
     .order("created_at", { ascending: false })
     .limit(100);
+
+  if (error) {
+    const fallback = await supabase
+      .from("feed_posts")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(100);
+    data = fallback.data;
+    error = fallback.error;
+  }
 
   if (error) {
     console.warn("Could not load member feed posts.", error);
@@ -593,7 +603,7 @@ export async function loadMembershipRevenueEvents(userId) {
   }));
 }
 
-export function subscribeToFeedPosts(onPostCreated) {
+export function subscribeToFeedPosts(onPostCreated, onFeedChanged) {
   if (!supabase || typeof onPostCreated !== "function") return () => {};
 
   const channel = supabase
@@ -611,11 +621,39 @@ export function subscribeToFeedPosts(onPostCreated) {
         }
       },
     )
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "feed_reactions",
+      },
+      () => onFeedChanged?.(),
+    )
     .subscribe();
 
   return () => {
     supabase.removeChannel(channel);
   };
+}
+
+export async function toggleFeedReactionRecord(userId, postId, emoji, removeReaction = false) {
+  if (!supabase || !userId || !postId || !emoji) return;
+
+  const query = supabase
+    .from("feed_reactions")
+    .delete()
+    .eq("post_id", postId)
+    .eq("user_id", userId)
+    .eq("emoji", emoji);
+
+  const { error } = removeReaction
+    ? await query
+    : await supabase.from("feed_reactions").insert({ post_id: postId, user_id: userId, emoji });
+
+  if (error && error.code !== "23505") {
+    throw new Error(`Could not save reaction: ${error.message}. Run the feed reactions SQL in Supabase.`);
+  }
 }
 
 export async function createFeedPost(userId, post, authorName = "Member") {
@@ -1003,6 +1041,10 @@ function fromFeedPostRow(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     image: row.image_url || "",
+    reactions: ensureList(row.feed_reactions).map((reaction) => ({
+      emoji: reaction.emoji,
+      userId: reaction.user_id,
+    })),
     vehicle: row.vehicle_label || "",
   };
 }
