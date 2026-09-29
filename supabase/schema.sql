@@ -11,6 +11,7 @@ create table if not exists public.profiles (
   avatar_url text,
   plan text not null default 'Club Drive',
   collector_access_override boolean not null default false,
+  extra_vehicle_slots integer not null default 0 check (extra_vehicle_slots between 0 and 100),
   subscription_status text not null default 'pending',
   stripe_customer_id text,
   stripe_subscription_id text,
@@ -27,6 +28,7 @@ create table if not exists public.profiles (
 
 alter table public.profiles
   add column if not exists collector_access_override boolean not null default false,
+  add column if not exists extra_vehicle_slots integer not null default 0,
   add column if not exists subscription_status text not null default 'pending',
   add column if not exists stripe_customer_id text,
   add column if not exists stripe_subscription_id text,
@@ -57,6 +59,9 @@ create table if not exists public.vehicles (
   work_done jsonb not null default '[]'::jsonb,
   notes text,
   image_url text,
+  window_sticker_path text,
+  window_sticker_name text,
+  window_sticker_type text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -228,6 +233,48 @@ $$;
 revoke all on function public.has_active_membership() from public;
 grant execute on function public.has_active_membership() to authenticated;
 
+create or replace function public.member_vehicle_limit(member_id uuid)
+returns integer
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case
+    when coalesce(collector_access_override, false) or plan = 'Collector' then 10
+    else 1
+  end + greatest(coalesce(extra_vehicle_slots, 0), 0)
+  from public.profiles
+  where id = member_id;
+$$;
+
+revoke all on function public.member_vehicle_limit(uuid) from public;
+grant execute on function public.member_vehicle_limit(uuid) to authenticated;
+
+create or replace function public.enforce_member_vehicle_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  allowed_vehicles integer;
+  current_vehicles integer;
+begin
+  allowed_vehicles := coalesce(public.member_vehicle_limit(new.user_id), 1);
+  select count(*) into current_vehicles from public.vehicles where user_id = new.user_id;
+  if current_vehicles >= allowed_vehicles then
+    raise exception 'Garage vehicle limit reached (% vehicles)', allowed_vehicles using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_vehicle_limit_before_insert on public.vehicles;
+create trigger enforce_vehicle_limit_before_insert
+  before insert on public.vehicles
+  for each row execute function public.enforce_member_vehicle_limit();
+
 do $$
 begin
   alter publication supabase_realtime add table public.feed_posts;
@@ -359,7 +406,7 @@ values
   ('Club Drive', 14900, '/month', 'For owners who want pickup, delivery, and regular care coordination handled.'),
   ('Gold', 19900, '/month', 'For daily drivers and seasonal vehicles that need consistent care.'),
   ('Platinum', 39900, '/month', 'For owners who want complete white-glove vehicle management.'),
-  ('Collector', 69900, '/month', 'For collections of up to three vehicles, with additional vehicles quoted separately.')
+  ('Collector', 69900, '/month', 'For collections of up to 10 vehicles, with additional vehicle spots available through your concierge.')
 on conflict (plan_name) do nothing;
 
 insert into storage.buckets (id, name, public)
@@ -395,6 +442,46 @@ create policy "Members can delete own vehicle photos"
   on storage.objects for delete
   using (
     bucket_id = 'vehicle-photos'
+    and public.has_active_membership()
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+insert into storage.buckets (id, name, public)
+values ('vehicle-documents', 'vehicle-documents', false)
+on conflict (id) do update set public = false;
+
+create policy "Members can upload own vehicle documents"
+  on storage.objects for insert
+  with check (
+    bucket_id = 'vehicle-documents'
+    and public.has_active_membership()
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+create policy "Members can read own vehicle documents"
+  on storage.objects for select
+  using (
+    bucket_id = 'vehicle-documents'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+create policy "Members can update own vehicle documents"
+  on storage.objects for update
+  using (
+    bucket_id = 'vehicle-documents'
+    and public.has_active_membership()
+    and (storage.foldername(name))[1] = auth.uid()::text
+  )
+  with check (
+    bucket_id = 'vehicle-documents'
+    and public.has_active_membership()
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+create policy "Members can delete own vehicle documents"
+  on storage.objects for delete
+  using (
+    bucket_id = 'vehicle-documents'
     and public.has_active_membership()
     and (storage.foldername(name))[1] = auth.uid()::text
   );

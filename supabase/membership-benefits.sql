@@ -43,7 +43,7 @@ update public.membership_pricing
 set
   amount_cents = 69900,
   cadence = '/month',
-  note = 'For collections of up to three vehicles, with additional vehicles quoted separately.',
+  note = 'For collections of up to 10 vehicles, with additional vehicle spots available through your concierge.',
   updated_at = now()
 where plan_name = 'Collector'
   and amount_cents is null;

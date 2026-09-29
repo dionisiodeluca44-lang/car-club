@@ -8,6 +8,7 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.js";
 import ClipboardCheck from "lucide-react/dist/esm/icons/clipboard-check.js";
 import Clock from "lucide-react/dist/esm/icons/clock.js";
 import CreditCard from "lucide-react/dist/esm/icons/credit-card.js";
+import FileText from "lucide-react/dist/esm/icons/file-text.js";
 import Gauge from "lucide-react/dist/esm/icons/gauge.js";
 import Gift from "lucide-react/dist/esm/icons/gift.js";
 import Home from "lucide-react/dist/esm/icons/house.js";
@@ -181,8 +182,8 @@ const plans = [
     name: "Collector",
     price: "$699",
     cadence: "/month",
-    intro: "For collections of up to three vehicles, with additional vehicles quoted separately.",
-    features: ["Up to 12 × $70 earned wash credits yearly", "Up to 4 × $150 earned full-detail credits yearly", "Up to 6 × $175 earned Montreal transport credits yearly", "Up to $500 earned protection credit yearly", "Dedicated collection manager"],
+    intro: "For collections of up to 10 vehicles, with additional vehicle spots available through your concierge.",
+    features: ["Up to 10 garage vehicles", "Up to 12 × $70 earned wash credits yearly", "Up to 4 × $150 earned full-detail credits yearly", "Up to 6 × $175 earned Montreal transport credits yearly", "Up to $500 earned protection credit yearly", "Dedicated collection manager"],
   },
 ];
 
@@ -1280,16 +1281,18 @@ function hasCollectionPackage(plan) {
   return plan === "Collector";
 }
 
-function garageVehicleLimit(plan) {
-  return hasCollectionPackage(plan) ? 3 : 1;
+function garageVehicleLimit(plan, extraVehicleSlots = 0) {
+  const includedVehicles = hasCollectionPackage(plan) ? 10 : 1;
+  return includedVehicles + Math.max(0, Number(extraVehicleSlots) || 0);
 }
 
-function canAddGarageVehicle(plan, garageCount) {
-  return garageCount < garageVehicleLimit(plan);
+function canAddGarageVehicle(plan, garageCount, extraVehicleSlots = 0) {
+  return garageCount < garageVehicleLimit(plan, extraVehicleSlots);
 }
 
-function garageLimitLabel(plan) {
-  return hasCollectionPackage(plan) ? "Up to 3 vehicles" : "1 vehicle";
+function garageLimitLabel(plan, extraVehicleSlots = 0) {
+  const limit = garageVehicleLimit(plan, extraVehicleSlots);
+  return limit === 1 ? "1 vehicle" : `Up to ${limit} vehicles`;
 }
 
 const approvedOrClosedRequestStatuses = new Set(["approved", "booked", "paid / confirmed", "completed", "cancelled", "canceled"]);
@@ -1726,6 +1729,24 @@ function readFilesAsDataUrls(fileList, limit = 10) {
     reader.onerror = () => reject(new Error("Could not read one of the photos."));
     reader.readAsDataURL(file);
   })));
+}
+
+function readVehicleDocument(fileList) {
+  const file = Array.from(fileList || [])[0];
+  if (!file) return Promise.resolve(null);
+  if (file.type !== "application/pdf" && !file.type?.startsWith("image/")) {
+    return Promise.reject(new Error("Choose a PDF or image for the window sticker."));
+  }
+  if (file.size > 15 * 1024 * 1024) {
+    return Promise.reject(new Error("The window sticker must be smaller than 15 MB."));
+  }
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({ dataUrl: reader.result, name: file.name, type: file.type });
+    reader.onerror = () => reject(new Error("Could not read the window sticker."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function mergeFeedPosts(newPosts, currentPosts) {
@@ -3111,8 +3132,9 @@ function App() {
   }
 
   async function addVehicle(vehicle) {
-    if (!canAddGarageVehicle(member?.plan, garage.length)) {
-      throw new Error("Your current package includes one garage vehicle. Upgrade to the Collector package to manage multiple cars.");
+    if (!canAddGarageVehicle(member?.plan, garage.length, member?.extraVehicleSlots)) {
+      const limit = garageVehicleLimit(member?.plan, member?.extraVehicleSlots);
+      throw new Error(`Your current Garage allowance is ${limit} ${limit === 1 ? "vehicle" : "vehicles"}. Contact White Glove if you need more vehicle spots.`);
     }
 
     if (isBackendConfigured && member?.id) {
@@ -3122,7 +3144,13 @@ function App() {
       return savedVehicle;
     }
 
-    const nextGarage = [{ ...vehicle, id: crypto.randomUUID(), status: "New vehicle added", workDone: vehicle.workDone || [] }, ...garage];
+    const nextGarage = [{
+      ...vehicle,
+      id: crypto.randomUUID(),
+      status: "New vehicle added",
+      windowStickerUrl: vehicle.windowStickerData || "",
+      workDone: vehicle.workDone || [],
+    }, ...garage];
     const startingValueCents = marketValueCents(vehicle.marketValue);
     const nextValuations = startingValueCents > 0 ? [{
       id: crypto.randomUUID(),
@@ -3150,7 +3178,11 @@ function App() {
       return savedVehicle;
     }
 
-    const nextGarage = garage.map((vehicle) => (vehicle.id === vehicleId ? { ...vehicle, ...updates } : vehicle));
+    const nextGarage = garage.map((vehicle) => (vehicle.id === vehicleId ? {
+      ...vehicle,
+      ...updates,
+      windowStickerUrl: updates.windowStickerData || vehicle.windowStickerUrl || "",
+    } : vehicle));
     let nextValuations = vehicleValuations;
     const nextValueCents = marketValueCents(updates.marketValue);
     if (updates.marketValue !== undefined && nextValueCents > 0) {
@@ -3881,6 +3913,82 @@ function AdminBenefitControls({ onUpdate, request }) {
   );
 }
 
+function AdminGarageCapacity({ members, onSave }) {
+  if (!members.length) {
+    return (
+      <article className="admin-empty-card">
+        <h2>No members found</h2>
+        <p>Member accounts will appear here after the Garage capacity migration is installed.</p>
+      </article>
+    );
+  }
+
+  return (
+    <section className="admin-pricing-card">
+      <div className="admin-pricing-heading">
+        <div>
+          <p className="eyebrow">Member garage access</p>
+          <h2>Garage Capacity</h2>
+          <p>Collector includes 10 vehicles. Add account-specific vehicle spots here when a Collector needs more room.</p>
+        </div>
+        <span>{members.length} members</span>
+      </div>
+      <div className="admin-member-list">
+        {members.map((member) => (
+          <AdminGarageCapacityRow key={member.id} member={member} onSave={onSave} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AdminGarageCapacityRow({ member, onSave }) {
+  const [extraSlots, setExtraSlots] = useState(member.extra_vehicle_slots || 0);
+  const [saving, setSaving] = useState(false);
+  const collectorMember = member.plan === "Collector";
+  const totalCapacity = (collectorMember ? 10 : 1) + Math.max(0, Number(extraSlots) || 0);
+
+  useEffect(() => {
+    setExtraSlots(member.extra_vehicle_slots || 0);
+  }, [member.extra_vehicle_slots]);
+
+  async function saveCapacity(event) {
+    event.preventDefault();
+    if (!collectorMember) return;
+    setSaving(true);
+    try {
+      await onSave(member.id, Math.max(0, Math.round(Number(extraSlots) || 0)));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="admin-member-row" onSubmit={saveCapacity}>
+      <div className="admin-member-identity">
+        <strong>{member.full_name || "Member"}</strong>
+        <small>{member.email || "Email pending"}</small>
+      </div>
+      <div className="admin-member-stat">
+        <span>Package</span>
+        <strong>{member.plan || "Unknown"}</strong>
+      </div>
+      <div className="admin-member-stat">
+        <span>Garage use</span>
+        <strong>{member.vehicle_count || 0} / {totalCapacity}</strong>
+      </div>
+      <label>
+        Extra vehicle spots
+        <input disabled={!collectorMember || saving} min="0" max="100" onChange={(event) => setExtraSlots(event.target.value)} step="1" type="number" value={extraSlots} />
+      </label>
+      <button className="button secondary compact-button" disabled={!collectorMember || saving} type="submit">
+        {saving ? "Saving..." : "Save Capacity"}
+      </button>
+      {!collectorMember && <small className="admin-member-note">Extra spots are available for Collector accounts.</small>}
+    </form>
+  );
+}
+
 function AdminPortal({ onBack }) {
   const [adminToken, setAdminToken] = useState("");
   const [draftToken, setDraftToken] = useState(() => localStorage.getItem("whiteGloveAdminToken") || "");
@@ -3890,6 +3998,7 @@ function AdminPortal({ onBack }) {
   const [adminSidebarOpen, setAdminSidebarOpen] = useState(false);
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [membershipPricing, setMembershipPricing] = useState({});
+  const [adminMembers, setAdminMembers] = useState([]);
   const [servicePricing, setServicePricing] = useState({});
   const [serviceRequests, setServiceRequests] = useState([]);
 
@@ -3967,6 +4076,24 @@ function AdminPortal({ onBack }) {
     }
   }
 
+  async function loadAdminMembers(token = adminToken, options = {}) {
+    if (!token) return;
+    if (!options.keepNotice) setAdminNotice("");
+
+    try {
+      const response = await fetch("/.netlify/functions/admin-members", {
+        headers: { "x-admin-token": token },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Could not load member Garage access.");
+      setAdminMembers(payload.members || []);
+    } catch (error) {
+      const message = error.message || "Could not load member Garage access.";
+      if (options.throwOnError) throw error;
+      setAdminNotice(`${message} Run the Garage capacity and window sticker SQL migration in Supabase.`);
+    }
+  }
+
   async function submitAdminLogin(event) {
     event.preventDefault();
     setAdminError("");
@@ -3980,6 +4107,7 @@ function AdminPortal({ onBack }) {
       setAdminSidebarOpen(false);
       loadAdminPricing(draftToken, { keepNotice: true });
       loadAdminMembershipPricing(draftToken, { keepNotice: true });
+      loadAdminMembers(draftToken, { keepNotice: true });
     } catch (error) {
       localStorage.removeItem("whiteGloveAdminToken");
       setAdminToken("");
@@ -3996,6 +4124,7 @@ function AdminPortal({ onBack }) {
     setServiceRequests([]);
     setServicePricing({});
     setMembershipPricing({});
+    setAdminMembers([]);
     setAdminNotice("");
   }
 
@@ -4103,10 +4232,35 @@ function AdminPortal({ onBack }) {
     }
   }
 
+  async function updateMemberGarageCapacity(memberId, extraVehicleSlots) {
+    setAdminError("");
+    setAdminNotice("");
+
+    try {
+      const response = await fetch("/.netlify/functions/admin-members", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": adminToken,
+        },
+        body: JSON.stringify({ memberId, extraVehicleSlots }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Could not update Garage capacity.");
+      setAdminMembers((members) => members.map((member) => (
+        member.id === memberId ? { ...member, ...payload.member } : member
+      )));
+      setAdminNotice("The member's Garage capacity has been updated.");
+    } catch (error) {
+      setAdminError(error.message || "Could not update Garage capacity.");
+    }
+  }
+
   const adminNavigation = [
     { id: "requests", label: "Service Requests" },
     { id: "pricing", label: "Booking Price Settings" },
     { id: "memberships", label: "Subscription Price Settings" },
+    { id: "garage-capacity", label: "Garage Capacity" },
   ];
 
   if (!adminToken) {
@@ -4145,9 +4299,11 @@ function AdminPortal({ onBack }) {
           </button>
           <div>
             <p className="eyebrow">White Glove backend</p>
-            <h1>{adminMenu === "memberships" ? "Subscription Price Settings" : adminMenu === "pricing" ? "Booking Price Settings" : "Service Requests"}</h1>
+            <h1>{adminMenu === "garage-capacity" ? "Garage Capacity" : adminMenu === "memberships" ? "Subscription Price Settings" : adminMenu === "pricing" ? "Booking Price Settings" : "Service Requests"}</h1>
             <p>
-              {adminMenu === "memberships"
+              {adminMenu === "garage-capacity"
+                ? "Review Collector Garage use and grant extra vehicle spots to individual members."
+                : adminMenu === "memberships"
                 ? "Set the membership prices used for new account activation checkouts."
                 : adminMenu === "pricing"
                   ? "Set the same service request price for every member."
@@ -4155,7 +4311,7 @@ function AdminPortal({ onBack }) {
             </p>
           </div>
           <div className="admin-header-actions">
-            <button className="button secondary compact-button" type="button" onClick={() => { loadAdminRequests(adminToken); loadAdminPricing(adminToken); loadAdminMembershipPricing(adminToken); }} disabled={loadingRequests}>
+            <button className="button secondary compact-button" type="button" onClick={() => { loadAdminRequests(adminToken); loadAdminPricing(adminToken); loadAdminMembershipPricing(adminToken); loadAdminMembers(adminToken); }} disabled={loadingRequests}>
               {loadingRequests ? "Loading..." : "Refresh"}
             </button>
             <button className="button secondary compact-button" type="button" onClick={closeAdminPortal}>Log Out</button>
@@ -4186,6 +4342,7 @@ function AdminPortal({ onBack }) {
 
         {adminMenu === "pricing" && <AdminServicePricingEditor onSave={updateServicePrice} pricing={servicePricing} />}
         {adminMenu === "memberships" && <AdminMembershipPricingEditor membershipPricing={membershipPricing} onSave={updateMembershipPrice} />}
+        {adminMenu === "garage-capacity" && <AdminGarageCapacity members={adminMembers} onSave={updateMemberGarageCapacity} />}
 
         {adminMenu === "requests" && (
           <div className="admin-request-grid">
@@ -4794,7 +4951,7 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
             <h1>{completion ? "Successfully Updated" : activeTab === "home" ? `Welcome, ${firstName}` : tabTitle(activeTab)}</h1>
           </div>
           <button className="icon-button profile-settings-button" type="button" aria-label="Profile settings" onClick={() => navigateToTab("account")}>
-            <ProfileAvatar member={member} size={32} />
+            <ProfileAvatar member={member} size={48} />
           </button>
         </header>
 
@@ -4944,7 +5101,7 @@ function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, o
 
   return (
     <div className="app-stack">
-      {activeVehicle && garageVehicleLimit(member.plan) > 1 && (
+      {activeVehicle && garageVehicleLimit(member.plan, member.extraVehicleSlots) > 1 && (
         <section className="home-vehicle-context" aria-label={`Home tailored to ${vehicleLabel(activeVehicle)}`}>
           <img alt={vehicleLabel(activeVehicle)} onError={handleVehicleImageError} src={primaryVehicleImage(activeVehicle)} />
           <div>
@@ -5216,8 +5373,8 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
     const latest = latestVehicleValuation(vehicle, valuationList);
     return total + (latest?.valueCents || marketValueCents(vehicleMarketValue(vehicle)));
   }, 0), [garageList, valuationList]);
-  const canAddVehicle = canAddGarageVehicle(member.plan, garageList.length);
-  const vehicleLimitText = garageLimitLabel(member.plan);
+  const canAddVehicle = canAddGarageVehicle(member.plan, garageList.length, member.extraVehicleSlots);
+  const vehicleLimitText = garageLimitLabel(member.plan, member.extraVehicleSlots);
   const [showForm, setShowForm] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [chartVehicleId, setChartVehicleId] = useState(activeVehicleId || garageList[0]?.id || "");
@@ -5316,7 +5473,7 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
         {!canAddVehicle && (
           <div className="package-limit-note">
             {hasCollectionPackage(member.plan)
-              ? `Your ${member.plan} package includes ${vehicleLimitText.toLowerCase()}. Remove a vehicle before adding another.`
+              ? `Your ${member.plan} Garage currently allows ${vehicleLimitText.toLowerCase()}. Remove a vehicle or contact White Glove to add more vehicle spots.`
               : `Your ${member.plan} package includes ${vehicleLimitText.toLowerCase()}. Upgrade to Collector to upload and manage multiple cars.`}
           </div>
         )}
@@ -5611,7 +5768,11 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
             <h2>Book A Service</h2>
             <p>Select a service after choosing a saved vehicle. Included services are ready to book; locked services show which package unlocks them.</p>
           </div>
-          <span>{serviceOptions.length} services</span>
+          <span className="section-count" aria-label={`${serviceOptions.length} services available`}>
+            <Wrench aria-hidden="true" size={16} />
+            <strong>{serviceOptions.length}</strong>
+            <span className="section-count-label">services</span>
+          </span>
         </div>
         <div className={benefitsExpanded ? "booking-benefit-box expanded" : "booking-benefit-box"}>
           <button
@@ -6308,7 +6469,7 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
             </label>
             <label>
               Garage access
-              <input type="text" value={hasCollectionPackage(member.plan) ? `${garageCount} vehicles saved · ${garageLimitLabel(member.plan)}` : `${garageCount}/1 vehicle used`} readOnly />
+              <input type="text" value={hasCollectionPackage(member.plan) ? `${garageCount} vehicles saved · ${garageLimitLabel(member.plan, member.extraVehicleSlots)}` : `${garageCount}/1 vehicle used`} readOnly />
             </label>
           </div>
 
@@ -6365,6 +6526,7 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
 
 function VehicleForm({ onAddVehicle, onClose, onComplete }) {
   const [imagePreviews, setImagePreviews] = useState([]);
+  const [windowSticker, setWindowSticker] = useState(null);
   const [makeSuggestions, setMakeSuggestions] = useState(fallbackVehicleMakes);
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [vehicleMake, setVehicleMake] = useState("");
@@ -6435,6 +6597,14 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
       setImagePreviews(photos);
     } catch (error) {
       setVehicleError(error.message || "Could not read those photos.");
+    }
+  }
+
+  async function handleWindowSticker(event) {
+    try {
+      setWindowSticker(await readVehicleDocument(event.target.files));
+    } catch (error) {
+      setVehicleError(error.message || "Could not read the window sticker.");
     }
   }
 
@@ -6537,6 +6707,9 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         workDone: splitWorkList(formData.get("workDone")),
         image: imagePreviews[0] || "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=85",
         images: imagePreviews.length ? imagePreviews : [],
+        windowStickerData: windowSticker?.dataUrl || "",
+        windowStickerName: windowSticker?.name || "",
+        windowStickerType: windowSticker?.type || "",
       });
       form.reset();
       setVehicleMake("");
@@ -6545,6 +6718,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
       setModelSuggestions([]);
       setVehicleLookupStatus("");
       setImagePreviews([]);
+      setWindowSticker(null);
       setSavingVehicle(false);
       onClose();
       onComplete?.({
@@ -6591,6 +6765,12 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
           </>
         )}
         <input accept="image/*" disabled={savingVehicle} multiple name="photo" onChange={handleImage} type="file" />
+      </label>
+      <label className={savingVehicle ? "document-upload-tile disabled-upload" : "document-upload-tile"}>
+        <FileText size={24} />
+        <span>{windowSticker?.name || "Upload window sticker"}</span>
+        <small>PDF or image, up to 15 MB</small>
+        <input accept="application/pdf,image/*" disabled={savingVehicle} name="windowSticker" onChange={handleWindowSticker} type="file" />
       </label>
       <div className="app-form-grid">
         <label>
@@ -7514,6 +7694,7 @@ function GarageVehicleValueChart({ member, onSelect, vehicle, valuations }) {
 
 function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle, onGetOffer, onUpdateVehicle, vehicle, valuations }) {
   const [photoPreviews, setPhotoPreviews] = useState([]);
+  const [windowStickerDraft, setWindowStickerDraft] = useState(null);
   const [detailError, setDetailError] = useState("");
   const [valuationNotice, setValuationNotice] = useState("");
   const [deletingVehicle, setDeletingVehicle] = useState(false);
@@ -7571,6 +7752,14 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
       setPhotoPreviews(photos);
     } catch (error) {
       setDetailError(error.message || "Could not read those photos.");
+    }
+  }
+
+  async function handleWindowSticker(event) {
+    try {
+      setWindowStickerDraft(await readVehicleDocument(event.target.files));
+    } catch (error) {
+      setDetailError(error.message || "Could not read the window sticker.");
     }
   }
 
@@ -7676,8 +7865,12 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
         notes: ownershipNotes,
         image: photoPreviews[0] || vehicleImages[0] || vehicle.image,
         images: photoPreviews.length ? photoPreviews : vehicleImages,
+        windowStickerData: windowStickerDraft?.dataUrl,
+        windowStickerName: windowStickerDraft?.name,
+        windowStickerType: windowStickerDraft?.type,
       });
       setPhotoPreviews([]);
+      setWindowStickerDraft(null);
       onComplete?.({
         actionLabel: "View Garage",
         actionTab: "garage",
@@ -7848,6 +8041,24 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
         </section>
       )}
 
+      <section className="vehicle-document-panel">
+        <div>
+          <FileText size={22} />
+          <div>
+            <span>Vehicle document</span>
+            <h3>Window Sticker</h3>
+            <p>{vehicle.windowStickerName || "Add the original window sticker as a PDF or image."}</p>
+          </div>
+        </div>
+        {vehicle.windowStickerUrl ? (
+          <a className="button secondary compact-button" href={vehicle.windowStickerUrl} target="_blank" rel="noreferrer">
+            View Sticker
+          </a>
+        ) : (
+          <button className="button secondary compact-button" type="button" onClick={openVehicleEditor}>Upload Sticker</button>
+        )}
+      </section>
+
       <section className="vehicle-stat-grid">
         <article>
           <strong>{marketValue}</strong>
@@ -7988,6 +8199,12 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
               </>
             )}
             <input accept="image/*" multiple name="photo" onChange={handlePhoto} type="file" />
+          </label>
+          <label className="document-upload-tile">
+            <FileText size={24} />
+            <span>{windowStickerDraft?.name || vehicle.windowStickerName || "Upload window sticker"}</span>
+            <small>{vehicle.windowStickerName && !windowStickerDraft ? "Choose a new file to replace the saved sticker" : "PDF or image, up to 15 MB"}</small>
+            <input accept="application/pdf,image/*" name="windowSticker" onChange={handleWindowSticker} type="file" />
           </label>
           <div className="app-form-grid">
             <label>

@@ -132,5 +132,5 @@ values
   ('Club Drive', 14900, '/month', 'For owners who want pickup, delivery, and regular care coordination handled.'),
   ('Gold', 19900, '/month', 'For daily drivers and seasonal vehicles that need consistent care.'),
   ('Platinum', 39900, '/month', 'For owners who want complete white-glove vehicle management.'),
-  ('Collector', 69900, '/month', 'For collections of up to three vehicles, with additional vehicles quoted separately.')
+  ('Collector', 69900, '/month', 'For collections of up to 10 vehicles, with additional vehicle spots available through your concierge.')
 on conflict (plan_name) do nothing;

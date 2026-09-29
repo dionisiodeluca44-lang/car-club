@@ -69,6 +69,7 @@ export async function getCurrentMember() {
     email: user.email,
     plan: effectiveMemberPlan(profile, user),
     collectorAccessOverride: Boolean(profile?.collector_access_override),
+    extraVehicleSlots: Math.max(0, Number(profile?.extra_vehicle_slots) || 0),
     subscriptionStatus: profile?.subscription_status || user.user_metadata?.subscription_status || "pending",
     subscriptionCancelAtPeriodEnd: Boolean(profile?.subscription_cancel_at_period_end),
     subscriptionActivatedAt: profile?.subscription_activated_at || "",
@@ -189,6 +190,7 @@ export async function signIn({ email, password }) {
     email: data.user.email,
     plan: effectiveMemberPlan(profile, data.user),
     collectorAccessOverride: Boolean(profile?.collector_access_override),
+    extraVehicleSlots: Math.max(0, Number(profile?.extra_vehicle_slots) || 0),
     subscriptionStatus: profile?.subscription_status || data.user.user_metadata?.subscription_status || "pending",
     subscriptionCancelAtPeriodEnd: Boolean(profile?.subscription_cancel_at_period_end),
     subscriptionActivatedAt: profile?.subscription_activated_at || "",
@@ -273,7 +275,7 @@ export async function loadVehicles(userId) {
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return data.map(fromVehicleRow);
+  return Promise.all(data.map(fromVehicleRowWithDocument));
 }
 
 export async function loadVehicleValuations(userId) {
@@ -333,10 +335,18 @@ export async function createVehicleValuation(userId, vehicleId, valuation) {
 export async function createVehicle(userId, vehicle) {
   if (!supabase || !userId) return vehicle;
 
+  const windowStickerPath = vehicle.windowStickerData
+    ? await uploadVehicleDocument(userId, vehicle.windowStickerData, vehicle.windowStickerName, vehicle.windowStickerType)
+    : "";
   const imageUrls = await safeUploadVehicleImages(userId, vehicle.images?.length ? vehicle.images : [vehicle.image]);
   const fallbackImages = ensureImageList(vehicle.images?.length ? vehicle.images : [vehicle.image]).map(reusableImageUrl).filter(Boolean);
   const images = imageUrls.length ? imageUrls : fallbackImages;
-  const payload = toVehicleRow(userId, { ...vehicle, image: images[0] || reusableImageUrl(vehicle.image), images });
+  const payload = toVehicleRow(userId, {
+    ...vehicle,
+    image: images[0] || reusableImageUrl(vehicle.image),
+    images,
+    windowStickerPath,
+  });
 
   const { data, error } = await supabase.from("vehicles").insert(payload).select("*").single();
   if (error) throw new Error(`Could not save vehicle: ${error.message}`);
@@ -354,20 +364,26 @@ export async function createVehicle(userId, vehicle) {
     }
   }
 
-  return fromVehicleRow(data);
+  return fromVehicleRowWithDocument(data);
 }
 
 export async function updateVehicleRecord(vehicleId, updates) {
   if (!supabase || !vehicleId) return updates;
 
+  const { data: authData } = await supabase.auth.getUser();
+  const userId = authData?.user?.id || "";
+  const windowStickerPath = updates.windowStickerData
+    ? await uploadVehicleDocument(userId, updates.windowStickerData, updates.windowStickerName, updates.windowStickerType)
+    : undefined;
   const updateImages = updates.images?.length ? updates.images : updates.image ? [updates.image] : [];
-  const imageUrls = await safeUploadVehicleImages("vehicle-updates", updateImages);
+  const imageUrls = await safeUploadVehicleImages(userId || "vehicle-updates", updateImages);
   const fallbackImages = ensureImageList(updateImages).map(reusableImageUrl).filter(Boolean);
   const images = imageUrls.length ? imageUrls : fallbackImages;
   const payload = toVehicleUpdateRow({
     ...updates,
     image: images[0] || reusableImageUrl(updates.image),
     images: images.length ? images : updates.images,
+    windowStickerPath,
   });
 
   const { data, error } = await supabase.from("vehicles").update(payload).eq("id", vehicleId).select("*").single();
@@ -391,7 +407,7 @@ export async function updateVehicleRecord(vehicleId, updates) {
     }
   }
 
-  return fromVehicleRow(data);
+  return fromVehicleRowWithDocument(data);
 }
 
 export async function deleteVehicleRecord(vehicleId) {
@@ -790,6 +806,42 @@ async function uploadStorageImage(bucket, folder, image) {
   return data.publicUrl;
 }
 
+async function uploadVehicleDocument(userId, dataUrl, fileName = "window-sticker", fileType = "") {
+  if (!supabase || !userId || !dataUrl || !String(dataUrl).startsWith("data:")) return "";
+
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  const mimeType = fileType || blob.type || "application/pdf";
+  if (mimeType !== "application/pdf" && !mimeType.startsWith("image/")) {
+    throw new Error("The window sticker must be a PDF or image file.");
+  }
+
+  const suppliedExtension = String(fileName).split(".").pop()?.toLowerCase();
+  const mimeExtension = mimeType === "application/pdf" ? "pdf" : mimeType.split("/")[1] || "jpg";
+  const extension = /^[a-z0-9]+$/.test(suppliedExtension || "") ? suppliedExtension : mimeExtension;
+  const path = `${userId}/window-stickers/${crypto.randomUUID()}.${extension}`;
+  const { error } = await supabase.storage.from("vehicle-documents").upload(path, blob, {
+    contentType: mimeType,
+    upsert: false,
+  });
+
+  if (error) {
+    throw new Error(`Could not upload the window sticker: ${error.message}. Run the Garage capacity and window sticker SQL migration in Supabase first.`);
+  }
+
+  return path;
+}
+
+async function signedVehicleDocumentUrl(path) {
+  if (!supabase || !path) return "";
+  const { data, error } = await supabase.storage.from("vehicle-documents").createSignedUrl(path, 60 * 60);
+  if (error) {
+    console.warn("Could not create a window sticker link.", error);
+    return "";
+  }
+  return data?.signedUrl || "";
+}
+
 function reusableImageUrl(image) {
   if (!image || String(image).startsWith("data:")) return "";
   return image;
@@ -842,11 +894,22 @@ function fromVehicleRow(row) {
     notes: stripVehicleGallery(row.notes),
     image: images[0] || "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=85",
     images,
+    windowStickerPath: row.window_sticker_path || "",
+    windowStickerName: row.window_sticker_name || "",
+    windowStickerType: row.window_sticker_type || "",
+  };
+}
+
+async function fromVehicleRowWithDocument(row) {
+  const vehicle = fromVehicleRow(row);
+  return {
+    ...vehicle,
+    windowStickerUrl: await signedVehicleDocumentUrl(vehicle.windowStickerPath),
   };
 }
 
 function toVehicleRow(userId, vehicle) {
-  return {
+  const row = {
     user_id: userId,
     year: vehicle.year || "",
     make: vehicle.make || "",
@@ -860,6 +923,12 @@ function toVehicleRow(userId, vehicle) {
     notes: serializeVehicleNotes(vehicle.notes, vehicle.images?.length ? vehicle.images : [vehicle.image]),
     image_url: vehicle.image || "",
   };
+  if (vehicle.windowStickerPath) {
+    row.window_sticker_path = vehicle.windowStickerPath;
+    row.window_sticker_name = vehicle.windowStickerName || "Window sticker";
+    row.window_sticker_type = vehicle.windowStickerType || "application/pdf";
+  }
+  return row;
 }
 
 function toVehicleUpdateRow(updates) {
@@ -875,6 +944,9 @@ function toVehicleUpdateRow(updates) {
   if (updates.workDone !== undefined) row.work_done = updates.workDone;
   if (updates.image !== undefined) row.image_url = updates.image;
   if (updates.notes !== undefined || updates.images !== undefined) row.notes = serializeVehicleNotes(updates.notes, updates.images);
+  if (updates.windowStickerPath !== undefined) row.window_sticker_path = updates.windowStickerPath;
+  if (updates.windowStickerName !== undefined) row.window_sticker_name = updates.windowStickerName;
+  if (updates.windowStickerType !== undefined) row.window_sticker_type = updates.windowStickerType;
   return row;
 }
 
