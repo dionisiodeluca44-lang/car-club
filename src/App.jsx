@@ -5279,17 +5279,25 @@ function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, o
 
       <section className="home-smart-grid" aria-label="Smart garage overview">
         {smartCards.map(({ cta, href, icon: Icon, label, text, title }) => (
-          <article key={label}>
-            <Icon size={19} />
-            <span>{label}</span>
+          <a
+            aria-label={`${cta}: ${title}`}
+            className="home-smart-card"
+            href={href}
+            key={label}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <div className="home-smart-card-heading">
+              <span className="home-smart-card-icon"><Icon size={20} /></span>
+              <span className="home-smart-card-label">{label}</span>
+            </div>
             <h3>{title}</h3>
             <p>{text}</p>
-            {href ? (
-              <a href={href} target="_blank" rel="noreferrer">{cta}</a>
-            ) : (
-              <button type="button" onClick={() => setActiveTab("feed")}>{cta}</button>
-            )}
-          </article>
+            <div className="home-smart-card-action">
+              <span>{cta}</span>
+              <ArrowRight size={17} />
+            </div>
+          </a>
         ))}
       </section>
 
