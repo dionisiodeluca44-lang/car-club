@@ -39,6 +39,27 @@ function effectiveProfilePlan(profile) {
   return profile?.collector_access_override ? "Collector" : profile?.plan;
 }
 
+function serviceDocumentExtension(fileName, fileType) {
+  const supplied = String(fileName || "").split(".").pop()?.toLowerCase();
+  if (/^[a-z0-9]{1,8}$/.test(supplied || "")) return supplied;
+  const commonTypes = {
+    "application/pdf": "pdf",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "text/csv": "csv",
+    "text/plain": "txt",
+  };
+  return commonTypes[fileType] || "bin";
+}
+
+function validServiceDocument(file) {
+  const extension = serviceDocumentExtension(file?.name, file?.type);
+  const allowedExtensions = new Set(["pdf", "jpg", "jpeg", "png", "webp", "doc", "docx", "xls", "xlsx", "csv", "txt"]);
+  const size = Number(file?.size) || 0;
+  return file?.name && allowedExtensions.has(extension) && size > 0 && size <= 25 * 1024 * 1024;
+}
+
 async function updateMembershipBenefit({ action, benefitKey, requestId }) {
   const { data: request, error: requestError } = await supabase
     .from("service_requests")
@@ -231,6 +252,22 @@ export async function handler(event) {
       }
     }
 
+    let serviceDocuments = [];
+    const requestIds = (data || []).map((request) => request.id).filter(Boolean);
+    if (requestIds.length) {
+      const { data: documentRows, error: documentError } = await supabase
+        .from("service_documents")
+        .select("id, service_request_id, user_id, file_name, file_type, file_size, storage_path, created_at")
+        .in("service_request_id", requestIds)
+        .order("created_at", { ascending: false });
+
+      if (documentError) {
+        console.warn("Could not attach service documents. Run the service documents migration.", documentError);
+      } else {
+        serviceDocuments = documentRows || [];
+      }
+    }
+
     return json(200, {
       requests: (data || []).map((request) => {
         const profile = profileMap.get(request.user_id) || null;
@@ -246,6 +283,7 @@ export async function handler(event) {
         return {
           ...request,
           benefit_usage: benefitUsage.filter((usage) => usage.service_request_id === request.id),
+          documents: serviceDocuments.filter((document) => document.service_request_id === request.id),
           member: profile,
           member_benefits: summarizeMembershipBenefits(profile?.plan, currentUsage, {
             activationDate: profile?.stripe_subscription_created_at || profile?.subscription_activated_at || profile?.created_at,
@@ -254,6 +292,102 @@ export async function handler(event) {
         };
       }),
     });
+  }
+
+  if (event.httpMethod === "POST") {
+    const payload = JSON.parse(event.body || "{}");
+    const { action, files, requestId, uploads } = payload;
+
+    if (!requestId || !["prepare-service-documents", "finalize-service-documents"].includes(action)) {
+      return json(400, { error: "A service request and document action are required." });
+    }
+
+    const { data: request, error: requestError } = await supabase
+      .from("service_requests")
+      .select("id, user_id")
+      .eq("id", requestId)
+      .single();
+
+    if (requestError || !request?.user_id) {
+      return json(404, { error: "Could not find that member service request." });
+    }
+
+    if (action === "prepare-service-documents") {
+      const requestedFiles = Array.isArray(files) ? files.slice(0, 10) : [];
+      if (!requestedFiles.length || requestedFiles.some((file) => !validServiceDocument(file))) {
+        return json(400, { error: "Choose up to 10 PDF, image, Word, Excel, CSV, or text files. Each file must be under 25 MB." });
+      }
+
+      const preparedUploads = [];
+      for (const file of requestedFiles) {
+        const extension = serviceDocumentExtension(file.name, file.type);
+        const path = `${request.user_id}/service-records/${request.id}/${crypto.randomUUID()}.${extension}`;
+        const { data: signedUpload, error: uploadError } = await supabase.storage
+          .from("vehicle-documents")
+          .createSignedUploadUrl(path);
+
+        if (uploadError || !signedUpload?.token) {
+          console.error("Could not prepare service document upload", uploadError);
+          return json(500, { error: "Could not prepare the secure upload. Run the service documents SQL migration first." });
+        }
+
+        preparedUploads.push({
+          fileName: file.name,
+          fileSize: Number(file.size) || 0,
+          fileType: file.type || "application/octet-stream",
+          path,
+          token: signedUpload.token,
+        });
+      }
+
+      return json(200, { uploads: preparedUploads });
+    }
+
+    const completedUploads = Array.isArray(uploads) ? uploads.slice(0, 10) : [];
+    const expectedPrefix = `${request.user_id}/service-records/${request.id}/`;
+    if (!completedUploads.length || completedUploads.some((upload) => !upload?.path?.startsWith(expectedPrefix))) {
+      return json(400, { error: "The completed upload details are invalid." });
+    }
+
+    const documentRows = completedUploads.map((upload) => ({
+      service_request_id: request.id,
+      user_id: request.user_id,
+      file_name: String(upload.fileName || "Service document").slice(0, 240),
+      file_type: String(upload.fileType || "application/octet-stream").slice(0, 160),
+      file_size: Math.max(0, Number(upload.fileSize) || 0),
+      storage_path: upload.path,
+    }));
+    const { data: savedDocuments, error: saveError } = await supabase
+      .from("service_documents")
+      .insert(documentRows)
+      .select("id, service_request_id, user_id, file_name, file_type, file_size, storage_path, created_at");
+
+    if (saveError) {
+      console.error("Could not save service document records", saveError);
+      return json(500, { error: "Files uploaded, but the document records could not be saved. Run the service documents SQL migration." });
+    }
+
+    return json(200, { documents: savedDocuments || [] });
+  }
+
+  if (event.httpMethod === "DELETE") {
+    const payload = JSON.parse(event.body || "{}");
+    if (!payload.documentId) return json(400, { error: "A document is required." });
+
+    const { data: document, error: documentError } = await supabase
+      .from("service_documents")
+      .select("id, storage_path")
+      .eq("id", payload.documentId)
+      .single();
+
+    if (documentError || !document) return json(404, { error: "Could not find that service document." });
+
+    const { error: storageError } = await supabase.storage.from("vehicle-documents").remove([document.storage_path]);
+    if (storageError) return json(500, { error: "Could not remove the stored document." });
+
+    const { error: deleteError } = await supabase.from("service_documents").delete().eq("id", document.id);
+    if (deleteError) return json(500, { error: "Could not remove the document record." });
+    return json(200, { deletedId: document.id });
   }
 
   if (event.httpMethod === "PATCH") {

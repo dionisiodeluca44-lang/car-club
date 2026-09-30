@@ -8,7 +8,9 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.js";
 import ClipboardCheck from "lucide-react/dist/esm/icons/clipboard-check.js";
 import Clock from "lucide-react/dist/esm/icons/clock.js";
 import CreditCard from "lucide-react/dist/esm/icons/credit-card.js";
+import Download from "lucide-react/dist/esm/icons/download.js";
 import FileText from "lucide-react/dist/esm/icons/file-text.js";
+import FolderOpen from "lucide-react/dist/esm/icons/folder-open.js";
 import Gauge from "lucide-react/dist/esm/icons/gauge.js";
 import Gift from "lucide-react/dist/esm/icons/gift.js";
 import Home from "lucide-react/dist/esm/icons/house.js";
@@ -21,6 +23,7 @@ import Plus from "lucide-react/dist/esm/icons/plus.js";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw.js";
 import ShieldCheck from "lucide-react/dist/esm/icons/shield-check.js";
 import Sparkles from "lucide-react/dist/esm/icons/sparkles.js";
+import Trash2 from "lucide-react/dist/esm/icons/trash-2.js";
 import Upload from "lucide-react/dist/esm/icons/upload.js";
 import User from "lucide-react/dist/esm/icons/user.js";
 import Warehouse from "lucide-react/dist/esm/icons/warehouse.js";
@@ -28,6 +31,7 @@ import Wrench from "lucide-react/dist/esm/icons/wrench.js";
 import X from "lucide-react/dist/esm/icons/x.js";
 import {
   createAccount,
+  createServiceDocumentDownloadUrl,
   createFeedPost,
   createServiceRequest,
   createVehicle,
@@ -42,6 +46,7 @@ import {
   loadMembershipRevenueEvents,
   loadServicePricing,
   loadServiceRequests,
+  loadServiceDocuments,
   loadVehicleValuations,
   loadVehicles,
   requestPasswordReset,
@@ -52,6 +57,7 @@ import {
   toggleFeedReactionRecord,
   updateFeedPostRecord,
   updateServiceRequestRecord,
+  uploadServiceDocumentToSignedUrl,
   updateMemberPassword,
   updateMemberProfile,
   updateVehicleRecord,
@@ -2576,6 +2582,9 @@ function App() {
   const [appointments, setAppointments] = useState(() => {
     return ensureList(readStoredJson("carClubAppointments", defaultAppointments));
   });
+  const [serviceDocuments, setServiceDocuments] = useState(() => {
+    return ensureList(readStoredJson("carClubServiceDocuments", []));
+  });
   const [benefitUsage, setBenefitUsage] = useState(() => {
     return ensureList(readStoredJson("carClubBenefitUsage", []));
   });
@@ -2796,6 +2805,7 @@ function App() {
           setMember(currentMember);
           setGarage([]);
           setAppointments([]);
+          setServiceDocuments([]);
           setFeedPosts([]);
           setBenefitUsage([]);
           setMembershipRevenueEvents([]);
@@ -2804,9 +2814,10 @@ function App() {
           return;
         }
 
-        const [savedGarage, savedAppointments, savedFeedPosts, savedBenefitUsage, savedMembershipRevenue, savedVehicleValuations] = await Promise.all([
+        const [savedGarage, savedAppointments, savedServiceDocuments, savedFeedPosts, savedBenefitUsage, savedMembershipRevenue, savedVehicleValuations] = await Promise.all([
           loadVehicles(currentMember.id),
           loadServiceRequests(currentMember.id),
+          loadServiceDocuments(currentMember.id),
           loadFeedPosts(),
           loadMembershipBenefitUsage(currentMember.id),
           loadMembershipRevenueEvents(currentMember.id),
@@ -2817,6 +2828,7 @@ function App() {
         setMember(currentMember);
         setGarage(ensureList(savedGarage));
         setAppointments(ensureList(savedAppointments));
+        setServiceDocuments(ensureList(savedServiceDocuments));
         setFeedPosts(ensureList(savedFeedPosts));
         setBenefitUsage(ensureList(savedBenefitUsage));
         setMembershipRevenueEvents(ensureList(savedMembershipRevenue));
@@ -2847,9 +2859,10 @@ function App() {
         if (!active || !currentMember) return;
 
         if (hasMembershipAccess(currentMember.subscriptionStatus) && !hasMembershipAccess(member.subscriptionStatus)) {
-          const [savedGarage, savedAppointments, savedFeedPosts, savedBenefitUsage, savedMembershipRevenue, savedVehicleValuations] = await Promise.all([
+          const [savedGarage, savedAppointments, savedServiceDocuments, savedFeedPosts, savedBenefitUsage, savedMembershipRevenue, savedVehicleValuations] = await Promise.all([
             loadVehicles(currentMember.id),
             loadServiceRequests(currentMember.id),
+            loadServiceDocuments(currentMember.id),
             loadFeedPosts(),
             loadMembershipBenefitUsage(currentMember.id),
             loadMembershipRevenueEvents(currentMember.id),
@@ -2858,6 +2871,7 @@ function App() {
           if (!active) return;
           setGarage(ensureList(savedGarage));
           setAppointments(ensureList(savedAppointments));
+          setServiceDocuments(ensureList(savedServiceDocuments));
           setFeedPosts(ensureList(savedFeedPosts));
           setBenefitUsage(ensureList(savedBenefitUsage));
           setMembershipRevenueEvents(ensureList(savedMembershipRevenue));
@@ -2865,6 +2879,7 @@ function App() {
         } else if (!hasMembershipAccess(currentMember.subscriptionStatus) && hasMembershipAccess(member.subscriptionStatus)) {
           setGarage([]);
           setAppointments([]);
+          setServiceDocuments([]);
           setFeedPosts([]);
           setBenefitUsage([]);
           setMembershipRevenueEvents([]);
@@ -2974,9 +2989,10 @@ function App() {
         return;
       }
 
-      const [savedGarage, savedAppointments, savedFeedPosts, savedBenefitUsage, savedMembershipRevenue, savedVehicleValuations] = await Promise.all([
+      const [savedGarage, savedAppointments, savedServiceDocuments, savedFeedPosts, savedBenefitUsage, savedMembershipRevenue, savedVehicleValuations] = await Promise.all([
         loadVehicles(signedInMember.id),
         loadServiceRequests(signedInMember.id),
+        loadServiceDocuments(signedInMember.id),
         loadFeedPosts(),
         loadMembershipBenefitUsage(signedInMember.id),
         loadMembershipRevenueEvents(signedInMember.id),
@@ -2986,6 +3002,7 @@ function App() {
       setMember(signedInMember);
       setGarage(ensureList(savedGarage));
       setAppointments(ensureList(savedAppointments));
+      setServiceDocuments(ensureList(savedServiceDocuments));
       setFeedPosts(ensureList(savedFeedPosts));
       setBenefitUsage(ensureList(savedBenefitUsage));
       setMembershipRevenueEvents(ensureList(savedMembershipRevenue));
@@ -3006,6 +3023,7 @@ function App() {
     await signOut();
     localStorage.removeItem("carClubMember");
     setMember(null);
+    setServiceDocuments([]);
     setBenefitUsage([]);
     setMembershipRevenueEvents([]);
     setVehicleValuations([]);
@@ -3039,17 +3057,19 @@ function App() {
     if (!isBackendConfigured) {
       const storedGarage = ensureList(readStoredJson("carClubGarage", defaultGarage));
       const storedAppointments = ensureList(readStoredJson("carClubAppointments", defaultAppointments));
+      const storedServiceDocuments = ensureList(readStoredJson("carClubServiceDocuments", []));
       const storedFeedPosts = ensureList(readStoredJson("carClubFeedPosts", []));
       const storedBenefitUsage = ensureList(readStoredJson("carClubBenefitUsage", []));
       const storedMembershipRevenue = ensureList(readStoredJson("carClubMembershipRevenue", []));
       const storedVehicleValuations = ensureList(readStoredJson("carClubVehicleValuations", []));
       setGarage(storedGarage);
       setAppointments(storedAppointments);
+      setServiceDocuments(storedServiceDocuments);
       setFeedPosts(storedFeedPosts);
       setBenefitUsage(storedBenefitUsage);
       setMembershipRevenueEvents(storedMembershipRevenue);
       setVehicleValuations(storedVehicleValuations);
-      return { appointments: storedAppointments, benefitUsage: storedBenefitUsage, feedPosts: storedFeedPosts, garage: storedGarage, membershipRevenueEvents: storedMembershipRevenue, vehicleValuations: storedVehicleValuations };
+      return { appointments: storedAppointments, benefitUsage: storedBenefitUsage, feedPosts: storedFeedPosts, garage: storedGarage, membershipRevenueEvents: storedMembershipRevenue, serviceDocuments: storedServiceDocuments, vehicleValuations: storedVehicleValuations };
     }
 
     const currentMember = await getCurrentMember();
@@ -3064,16 +3084,18 @@ function App() {
     if (!hasMembershipAccess(currentMember.subscriptionStatus)) {
       setGarage([]);
       setAppointments([]);
+      setServiceDocuments([]);
       setFeedPosts([]);
       setBenefitUsage([]);
       setMembershipRevenueEvents([]);
       setVehicleValuations([]);
-      return { appointments: [], benefitUsage: [], feedPosts: [], garage: [], membershipRevenueEvents: [], vehicleValuations: [] };
+      return { appointments: [], benefitUsage: [], feedPosts: [], garage: [], membershipRevenueEvents: [], serviceDocuments: [], vehicleValuations: [] };
     }
 
-    const [savedGarage, savedAppointments, savedFeedPosts, savedBenefitUsage, savedMembershipRevenue, savedVehicleValuations] = await Promise.all([
+    const [savedGarage, savedAppointments, savedServiceDocuments, savedFeedPosts, savedBenefitUsage, savedMembershipRevenue, savedVehicleValuations] = await Promise.all([
       loadVehicles(currentMember.id),
       loadServiceRequests(currentMember.id),
+      loadServiceDocuments(currentMember.id),
       loadFeedPosts(),
       loadMembershipBenefitUsage(currentMember.id),
       loadMembershipRevenueEvents(currentMember.id),
@@ -3082,17 +3104,19 @@ function App() {
 
     const nextGarage = ensureList(savedGarage);
     const nextAppointments = ensureList(savedAppointments);
+    const nextServiceDocuments = ensureList(savedServiceDocuments);
     const nextFeedPosts = ensureList(savedFeedPosts);
     const nextBenefitUsage = ensureList(savedBenefitUsage);
     const nextMembershipRevenue = ensureList(savedMembershipRevenue);
     const nextVehicleValuations = ensureList(savedVehicleValuations);
     setGarage(nextGarage);
     setAppointments(nextAppointments);
+    setServiceDocuments(nextServiceDocuments);
     setFeedPosts(nextFeedPosts);
     setBenefitUsage(nextBenefitUsage);
     setMembershipRevenueEvents(nextMembershipRevenue);
     setVehicleValuations(nextVehicleValuations);
-    return { appointments: nextAppointments, benefitUsage: nextBenefitUsage, feedPosts: nextFeedPosts, garage: nextGarage, membershipRevenueEvents: nextMembershipRevenue, vehicleValuations: nextVehicleValuations };
+    return { appointments: nextAppointments, benefitUsage: nextBenefitUsage, feedPosts: nextFeedPosts, garage: nextGarage, membershipRevenueEvents: nextMembershipRevenue, serviceDocuments: nextServiceDocuments, vehicleValuations: nextVehicleValuations };
   }, []);
 
   async function handleUpdateMember(settings) {
@@ -3391,7 +3415,7 @@ function App() {
       );
     }
 
-    return <MemberApp appointments={appointments} benefitUsage={benefitUsage} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} membershipRevenueEvents={membershipRevenueEvents} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteFeedPost={deleteFeedPost} onDeleteVehicle={deleteVehicle} onEditFeedPost={editFeedPost} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onRefreshMemberAppData={refreshMemberAppData} onToggleFeedReaction={toggleFeedPostReaction} onUpdateAppointment={updateAppointment} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} servicePricing={servicePricing} vehicleValuations={vehicleValuations} />;
+    return <MemberApp appointments={appointments} benefitUsage={benefitUsage} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} membershipRevenueEvents={membershipRevenueEvents} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteFeedPost={deleteFeedPost} onDeleteVehicle={deleteVehicle} onEditFeedPost={editFeedPost} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onRefreshMemberAppData={refreshMemberAppData} onToggleFeedReaction={toggleFeedPostReaction} onUpdateAppointment={updateAppointment} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} serviceDocuments={serviceDocuments} servicePricing={servicePricing} vehicleValuations={vehicleValuations} />;
   }
 
   if (mode === "app") {
@@ -4014,6 +4038,84 @@ function AdminGarageCapacityRow({ member, onSave }) {
   );
 }
 
+function AdminServiceDocuments({ onDelete, onUpload, request }) {
+  const inputRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [documentError, setDocumentError] = useState("");
+  const documents = ensureList(request.documents);
+
+  async function chooseDocuments(event) {
+    const files = Array.from(event.target.files || []).slice(0, 10);
+    event.target.value = "";
+    if (!files.length || uploading) return;
+    setDocumentError("");
+    setUploading(true);
+
+    try {
+      await onUpload(request.id, files);
+    } catch (error) {
+      setDocumentError(error.message || "Could not upload the service documents.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function removeDocument(documentId) {
+    if (uploading) return;
+    setDocumentError("");
+    setUploading(true);
+    try {
+      await onDelete(documentId);
+    } catch (error) {
+      setDocumentError(error.message || "Could not remove the service document.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <section className="admin-service-documents">
+      <div className="admin-service-documents-heading">
+        <div>
+          <span>Documented service</span>
+          <h3>Receipts & Records</h3>
+          <p>Attach receipts, invoices, inspection reports, photos, or other completed-service files.</p>
+        </div>
+        <button className="button secondary compact-button" type="button" onClick={() => inputRef.current?.click()} disabled={uploading}>
+          <Upload size={17} /> {uploading ? "Uploading..." : "Add Documents"}
+        </button>
+        <input
+          ref={inputRef}
+          accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt"
+          hidden
+          multiple
+          type="file"
+          onChange={chooseDocuments}
+        />
+      </div>
+      {documents.length ? (
+        <div className="admin-service-document-list">
+          {documents.map((document) => (
+            <div key={document.id}>
+              <FileText size={18} />
+              <span>
+                <strong>{document.file_name || "Service document"}</strong>
+                <small>{formatDocumentSize(document.file_size)}</small>
+              </span>
+              <button aria-label={`Remove ${document.file_name || "service document"}`} type="button" onClick={() => removeDocument(document.id)} disabled={uploading}>
+                <Trash2 size={17} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <small className="admin-service-documents-empty">No files have been added to this service yet.</small>
+      )}
+      {documentError && <div className="error-message" role="alert">{documentError}</div>}
+    </section>
+  );
+}
+
 function AdminPortal({ onBack }) {
   const [adminToken, setAdminToken] = useState("");
   const [draftToken, setDraftToken] = useState(() => localStorage.getItem("whiteGloveAdminToken") || "");
@@ -4201,6 +4303,62 @@ function AdminPortal({ onBack }) {
     } catch (error) {
       setAdminError(error.message || "Could not update the member benefit.");
     }
+  }
+
+  async function uploadDemandDocuments(requestId, files) {
+    const selectedFiles = Array.from(files || []).slice(0, 10);
+    const invalidFile = selectedFiles.find((file) => file.size > 25 * 1024 * 1024);
+    if (invalidFile) throw new Error(`${invalidFile.name} is larger than 25 MB.`);
+
+    const prepareResponse = await fetch("/.netlify/functions/admin-service-requests", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-token": adminToken,
+      },
+      body: JSON.stringify({
+        action: "prepare-service-documents",
+        requestId,
+        files: selectedFiles.map((file) => ({ name: file.name, size: file.size, type: file.type })),
+      }),
+    });
+    const preparePayload = await prepareResponse.json().catch(() => ({}));
+    if (!prepareResponse.ok) throw new Error(preparePayload.error || "Could not prepare the document upload.");
+
+    const uploads = ensureList(preparePayload.uploads);
+    if (uploads.length !== selectedFiles.length) throw new Error("Not every document received a secure upload location.");
+    await Promise.all(uploads.map((upload, index) => uploadServiceDocumentToSignedUrl(upload, selectedFiles[index])));
+
+    const finalizeResponse = await fetch("/.netlify/functions/admin-service-requests", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-token": adminToken,
+      },
+      body: JSON.stringify({ action: "finalize-service-documents", requestId, uploads }),
+    });
+    const finalizePayload = await finalizeResponse.json().catch(() => ({}));
+    if (!finalizeResponse.ok) throw new Error(finalizePayload.error || "Could not save the document records.");
+    await loadAdminRequests(adminToken, { keepNotice: true });
+    setAdminNotice(`${selectedFiles.length} ${selectedFiles.length === 1 ? "document was" : "documents were"} added to the member's service folder.`);
+  }
+
+  async function deleteDemandDocument(documentId) {
+    const response = await fetch("/.netlify/functions/admin-service-requests", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-token": adminToken,
+      },
+      body: JSON.stringify({ documentId }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Could not remove the document.");
+    setServiceRequests((requests) => requests.map((request) => ({
+      ...request,
+      documents: ensureList(request.documents).filter((document) => document.id !== payload.deletedId),
+    })));
+    setAdminNotice("The service document was removed.");
   }
 
   async function updateServicePrice(serviceLabel, pricingUpdate) {
@@ -4403,6 +4561,7 @@ function AdminPortal({ onBack }) {
                     </div>
                   </dl>
                   {request.notes && <pre>{request.notes}</pre>}
+                  <AdminServiceDocuments onDelete={deleteDemandDocument} onUpload={uploadDemandDocuments} request={request} />
                   <AdminBenefitControls onUpdate={updateDemandBenefit} request={request} />
                   <div className="admin-status-actions">
                     {["Requested", "In Review", "Approved", "Booked", "Paid / Confirmed", "Completed"].map((status) => (
@@ -4879,7 +5038,7 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
   );
 }
 
-function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompletion, member, membershipRevenueEvents, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteFeedPost, onDeleteVehicle, onEditFeedPost, onLogout, onRefreshFeedPosts, onRefreshMemberAppData, onToggleFeedReaction, onUpdateAppointment, onUpdateMember, onUpdateVehicle, servicePricing, vehicleValuations }) {
+function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompletion, member, membershipRevenueEvents, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteFeedPost, onDeleteVehicle, onEditFeedPost, onLogout, onRefreshFeedPosts, onRefreshMemberAppData, onToggleFeedReaction, onUpdateAppointment, onUpdateMember, onUpdateVehicle, serviceDocuments, servicePricing, vehicleValuations }) {
   const [activeTab, setActiveTab] = useState("home");
   const [completion, setCompletion] = useState(null);
   const [instantBooking, setInstantBooking] = useState(null);
@@ -4999,6 +5158,7 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
                 member={member}
                 onInstantBook={startInstantBooking}
                 onUpdateAppointment={onUpdateAppointment}
+                serviceDocuments={serviceDocuments}
                 servicePricing={servicePricing}
                 setActiveTab={navigateToTab}
               />
@@ -5062,7 +5222,7 @@ function CompletionScreen({ completion, onNavigate }) {
   );
 }
 
-function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, onInstantBook, onUpdateAppointment, servicePricing, setActiveTab }) {
+function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, onInstantBook, onUpdateAppointment, serviceDocuments, servicePricing, setActiveTab }) {
   const [nowMs, setNowMs] = useState(Date.now());
   const [showAllAppointments, setShowAllAppointments] = useState(false);
   const [requestListOpen, setRequestListOpen] = useState(false);
@@ -5090,7 +5250,10 @@ function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, o
     if (requestFilter === "requested") return ["requested", "in review"].includes(status);
     return true;
   });
-  const visibleRequests = requestListOpen ? filteredRequests : filteredRequests.slice(0, 3);
+  const activeServiceRequestCount = focusedAppointments.filter((appointment) => {
+    const status = normalizeRequestValue(appointment.status);
+    return !["completed", "cancelled", "canceled"].includes(status);
+  }).length;
 
   const moveInstantBook = useCallback((requestedIndex) => {
     const nextIndex = Math.max(0, Math.min(requestedIndex, instantRecommendations.length - 1));
@@ -5112,13 +5275,16 @@ function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, o
   }, []);
 
   useEffect(() => {
-    if (!showAllAppointments) return undefined;
+    if (!showAllAppointments && !requestListOpen) return undefined;
     const closeOnEscape = (event) => {
-      if (event.key === "Escape") setShowAllAppointments(false);
+      if (event.key === "Escape") {
+        setShowAllAppointments(false);
+        setRequestListOpen(false);
+      }
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [showAllAppointments]);
+  }, [requestListOpen, showAllAppointments]);
 
   useEffect(() => {
     setInstantBookIndex(0);
@@ -5138,12 +5304,24 @@ function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, o
         </section>
       )}
       <section className="app-section home-priority">
-        <div className="app-section-title">
+        <div className="app-section-title home-priority-heading">
           <div>
             <p className="eyebrow">Next appointment</p>
             <h2>Service Countdown</h2>
           </div>
-          <button type="button" onClick={() => setActiveTab("schedule")}>Schedule</button>
+          <div className="home-priority-actions">
+            <button
+              aria-label={`View ${activeServiceRequestCount} upcoming services`}
+              className="upcoming-services-trigger"
+              type="button"
+              onClick={() => setRequestListOpen(true)}
+            >
+              <CalendarCheck size={16} />
+              <span>Upcoming</span>
+              <strong>{activeServiceRequestCount}</strong>
+            </button>
+            <button className="home-schedule-link" type="button" onClick={() => setActiveTab("schedule")}>Schedule</button>
+          </div>
         </div>
         {upcomingBookings.length > 0 ? (
           <>
@@ -5343,34 +5521,21 @@ function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, o
         </div>
       </section>
 
-      <section className="app-metrics">
-        <article>
-          <CalendarCheck size={22} />
-          <strong>{serviceReminders.length}</strong>
-          <span>Upcoming reminders</span>
-        </article>
-        <article>
-          <Clock size={22} />
-          <strong>{focusedAppointments.length}</strong>
-          <span>Open requests</span>
-        </article>
-        <article>
-          <ShieldCheck size={22} />
-          <strong>{getAvailableServices(member.plan).length}</strong>
-          <span>{activeVehicle ? "Services available" : "Package services"}</span>
-        </article>
-      </section>
+      <DocumentedServices appointments={focusedAppointments} documents={serviceDocuments} />
 
-      {focusedAppointments.length > 0 && (
-        <section className="app-section request-history-section">
-          <div className="app-section-title">
-            <div>
-              <h2>{activeVehicle ? `Recent Requests for ${vehicleLabel(activeVehicle)}` : "Recent Requests"}</h2>
-              <p>Open this car's request list and sort it by service status.</p>
-            </div>
-            <button type="button" onClick={() => setRequestListOpen((open) => !open)}>{requestListOpen ? "Close list" : "More"}</button>
-          </div>
-          {requestListOpen && (
+      {requestListOpen && (
+        <div className="request-history-backdrop" role="presentation" onMouseDown={() => setRequestListOpen(false)}>
+          <section className="request-history-dialog" aria-label="Upcoming services" aria-modal="true" role="dialog" onMouseDown={(event) => event.stopPropagation()}>
+            <header>
+              <div>
+                <p className="eyebrow">White Glove schedule</p>
+                <h2>Upcoming Services</h2>
+                <p>{activeVehicle ? `Requests for ${vehicleLabel(activeVehicle)}` : "Your service requests"}</p>
+              </div>
+              <button aria-label="Close upcoming services" className="icon-button" type="button" onClick={() => setRequestListOpen(false)}>
+                <X size={20} />
+              </button>
+            </header>
             <div className="request-filter-tabs" role="group" aria-label="Filter service requests">
               {[
                 ["all", "All"],
@@ -5381,19 +5546,169 @@ function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, o
                 <button className={requestFilter === value ? "active" : ""} key={value} onClick={() => setRequestFilter(value)} type="button">{label}</button>
               ))}
             </div>
-          )}
-          {visibleRequests.length ? visibleRequests.map((appointment) => (
-            <ServiceRequestCard appointment={appointment} key={appointment.id} onUpdateAppointment={onUpdateAppointment} />
-          )) : (
-            <div className="empty-state compact-empty">
-              <ClipboardCheck size={22} />
-              <h3>No {requestFilter === "all" ? "service" : requestFilter} requests</h3>
-              <p>Requests with this status will appear here.</p>
+            <div className="request-history-dialog-list">
+              {filteredRequests.length ? filteredRequests.map((appointment) => (
+                <ServiceRequestCard appointment={appointment} key={appointment.id} onUpdateAppointment={onUpdateAppointment} />
+              )) : (
+                <div className="empty-state compact-empty">
+                  <ClipboardCheck size={22} />
+                  <h3>No {requestFilter === "all" ? "service" : requestFilter} requests</h3>
+                  <p>Requests with this status will appear here.</p>
+                </div>
+              )}
             </div>
-          )}
-        </section>
+          </section>
+        </div>
       )}
     </div>
+  );
+}
+
+function formatDocumentSize(bytes) {
+  const size = Number(bytes) || 0;
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(size >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  if (size >= 1024) return `${Math.ceil(size / 1024)} KB`;
+  return size ? `${size} B` : "File";
+}
+
+function DocumentedServices({ appointments, documents }) {
+  const [openFolderId, setOpenFolderId] = useState("");
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState([]);
+  const [downloadError, setDownloadError] = useState("");
+  const [downloading, setDownloading] = useState(false);
+  const documentList = ensureList(documents);
+  const folders = ensureList(appointments)
+    .filter((appointment) => (
+      normalizeRequestValue(appointment.status) === "completed"
+      || documentList.some((document) => document.requestId === appointment.id)
+    ))
+    .map((appointment) => ({
+      ...appointment,
+      documents: documentList.filter((document) => document.requestId === appointment.id),
+    }));
+
+  function toggleFolder(folderId) {
+    setOpenFolderId((currentId) => (currentId === folderId ? "" : folderId));
+    setSelectedDocumentIds([]);
+    setDownloadError("");
+  }
+
+  function toggleDocument(documentId) {
+    setSelectedDocumentIds((currentIds) => (
+      currentIds.includes(documentId)
+        ? currentIds.filter((id) => id !== documentId)
+        : [...currentIds, documentId]
+    ));
+  }
+
+  async function downloadDocuments(items) {
+    const selectedItems = ensureList(items).filter(Boolean);
+    if (!selectedItems.length || downloading) return;
+    setDownloadError("");
+    setDownloading(true);
+
+    try {
+      for (const document of selectedItems) {
+        const signedUrl = await createServiceDocumentDownloadUrl(document);
+        if (!signedUrl) throw new Error(`Could not prepare ${document.fileName}.`);
+        const link = window.document.createElement("a");
+        link.href = signedUrl;
+        link.download = document.fileName || "service-document";
+        link.rel = "noreferrer";
+        link.target = "_blank";
+        window.document.body.appendChild(link);
+        link.click();
+        link.remove();
+        await new Promise((resolve) => window.setTimeout(resolve, 180));
+      }
+    } catch (error) {
+      setDownloadError(error.message || "Could not download the selected documents.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <section className="app-section documented-services-section">
+      <div className="app-section-title">
+        <div>
+          <p className="eyebrow">Vehicle records</p>
+          <h2>Documented Services</h2>
+          <p>Receipts, invoices, inspection reports, and service records organized by visit.</p>
+        </div>
+        <span className="documented-service-count">{folders.length}</span>
+      </div>
+
+      {folders.length ? (
+        <div className="documented-service-folders">
+          {folders.map((folder) => {
+            const folderOpen = openFolderId === folder.id;
+            const selectedDocuments = folder.documents.filter((document) => selectedDocumentIds.includes(document.id));
+            return (
+              <article className={folderOpen ? "documented-service-folder open" : "documented-service-folder"} key={folder.id}>
+                <button className="documented-folder-heading" type="button" onClick={() => toggleFolder(folder.id)}>
+                  <span className="documented-folder-icon"><FolderOpen size={22} /></span>
+                  <span className="documented-folder-copy">
+                    <strong>{folder.service || "Completed service"}</strong>
+                    <small>{folder.vehicle || "Garage vehicle"} · {folder.date || "Service date pending"}</small>
+                  </span>
+                  <span className="documented-folder-total">{folder.documents.length} {folder.documents.length === 1 ? "file" : "files"}</span>
+                  <ChevronRight className="documented-folder-chevron" size={20} />
+                </button>
+
+                {folderOpen && (
+                  <div className="documented-folder-content">
+                    {folder.documents.length ? (
+                      <>
+                        <div className="documented-file-list">
+                          {folder.documents.map((document) => (
+                            <div className="documented-file-row" key={document.id}>
+                              <label>
+                                <input
+                                  checked={selectedDocumentIds.includes(document.id)}
+                                  type="checkbox"
+                                  onChange={() => toggleDocument(document.id)}
+                                />
+                                <FileText size={19} />
+                                <span>
+                                  <strong>{document.fileName}</strong>
+                                  <small>{formatDocumentSize(document.fileSize)}</small>
+                                </span>
+                              </label>
+                              <button aria-label={`Download ${document.fileName}`} type="button" onClick={() => downloadDocuments([document])} disabled={downloading}>
+                                <Download size={18} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        <button className="button secondary documented-download-selected" type="button" onClick={() => downloadDocuments(selectedDocuments)} disabled={!selectedDocuments.length || downloading}>
+                          <Download size={18} /> {downloading ? "Preparing..." : `Download Selected (${selectedDocuments.length})`}
+                        </button>
+                      </>
+                    ) : (
+                      <div className="documented-folder-empty">
+                        <FileText size={20} />
+                        <div>
+                          <strong>Documents are being prepared</strong>
+                          <p>Your concierge can add receipts and records to this completed service folder.</p>
+                        </div>
+                      </div>
+                    )}
+                    {downloadError && <div className="error-message" role="alert">{downloadError}</div>}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="empty-state compact-empty documented-services-empty">
+          <FolderOpen size={24} />
+          <h3>No documented services yet</h3>
+          <p>Completed visits and their downloadable records will appear here.</p>
+        </div>
+      )}
+    </section>
   );
 }
 

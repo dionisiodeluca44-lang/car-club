@@ -430,6 +430,49 @@ export async function loadServiceRequests(userId) {
   return data.map(fromRequestRow);
 }
 
+export async function loadServiceDocuments(userId) {
+  if (!supabase || !userId) return [];
+
+  const { data, error } = await supabase
+    .from("service_documents")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    if (error.code === "42P01" || error.code === "PGRST205") return [];
+    throw new Error(`Could not load documented services: ${error.message}`);
+  }
+
+  return (data || []).map(fromServiceDocumentRow);
+}
+
+export async function createServiceDocumentDownloadUrl(document) {
+  if (!supabase || !document?.storagePath) return "";
+
+  const { data, error } = await supabase.storage
+    .from("vehicle-documents")
+    .createSignedUrl(document.storagePath, 60 * 5, { download: document.fileName || true });
+
+  if (error) throw new Error(`Could not prepare ${document.fileName || "the document"} for download.`);
+  return data?.signedUrl || "";
+}
+
+export async function uploadServiceDocumentToSignedUrl(upload, file) {
+  if (!supabase || !upload?.path || !upload?.token || !file) {
+    throw new Error("The secure upload could not be prepared.");
+  }
+
+  const { error } = await supabase.storage
+    .from("vehicle-documents")
+    .uploadToSignedUrl(upload.path, upload.token, file, {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+
+  if (error) throw new Error(`Could not upload ${file.name}: ${error.message}`);
+}
+
 export async function createServiceRequest(userId, request) {
   if (!supabase || !userId) return request;
 
@@ -1029,6 +1072,19 @@ function fromRequestRow(row) {
     time: row.preferred_time || "",
     notes: row.notes || "",
     status: row.status || "Requested",
+  };
+}
+
+function fromServiceDocumentRow(row) {
+  return {
+    id: row.id,
+    requestId: row.service_request_id,
+    userId: row.user_id,
+    fileName: row.file_name || "Service document",
+    fileType: row.file_type || "application/octet-stream",
+    fileSize: Number(row.file_size) || 0,
+    storagePath: row.storage_path,
+    createdAt: row.created_at,
   };
 }
 

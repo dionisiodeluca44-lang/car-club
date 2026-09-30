@@ -98,6 +98,20 @@ create table if not exists public.service_requests (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.service_documents (
+  id uuid primary key default gen_random_uuid(),
+  service_request_id uuid not null references public.service_requests(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  file_name text not null,
+  file_type text not null default 'application/octet-stream',
+  file_size bigint not null default 0 check (file_size >= 0),
+  storage_path text not null unique,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists service_documents_member_request_idx
+  on public.service_documents (user_id, service_request_id, created_at desc);
+
 create table if not exists public.membership_benefit_usage (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -216,6 +230,9 @@ alter table public.profiles enable row level security;
 alter table public.vehicles enable row level security;
 alter table public.vehicle_valuation_history enable row level security;
 alter table public.service_requests enable row level security;
+alter table public.service_documents enable row level security;
+revoke insert, update, delete on public.service_documents from authenticated;
+grant select on public.service_documents to authenticated;
 alter table public.membership_benefit_usage enable row level security;
 revoke insert, update, delete on public.membership_benefit_usage from authenticated;
 grant select on public.membership_benefit_usage to authenticated;
@@ -316,6 +333,7 @@ drop policy if exists "Members can insert own vehicle valuations" on public.vehi
 drop policy if exists "Members can read own service requests" on public.service_requests;
 drop policy if exists "Members can insert own service requests" on public.service_requests;
 drop policy if exists "Members can update own service requests" on public.service_requests;
+drop policy if exists "Members can read own service documents" on public.service_documents;
 drop policy if exists "Members can read own membership benefits" on public.membership_benefit_usage;
 drop policy if exists "Members can read all feed posts" on public.feed_posts;
 drop policy if exists "Members can create own feed posts" on public.feed_posts;
@@ -385,6 +403,10 @@ create policy "Members can update own service requests"
   on public.service_requests for update
   using (auth.uid() = user_id and public.has_active_membership())
   with check (auth.uid() = user_id and public.has_active_membership());
+
+create policy "Members can read own service documents"
+  on public.service_documents for select
+  using (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can read own membership benefits"
   on public.membership_benefit_usage for select
