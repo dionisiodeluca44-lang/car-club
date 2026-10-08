@@ -19,8 +19,10 @@ import KeyRound from "lucide-react/dist/esm/icons/key-round.js";
 import LogOut from "lucide-react/dist/esm/icons/log-out.js";
 import MapPin from "lucide-react/dist/esm/icons/map-pin.js";
 import Menu from "lucide-react/dist/esm/icons/menu.js";
+import MessageCircle from "lucide-react/dist/esm/icons/message-circle.js";
 import Plus from "lucide-react/dist/esm/icons/plus.js";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw.js";
+import Send from "lucide-react/dist/esm/icons/send.js";
 import ShieldCheck from "lucide-react/dist/esm/icons/shield-check.js";
 import Sparkles from "lucide-react/dist/esm/icons/sparkles.js";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2.js";
@@ -31,6 +33,7 @@ import Wrench from "lucide-react/dist/esm/icons/wrench.js";
 import X from "lucide-react/dist/esm/icons/x.js";
 import {
   createAccount,
+  createFeedComment,
   createServiceDocumentDownloadUrl,
   createFeedPost,
   createServiceRequest,
@@ -2455,11 +2458,12 @@ function homeSmartCards({ garage, insights, reminders }) {
 const feedEventPrefix = "[WG_EVENT]";
 const eventFallbackImage = "https://images.unsplash.com/photo-1503736334956-4c8f8e92946d?auto=format&fit=crop&w=900&q=85";
 
-function encodeFeedEvent({ description, place, time, title }) {
+function encodeFeedEvent({ description, endTime, place, time, title }) {
   return [
     feedEventPrefix,
     `Title: ${title || "Member event"}`,
     `Time: ${time || "Time pending"}`,
+    `End: ${endTime || ""}`,
     `Place: ${place || "Place pending"}`,
     `Description: ${description || "Details pending"}`,
   ].join("\n");
@@ -2474,14 +2478,41 @@ function parseFeedEvent(post = {}) {
   if (!String(post.caption || "").startsWith(feedEventPrefix)) return null;
   return {
     description: readEventLine(post.caption, "Description"),
+    endTime: readEventLine(post.caption, "End"),
     place: readEventLine(post.caption, "Place"),
     time: readEventLine(post.caption, "Time"),
     title: readEventLine(post.caption, "Title") || "Member event",
   };
 }
 
-function feedEventPosts(posts) {
-  return ensureList(posts).filter((post) => parseFeedEvent(post));
+function feedEventTime(post) {
+  const event = parseFeedEvent(post);
+  if (!event?.time || event.time === "Time pending") return Number.NaN;
+  return new Date(event.time).getTime();
+}
+
+function isFeedEventExpired(post, nowMs = Date.now()) {
+  const event = parseFeedEvent(post);
+  const eventTime = new Date(event?.endTime || event?.time || "").getTime();
+  return Number.isFinite(eventTime) && eventTime <= nowMs;
+}
+
+function feedEventPosts(posts, nowMs = Date.now()) {
+  return ensureList(posts)
+    .filter((post) => parseFeedEvent(post) && !isFeedEventExpired(post, nowMs))
+    .sort((left, right) => {
+      const leftTime = feedEventTime(left);
+      const rightTime = feedEventTime(right);
+      if (!Number.isFinite(leftTime)) return 1;
+      if (!Number.isFinite(rightTime)) return -1;
+      return leftTime - rightTime;
+    });
+}
+
+function archivedFeedEventPosts(posts, nowMs = Date.now()) {
+  return ensureList(posts)
+    .filter((post) => parseFeedEvent(post) && isFeedEventExpired(post, nowMs))
+    .sort((left, right) => feedEventTime(right) - feedEventTime(left));
 }
 
 function serviceHistoryForVehicle(vehicle, appointments) {
@@ -3316,7 +3347,11 @@ function App() {
 
     if (isBackendConfigured && member?.id) {
       const savedPost = await updateFeedPostRecord(member.id, postId, updates);
-      setFeedPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? savedPost : post)));
+      setFeedPosts((currentPosts) => currentPosts.map((post) => (
+        post.id === postId
+          ? { ...post, ...savedPost, comments: ensureList(post.comments), reactions: ensureList(post.reactions) }
+          : post
+      )));
       return savedPost;
     }
 
@@ -3364,6 +3399,27 @@ function App() {
 
     if (!isBackendConfigured) localStorage.setItem("carClubFeedPosts", JSON.stringify(nextPosts));
     setFeedPosts(nextPosts);
+  }
+
+  async function addFeedPostComment(postId, body) {
+    const existingPost = feedPosts.find((post) => post.id === postId);
+    if (!existingPost) throw new Error("Could not find that feed post.");
+
+    const savedComment = await createFeedComment(
+      member?.id || "local-member",
+      postId,
+      body,
+      member?.name || "Member",
+    );
+    const nextPosts = feedPosts.map((post) => (
+      post.id === postId
+        ? { ...post, comments: [...ensureList(post.comments), savedComment] }
+        : post
+    ));
+
+    if (!isBackendConfigured) localStorage.setItem("carClubFeedPosts", JSON.stringify(nextPosts));
+    setFeedPosts(nextPosts);
+    return savedComment;
   }
 
   if (mode === "login") {
@@ -3415,7 +3471,7 @@ function App() {
       );
     }
 
-    return <MemberApp appointments={appointments} benefitUsage={benefitUsage} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} membershipRevenueEvents={membershipRevenueEvents} onAddAppointment={addAppointment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteFeedPost={deleteFeedPost} onDeleteVehicle={deleteVehicle} onEditFeedPost={editFeedPost} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onRefreshMemberAppData={refreshMemberAppData} onToggleFeedReaction={toggleFeedPostReaction} onUpdateAppointment={updateAppointment} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} serviceDocuments={serviceDocuments} servicePricing={servicePricing} vehicleValuations={vehicleValuations} />;
+    return <MemberApp appointments={appointments} benefitUsage={benefitUsage} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} membershipRevenueEvents={membershipRevenueEvents} onAddAppointment={addAppointment} onAddFeedComment={addFeedPostComment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteFeedPost={deleteFeedPost} onDeleteVehicle={deleteVehicle} onEditFeedPost={editFeedPost} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onRefreshMemberAppData={refreshMemberAppData} onToggleFeedReaction={toggleFeedPostReaction} onUpdateAppointment={updateAppointment} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} serviceDocuments={serviceDocuments} servicePricing={servicePricing} vehicleValuations={vehicleValuations} />;
   }
 
   if (mode === "app") {
@@ -4116,6 +4172,52 @@ function AdminServiceDocuments({ onDelete, onUpload, request }) {
   );
 }
 
+function AdminEventArchive({ events }) {
+  const archivedEvents = archivedFeedEventPosts(events);
+
+  return (
+    <section className="admin-event-archive">
+      <div className="admin-event-archive-heading">
+        <div>
+          <p className="eyebrow">Member community</p>
+          <h2>Past Events</h2>
+          <p>Events move here automatically after their scheduled time and are no longer visible to members.</p>
+        </div>
+        <span>{archivedEvents.length}</span>
+      </div>
+
+      {archivedEvents.length ? (
+        <div className="admin-event-archive-list">
+          {archivedEvents.map((post) => {
+            const event = parseFeedEvent(post);
+            const scheduledAt = feedEventTime(post);
+            return (
+              <article className="admin-event-archive-card" key={post.id}>
+                {post.image && <img alt="" src={post.image} />}
+                <div className="admin-event-archive-copy">
+                  <span>Archived event</span>
+                  <h3>{event.title}</h3>
+                  <div className="admin-event-archive-meta">
+                    <span><CalendarCheck size={16} /> {Number.isFinite(scheduledAt) ? new Date(scheduledAt).toLocaleString() : "Date unavailable"}</span>
+                    <span><MapPin size={16} /> {event.place || "Location unavailable"}</span>
+                  </div>
+                  <p>{event.description || "No event description was provided."}</p>
+                  <small>Posted by {post.author || "Member"} · {formatPostDate(post.createdAt)}</small>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <article className="admin-empty-card">
+          <h2>No past events</h2>
+          <p>Expired member events will be kept here automatically.</p>
+        </article>
+      )}
+    </section>
+  );
+}
+
 function AdminPortal({ onBack }) {
   const [adminToken, setAdminToken] = useState("");
   const [draftToken, setDraftToken] = useState(() => localStorage.getItem("whiteGloveAdminToken") || "");
@@ -4126,6 +4228,7 @@ function AdminPortal({ onBack }) {
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [membershipPricing, setMembershipPricing] = useState({});
   const [adminMembers, setAdminMembers] = useState([]);
+  const [adminFeedEvents, setAdminFeedEvents] = useState([]);
   const [servicePricing, setServicePricing] = useState({});
   const [serviceRequests, setServiceRequests] = useState([]);
 
@@ -4145,6 +4248,7 @@ function AdminPortal({ onBack }) {
       }
 
       setServiceRequests(payload.requests || []);
+      setAdminFeedEvents(payload.events || []);
     } catch (error) {
       setAdminError(error.message || "Could not load service demands.");
       if (options.throwOnError) throw error;
@@ -4252,6 +4356,7 @@ function AdminPortal({ onBack }) {
     setServicePricing({});
     setMembershipPricing({});
     setAdminMembers([]);
+    setAdminFeedEvents([]);
     setAdminNotice("");
   }
 
@@ -4441,10 +4546,33 @@ function AdminPortal({ onBack }) {
 
   const adminNavigation = [
     { id: "requests", label: "Service Requests" },
+    { id: "past-events", label: "Past Events" },
     { id: "pricing", label: "Booking Price Settings" },
     { id: "memberships", label: "Subscription Price Settings" },
     { id: "garage-capacity", label: "Garage Capacity" },
   ];
+  const adminPageContent = {
+    requests: {
+      title: "Service Requests",
+      description: "Review paid bookings, member service requests, preferred timing, vehicle details, and concierge status.",
+    },
+    "past-events": {
+      title: "Past Events",
+      description: "Review events that have automatically left the member feed after their scheduled time.",
+    },
+    pricing: {
+      title: "Booking Price Settings",
+      description: "Set the same service request price for every member.",
+    },
+    memberships: {
+      title: "Subscription Price Settings",
+      description: "Set the membership prices used for new account activation checkouts.",
+    },
+    "garage-capacity": {
+      title: "Garage Capacity",
+      description: "Review Collector Garage use and grant extra vehicle spots to individual members.",
+    },
+  }[adminMenu] || { title: "Service Requests", description: "Review member service requests." };
 
   if (!adminToken) {
     return (
@@ -4482,16 +4610,8 @@ function AdminPortal({ onBack }) {
           </button>
           <div>
             <p className="eyebrow">White Glove backend</p>
-            <h1>{adminMenu === "garage-capacity" ? "Garage Capacity" : adminMenu === "memberships" ? "Subscription Price Settings" : adminMenu === "pricing" ? "Booking Price Settings" : "Service Requests"}</h1>
-            <p>
-              {adminMenu === "garage-capacity"
-                ? "Review Collector Garage use and grant extra vehicle spots to individual members."
-                : adminMenu === "memberships"
-                ? "Set the membership prices used for new account activation checkouts."
-                : adminMenu === "pricing"
-                  ? "Set the same service request price for every member."
-                  : "Review paid bookings, member service requests, preferred timing, vehicle details, and concierge status."}
-            </p>
+            <h1>{adminPageContent.title}</h1>
+            <p>{adminPageContent.description}</p>
           </div>
           <div className="admin-header-actions">
             <button className="button secondary compact-button" type="button" onClick={() => { loadAdminRequests(adminToken); loadAdminPricing(adminToken); loadAdminMembershipPricing(adminToken); loadAdminMembers(adminToken); }} disabled={loadingRequests}>
@@ -4526,6 +4646,7 @@ function AdminPortal({ onBack }) {
         {adminMenu === "pricing" && <AdminServicePricingEditor onSave={updateServicePrice} pricing={servicePricing} />}
         {adminMenu === "memberships" && <AdminMembershipPricingEditor membershipPricing={membershipPricing} onSave={updateMembershipPrice} />}
         {adminMenu === "garage-capacity" && <AdminGarageCapacity members={adminMembers} onSave={updateMemberGarageCapacity} />}
+        {adminMenu === "past-events" && <AdminEventArchive events={adminFeedEvents} />}
 
         {adminMenu === "requests" && (
           <div className="admin-request-grid">
@@ -5038,7 +5159,7 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
   );
 }
 
-function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompletion, member, membershipRevenueEvents, onAddAppointment, onAddFeedPost, onAddVehicle, onDeleteFeedPost, onDeleteVehicle, onEditFeedPost, onLogout, onRefreshFeedPosts, onRefreshMemberAppData, onToggleFeedReaction, onUpdateAppointment, onUpdateMember, onUpdateVehicle, serviceDocuments, servicePricing, vehicleValuations }) {
+function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompletion, member, membershipRevenueEvents, onAddAppointment, onAddFeedComment, onAddFeedPost, onAddVehicle, onDeleteFeedPost, onDeleteVehicle, onEditFeedPost, onLogout, onRefreshFeedPosts, onRefreshMemberAppData, onToggleFeedReaction, onUpdateAppointment, onUpdateMember, onUpdateVehicle, serviceDocuments, servicePricing, vehicleValuations }) {
   const [activeTab, setActiveTab] = useState("home");
   const [completion, setCompletion] = useState(null);
   const [instantBooking, setInstantBooking] = useState(null);
@@ -5164,8 +5285,8 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
               />
             )}
             {!completion && activeTab === "garage" && <GarageScreen activeVehicleId={activeVehicleId} appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onSelectVehicle={selectActiveVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={setCompletion} vehicleValuations={vehicleValuations} />}
-            {!completion && activeTab === "schedule" && <ScheduleScreen activeVehicleId={activeVehicleId} appointments={appointmentList} benefitSummary={benefitSummary} garage={garageList} instantBooking={instantBooking} member={member} onAddAppointment={onAddAppointment} onCancelInstantBooking={() => setInstantBooking(null)} onComplete={setCompletion} onUpdateAppointment={onUpdateAppointment} servicePricing={servicePricing} setActiveTab={navigateToTab} vehicleOptions={vehicleOptions} />}
-            {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedPost={onAddFeedPost} onComplete={setCompletion} onDeleteFeedPost={onDeleteFeedPost} onEditFeedPost={onEditFeedPost} onRefreshFeedPosts={onRefreshFeedPosts} onToggleFeedReaction={onToggleFeedReaction} vehicleOptions={vehicleOptions} />}
+            {!completion && activeTab === "schedule" && <ScheduleScreen activeVehicleId={activeVehicleId} appointments={appointmentList} benefitSummary={benefitSummary} garage={garageList} instantBooking={instantBooking} member={member} onAddAppointment={onAddAppointment} onCancelInstantBooking={() => setInstantBooking(null)} onComplete={setCompletion} onSelectVehicle={selectActiveVehicle} onUpdateAppointment={onUpdateAppointment} servicePricing={servicePricing} setActiveTab={navigateToTab} vehicleOptions={vehicleOptions} />}
+            {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedComment={onAddFeedComment} onAddFeedPost={onAddFeedPost} onComplete={setCompletion} onDeleteFeedPost={onDeleteFeedPost} onEditFeedPost={onEditFeedPost} onRefreshFeedPosts={onRefreshFeedPosts} onToggleFeedReaction={onToggleFeedReaction} vehicleOptions={vehicleOptions} />}
             {!completion && activeTab === "account" && <AccountScreen garageCount={garageList.length} member={member} onLogout={onLogout} onUpdateMember={onUpdateMember} />}
           </div>
         </MemberPanelErrorBoundary>
@@ -5240,7 +5361,7 @@ function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, o
   const smartCards = homeSmartCards({ garage: focusedGarage, insights: garageInsights, reminders: serviceReminders });
   const instantRecommendations = instantBookRecommendations(focusedGarage, member.plan, servicePricing, focusedAppointments);
   const currentInstantRecommendation = instantRecommendations[instantBookIndex] || instantRecommendations[0] || null;
-  const events = feedEventPosts(feedPosts);
+  const events = feedEventPosts(feedPosts, nowMs);
   const [servicesExpanded, setServicesExpanded] = useState(false);
   const visibleServices = servicesExpanded ? services : services.slice(0, 3);
   const filteredRequests = focusedAppointments.filter((appointment) => {
@@ -5954,7 +6075,7 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
   );
 }
 
-function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage, instantBooking, member, onAddAppointment, onCancelInstantBooking, onComplete, onUpdateAppointment, servicePricing, setActiveTab, vehicleOptions }) {
+function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage, instantBooking, member, onAddAppointment, onCancelInstantBooking, onComplete, onSelectVehicle, onUpdateAppointment, servicePricing, setActiveTab, vehicleOptions }) {
   const includedServices = useMemo(() => getAvailableServices(member.plan), [member.plan]);
   const serviceReminders = useMemo(() => buildServiceReminders(garage, member.plan), [garage, member.plan]);
   const initialService = instantBooking?.service || includedServices[0]?.label || "";
@@ -6011,6 +6132,11 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
     window.requestAnimationFrame(() => {
       formSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
+  }
+
+  function chooseVehicle(vehicleId) {
+    setSelectedVehicleId(vehicleId);
+    onSelectVehicle?.(vehicleId);
   }
 
   async function sendReminderRequest(reminder) {
@@ -6099,7 +6225,7 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
           <SavedVehicleSelector
             vehicles={garage}
             selectedVehicleId={selectedVehicle?.id || ""}
-            onVehicleSelect={setSelectedVehicleId}
+            onVehicleSelect={chooseVehicle}
           />
         ) : (
           <div className="empty-state compact-empty">
@@ -6320,14 +6446,20 @@ function SavedVehicleSelector({ onVehicleSelect, selectedVehicleId, vehicles }) 
   );
 }
 
-function FeedScreen({ feedPosts, member, onAddFeedPost, onComplete, onDeleteFeedPost, onEditFeedPost, onRefreshFeedPosts, onToggleFeedReaction, vehicleOptions }) {
+function FeedScreen({ feedPosts, member, onAddFeedComment, onAddFeedPost, onComplete, onDeleteFeedPost, onEditFeedPost, onRefreshFeedPosts, onToggleFeedReaction, vehicleOptions }) {
   const [activeFeed, setActiveFeed] = useState("photos");
+  const [eventClockMs, setEventClockMs] = useState(Date.now());
   const [feedNotice, setFeedNotice] = useState("");
   const [refreshingFeed, setRefreshingFeed] = useState(false);
   const [showComposer, setShowComposer] = useState(false);
-  const eventPosts = feedEventPosts(feedPosts);
+  const eventPosts = feedEventPosts(feedPosts, eventClockMs);
   const photoPosts = feedPosts.filter((post) => !parseFeedEvent(post));
   const visiblePosts = activeFeed === "events" ? eventPosts : photoPosts;
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setEventClockMs(Date.now()), 30_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   async function refreshFeed() {
     setFeedNotice("");
@@ -6411,6 +6543,7 @@ function FeedScreen({ feedPosts, member, onAddFeedPost, onComplete, onDeleteFeed
           emptyText={activeFeed === "events" ? "No events have been posted yet." : "No photos have been posted yet."}
           onDeleteFeedPost={onDeleteFeedPost}
           onEditFeedPost={onEditFeedPost}
+          onAddFeedComment={onAddFeedComment}
           onToggleFeedReaction={onToggleFeedReaction}
           posts={visiblePosts}
           vehicleOptions={vehicleOptions}
@@ -6420,7 +6553,7 @@ function FeedScreen({ feedPosts, member, onAddFeedPost, onComplete, onDeleteFeed
   );
 }
 
-function FeedContentSection({ emptyText, feedType, member, onDeleteFeedPost, onEditFeedPost, onToggleFeedReaction, posts, vehicleOptions }) {
+function FeedContentSection({ emptyText, feedType, member, onAddFeedComment, onDeleteFeedPost, onEditFeedPost, onToggleFeedReaction, posts, vehicleOptions }) {
   return (
     <section className={`feed-content-section ${feedType === "events" ? "event-feed" : "photo-feed"}`} aria-label={feedType === "events" ? "Events" : "Photos"}>
       {posts.length === 0 ? (
@@ -6436,6 +6569,7 @@ function FeedContentSection({ emptyText, feedType, member, onDeleteFeedPost, onE
               canManage={post.userId ? post.userId === member?.id : !isBackendConfigured}
               currentMember={member}
               key={post.id}
+              onAddComment={onAddFeedComment}
               onDelete={onDeleteFeedPost}
               onToggleReaction={onToggleFeedReaction}
               onUpdate={onEditFeedPost}
@@ -6476,10 +6610,23 @@ function FeedUploadForm({ initialType = "vehicle", onAddFeedPost, onComplete, on
 
     const eventTitle = formData.get("eventTitle");
     const eventTime = formData.get("eventTime");
+    const eventEndTime = formData.get("eventEndTime");
     const eventPlace = formData.get("eventPlace");
     const eventDescription = formData.get("eventDescription");
+    if (postType === "event") {
+      const startTimeMs = new Date(eventTime).getTime();
+      const endTimeMs = new Date(eventEndTime).getTime();
+      if (endTimeMs <= startTimeMs) {
+        setFeedError("Choose an end time that is after the event start time.");
+        return;
+      }
+      if (endTimeMs <= Date.now()) {
+        setFeedError("Choose an event end time that is still in the future.");
+        return;
+      }
+    }
     const caption = postType === "event"
-      ? encodeFeedEvent({ description: eventDescription, place: eventPlace, time: eventTime, title: eventTitle })
+      ? encodeFeedEvent({ description: eventDescription, endTime: eventEndTime, place: eventPlace, time: eventTime, title: eventTitle })
       : formData.get("caption");
 
     try {
@@ -6554,8 +6701,12 @@ function FeedUploadForm({ initialType = "vehicle", onAddFeedPost, onComplete, on
               <input name="eventTitle" required type="text" placeholder="Cars and coffee, rally, track day..." />
             </label>
             <label>
-              Time
+              Starts
               <input name="eventTime" required type="datetime-local" />
+            </label>
+            <label>
+              Ends
+              <input name="eventEndTime" required type="datetime-local" />
             </label>
             <label>
               Place
@@ -6580,15 +6731,20 @@ const feedReactionOptions = [
   { emoji: "wow", label: "Wow", symbol: "😍" },
 ];
 
-function FeedPostCard({ canManage = false, currentMember, onDelete, onToggleReaction, onUpdate, post, vehicleOptions = [] }) {
+function FeedPostCard({ canManage = false, currentMember, onAddComment, onDelete, onToggleReaction, onUpdate, post, vehicleOptions = [] }) {
   const event = parseFeedEvent(post);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingReaction, setSavingReaction] = useState("");
+  const [savingComment, setSavingComment] = useState(false);
+  const [commentsExpanded, setCommentsExpanded] = useState(false);
   const [postError, setPostError] = useState("");
   const [replacementImage, setReplacementImage] = useState("");
+  const commentInputRef = useRef(null);
   const authorName = post.author || "Member";
   const reactions = ensureList(post.reactions);
+  const comments = ensureList(post.comments);
+  const visibleComments = commentsExpanded ? comments : comments.slice(-3);
   const currentUserId = currentMember?.id || "local-member";
   const authorMember = post.userId === currentMember?.id
     ? { avatarUrl: currentMember?.avatarUrl || "", name: authorName }
@@ -6606,9 +6762,23 @@ function FeedPostCard({ canManage = false, currentMember, onDelete, onToggleReac
     saveEvent.preventDefault();
     setPostError("");
     const formData = new FormData(saveEvent.currentTarget);
+    if (event) {
+      const startTime = new Date(formData.get("eventTime")).getTime();
+      const endValue = formData.get("eventEndTime");
+      const endTime = endValue ? new Date(endValue).getTime() : Number.NaN;
+      if (Number.isFinite(endTime) && endTime <= startTime) {
+        setPostError("Choose an end time that is after the event start time.");
+        return;
+      }
+      if (Number.isFinite(endTime) && endTime <= Date.now()) {
+        setPostError("Choose an event end time that is still in the future.");
+        return;
+      }
+    }
     const nextCaption = event
       ? encodeFeedEvent({
         description: formData.get("eventDescription"),
+        endTime: formData.get("eventEndTime"),
         place: formData.get("eventPlace"),
         time: formData.get("eventTime"),
         title: formData.get("eventTitle"),
@@ -6656,6 +6826,24 @@ function FeedPostCard({ canManage = false, currentMember, onDelete, onToggleReac
     }
   }
 
+  async function submitComment(commentEvent) {
+    commentEvent.preventDefault();
+    const form = commentEvent.currentTarget;
+    const body = new FormData(form).get("comment")?.toString().trim();
+    if (!body || savingComment) return;
+
+    setPostError("");
+    setSavingComment(true);
+    try {
+      await onAddComment?.(post.id, body);
+      form.reset();
+    } catch (error) {
+      setPostError(error.message || "Could not post that comment.");
+    } finally {
+      setSavingComment(false);
+    }
+  }
+
   const actions = canManage && (
     <div className="feed-post-actions">
       <button type="button" onClick={() => { setEditing((open) => !open); setPostError(""); }} disabled={saving}>
@@ -6673,7 +6861,8 @@ function FeedPostCard({ canManage = false, currentMember, onDelete, onToggleReac
       {event ? (
         <>
           <label>Event title<input defaultValue={event.title} name="eventTitle" required type="text" /></label>
-          <label>Time<input defaultValue={event.time} name="eventTime" required type="datetime-local" /></label>
+          <label>Starts<input defaultValue={event.time} name="eventTime" required type="datetime-local" /></label>
+          <label>Ends<input defaultValue={event.endTime} name="eventEndTime" type="datetime-local" /></label>
           <label>Place<input defaultValue={event.place} name="eventPlace" required type="text" /></label>
           <label>Description<textarea defaultValue={event.description} name="eventDescription" required rows="3" /></label>
           <input name="vehicle" type="hidden" value={post.vehicle || ""} readOnly />
@@ -6709,7 +6898,10 @@ function FeedPostCard({ canManage = false, currentMember, onDelete, onToggleReac
           <span>{event.time ? new Date(event.time).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "Event"}</span>
         </div>
         <div className="feed-event-copy">
-          <span>{event.time ? new Date(event.time).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Member event"}</span>
+          <span>
+            {event.time ? new Date(event.time).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Member event"}
+            {event.endTime ? ` – ${new Date(event.endTime).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}` : ""}
+          </span>
           <h3>{event.title}</h3>
           <p className="feed-event-place"><MapPin size={16} /> {event.place}</p>
           <small>{event.description}</small>
@@ -6759,8 +6951,54 @@ function FeedPostCard({ canManage = false, currentMember, onDelete, onToggleReac
               </button>
             );
           })}
+          <button
+            aria-label={comments.length ? `Comment, ${comments.length} comments` : "Comment"}
+            className="feed-comment-shortcut"
+            onClick={() => commentInputRef.current?.focus()}
+            title="Comment"
+            type="button"
+          >
+            <MessageCircle aria-hidden="true" size={19} />
+            {comments.length > 0 && <strong>{comments.length}</strong>}
+          </button>
         </div>
         <p className="feed-photo-caption"><strong>{authorName}</strong> {post.caption || "Shared a garage update."}</p>
+        <section className="feed-comments" aria-label={`Comments on ${authorName}'s photo`}>
+          {comments.length > 3 && !commentsExpanded && (
+            <button className="feed-comments-more" type="button" onClick={() => setCommentsExpanded(true)}>
+              View all {comments.length} comments
+            </button>
+          )}
+          {commentsExpanded && comments.length > 3 && (
+            <button className="feed-comments-more" type="button" onClick={() => setCommentsExpanded(false)}>
+              Show fewer comments
+            </button>
+          )}
+          <div className="feed-comment-list">
+            {visibleComments.map((comment) => (
+              <div className="feed-comment" key={comment.id}>
+                <ProfileAvatar member={{ name: comment.author || "Member" }} size={28} />
+                <p><strong>{comment.author || "Member"}</strong> {comment.body}</p>
+                <time>{formatPostDate(comment.createdAt)}</time>
+              </div>
+            ))}
+          </div>
+          <form className="feed-comment-form" onSubmit={submitComment}>
+            <MessageCircle aria-hidden="true" size={18} />
+            <input
+              aria-label="Add a comment"
+              autoComplete="off"
+              maxLength="500"
+              name="comment"
+              placeholder="Add a comment..."
+              ref={commentInputRef}
+              type="text"
+            />
+            <button aria-label="Post comment" disabled={savingComment || !onAddComment} title="Post comment" type="submit">
+              <Send size={17} />
+            </button>
+          </form>
+        </section>
         {actions}
         {editor}
         {!editing && postError && <div className="error-message" role="alert">{postError}</div>}

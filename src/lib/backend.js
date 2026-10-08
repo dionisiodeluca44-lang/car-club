@@ -519,18 +519,28 @@ export async function loadFeedPosts() {
 
   let { data, error } = await supabase
     .from("feed_posts")
-    .select("*, feed_reactions(user_id, emoji)")
+    .select("*, feed_reactions(user_id, emoji), feed_comments(id, user_id, author_name, body, created_at)")
     .order("created_at", { ascending: false })
     .limit(100);
 
   if (error) {
-    const fallback = await supabase
+    const reactionsFallback = await supabase
+      .from("feed_posts")
+      .select("*, feed_reactions(user_id, emoji)")
+      .order("created_at", { ascending: false })
+      .limit(100);
+    data = reactionsFallback.data;
+    error = reactionsFallback.error;
+  }
+
+  if (error) {
+    const postsFallback = await supabase
       .from("feed_posts")
       .select("*")
       .order("created_at", { ascending: false })
       .limit(100);
-    data = fallback.data;
-    error = fallback.error;
+    data = postsFallback.data;
+    error = postsFallback.error;
   }
 
   if (error) {
@@ -673,6 +683,15 @@ export function subscribeToFeedPosts(onPostCreated, onFeedChanged) {
       },
       () => onFeedChanged?.(),
     )
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "feed_comments",
+      },
+      () => onFeedChanged?.(),
+    )
     .subscribe();
 
   return () => {
@@ -697,6 +716,38 @@ export async function toggleFeedReactionRecord(userId, postId, emoji, removeReac
   if (error && error.code !== "23505") {
     throw new Error(`Could not save reaction: ${error.message}. Run the feed reactions SQL in Supabase.`);
   }
+}
+
+export async function createFeedComment(userId, postId, body, authorName = "Member") {
+  const commentBody = String(body || "").trim();
+  if (!commentBody) throw new Error("Write a comment before posting.");
+  if (commentBody.length > 500) throw new Error("Comments can be up to 500 characters.");
+  if (!supabase || !userId || !postId) {
+    return {
+      id: crypto.randomUUID(),
+      userId: userId || "local-member",
+      author: authorName || "Member",
+      body: commentBody,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("feed_comments")
+    .insert({
+      post_id: postId,
+      user_id: userId,
+      author_name: authorName || "Member",
+      body: commentBody,
+    })
+    .select("id, user_id, author_name, body, created_at")
+    .single();
+
+  if (error) {
+    throw new Error(`Could not post comment: ${error.message}. Run the feed comments SQL in Supabase.`);
+  }
+
+  return fromFeedCommentRow(data);
 }
 
 export async function createFeedPost(userId, post, authorName = "Member") {
@@ -1097,10 +1148,23 @@ function fromFeedPostRow(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     image: row.image_url || "",
+    comments: ensureList(row.feed_comments)
+      .map(fromFeedCommentRow)
+      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()),
     reactions: ensureList(row.feed_reactions).map((reaction) => ({
       emoji: reaction.emoji,
       userId: reaction.user_id,
     })),
     vehicle: row.vehicle_label || "",
+  };
+}
+
+function fromFeedCommentRow(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    author: row.author_name || "Member",
+    body: row.body || "",
+    createdAt: row.created_at,
   };
 }

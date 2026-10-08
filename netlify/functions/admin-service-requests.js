@@ -268,7 +268,32 @@ export async function handler(event) {
       }
     }
 
+    let feedEvents = [];
+    const { data: feedRows, error: feedError } = await supabase
+      .from("feed_posts")
+      .select("id, user_id, author_name, vehicle_label, caption, image_url, created_at, updated_at")
+      .order("created_at", { ascending: false })
+      .limit(500);
+
+    if (feedError) {
+      console.warn("Could not load the admin event archive", feedError);
+    } else {
+      feedEvents = (feedRows || [])
+        .filter((post) => String(post.caption || "").startsWith("[WG_EVENT]"))
+        .map((post) => ({
+          id: post.id,
+          userId: post.user_id,
+          author: post.author_name || "Member",
+          caption: post.caption || "",
+          image: post.image_url || "",
+          vehicle: post.vehicle_label || "",
+          createdAt: post.created_at,
+          updatedAt: post.updated_at,
+        }));
+    }
+
     return json(200, {
+      events: feedEvents,
       requests: (data || []).map((request) => {
         const profile = profileMap.get(request.user_id) || null;
         const period = benefitPeriodForProfile(profile);
