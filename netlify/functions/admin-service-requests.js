@@ -39,6 +39,48 @@ function effectiveProfilePlan(profile) {
   return profile?.collector_access_override ? "Collector" : profile?.plan;
 }
 
+function currencyCents(value) {
+  const match = String(value || "").replace(/,/g, "").match(/\$?\s*(\d+(?:\.\d{1,2})?)/);
+  return match ? Math.round(Number(match[1]) * 100) : 0;
+}
+
+function legacyPaymentDetails(request) {
+  const notes = String(request?.notes || "");
+  const paymentLine = notes.match(/^Payment:\s*(.+)$/im)?.[1] || "";
+  const paidCents = currencyCents(paymentLine || notes.match(/^Amount:\s*(.+)$/im)?.[1]);
+  const paymentMode = /deposit/i.test(paymentLine) ? "deposit" : /full/i.test(paymentLine) ? "full" : "custom";
+  return { paidCents, paymentMode };
+}
+
+function paymentSummary(request, payments = []) {
+  const legacy = legacyPaymentDetails(request);
+  const ledgerPaidCents = payments.reduce((total, payment) => {
+    const amount = Math.max(0, Number(payment.amount_cents) || 0);
+    return total + (payment.payment_type === "refund" ? -amount : amount);
+  }, 0);
+  const paidCents = Math.max(0, ledgerPaidCents || legacy.paidCents);
+  const quotedTotalCents = Math.max(0, Number(request.quoted_total_cents) || 0);
+  const totalKnown = quotedTotalCents > 0;
+  const dueCents = totalKnown ? Math.max(quotedTotalCents - paidCents, 0) : null;
+  let status = String(request.payment_status || "").toLowerCase();
+
+  if (!status || status === "unpaid") {
+    if (totalKnown && paidCents >= quotedTotalCents) status = "paid";
+    else if (paidCents > 0 && (request.payment_mode === "deposit" || legacy.paymentMode === "deposit")) status = "deposit_paid";
+    else if (paidCents > 0) status = "partially_paid";
+    else status = "unpaid";
+  }
+
+  return {
+    due_cents: dueCents,
+    mode: request.payment_mode || legacy.paymentMode,
+    paid_cents: paidCents,
+    status,
+    total_cents: quotedTotalCents,
+    total_known: totalKnown,
+  };
+}
+
 function serviceDocumentExtension(fileName, fileType) {
   const supplied = String(fileName || "").split(".").pop()?.toLowerCase();
   if (/^[a-z0-9]{1,8}$/.test(supplied || "")) return supplied;
@@ -195,11 +237,21 @@ export async function handler(event) {
   }
 
   if (event.httpMethod === "GET") {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("service_requests")
-      .select("id, user_id, vehicle_label, service_type, preferred_date, preferred_time, notes, status, created_at")
+      .select("id, user_id, vehicle_label, service_type, preferred_date, preferred_time, notes, status, quoted_total_cents, payment_mode, payment_status, created_at")
       .order("created_at", { ascending: false })
       .limit(100);
+
+    if (error?.code === "42703") {
+      const legacyResult = await supabase
+        .from("service_requests")
+        .select("id, user_id, vehicle_label, service_type, preferred_date, preferred_time, notes, status, created_at")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      data = legacyResult.data;
+      error = legacyResult.error;
+    }
 
     if (error) {
       console.error("Could not load service requests", error);
@@ -253,6 +305,7 @@ export async function handler(event) {
     }
 
     let serviceDocuments = [];
+    let servicePayments = [];
     const requestIds = (data || []).map((request) => request.id).filter(Boolean);
     if (requestIds.length) {
       const { data: documentRows, error: documentError } = await supabase
@@ -265,6 +318,18 @@ export async function handler(event) {
         console.warn("Could not attach service documents. Run the service documents migration.", documentError);
       } else {
         serviceDocuments = documentRows || [];
+      }
+
+      const { data: paymentRows, error: paymentError } = await supabase
+        .from("service_request_payments")
+        .select("id, service_request_id, user_id, amount_cents, payment_type, payment_method, stripe_checkout_session_id, note, paid_at, created_at")
+        .in("service_request_id", requestIds)
+        .order("paid_at", { ascending: false });
+
+      if (paymentError) {
+        console.warn("Could not attach service payment records. Run the service payment migration.", paymentError);
+      } else {
+        servicePayments = paymentRows || [];
       }
     }
 
@@ -305,10 +370,13 @@ export async function handler(event) {
           && usage.period_end === periodEnd
         ));
 
+        const payments = servicePayments.filter((payment) => payment.service_request_id === request.id);
         return {
           ...request,
           benefit_usage: benefitUsage.filter((usage) => usage.service_request_id === request.id),
           documents: serviceDocuments.filter((document) => document.service_request_id === request.id),
+          payment_summary: paymentSummary(request, payments),
+          payments,
           member: profile,
           member_benefits: summarizeMembershipBenefits(profile?.plan, currentUsage, {
             activationDate: profile?.stripe_subscription_created_at || profile?.subscription_activated_at || profile?.created_at,
@@ -417,7 +485,18 @@ export async function handler(event) {
 
   if (event.httpMethod === "PATCH") {
     const payload = JSON.parse(event.body || "{}");
-    const { action, benefitKey, id, status, paymentAmount, paymentMode, paymentNote, paymentTitle } = payload;
+    const {
+      action,
+      amountCents,
+      benefitKey,
+      id,
+      note,
+      paymentMethod,
+      paymentMode,
+      paymentType,
+      quotedTotalCents,
+      status,
+    } = payload;
 
     if (action === "redeem-benefit" || action === "restore-benefit") {
       if (!id || !benefitKey) return json(400, { error: "Request id and benefit are required." });
@@ -425,38 +504,86 @@ export async function handler(event) {
       return json(result.statusCode, result.body);
     }
 
-    if (!id || (!status && !paymentAmount && !paymentMode && !paymentTitle && !paymentNote)) {
+    if (!id || (!status && !["set-payment-total", "record-payment"].includes(action))) {
       return json(400, { error: "Request id and update details are required" });
+    }
+
+    if (action === "set-payment-total") {
+      const total = Number(quotedTotalCents);
+      if (!Number.isInteger(total) || total < 0) return json(400, { error: "Enter a valid total service price." });
+
+      const { data: payments, error: paymentsError } = await supabase
+        .from("service_request_payments")
+        .select("amount_cents, payment_type")
+        .eq("service_request_id", id);
+      if (paymentsError) return json(500, { error: "Run the service payment SQL migration before saving payment totals." });
+
+      const paid = (payments || []).reduce((sum, payment) => sum + (payment.payment_type === "refund" ? -1 : 1) * Number(payment.amount_cents || 0), 0);
+      const nextPaymentStatus = paymentMode === "free" || (total > 0 && paid >= total) ? "paid" : paid > 0 ? (paymentMode === "deposit" ? "deposit_paid" : "partially_paid") : "unpaid";
+      const bookingUpdate = {
+        payment_mode: paymentMode || "custom",
+        payment_status: nextPaymentStatus,
+        quoted_total_cents: total,
+        updated_at: new Date().toISOString(),
+      };
+      if (nextPaymentStatus === "paid" && paymentMode === "free") bookingUpdate.status = "Paid / Confirmed";
+      const { data, error } = await supabase
+        .from("service_requests")
+        .update(bookingUpdate)
+        .eq("id", id)
+        .select("id, payment_mode, payment_status, quoted_total_cents, status")
+        .single();
+      if (error) return json(500, { error: "Could not save the service total. Run the service payment SQL migration first." });
+      return json(200, { request: data });
+    }
+
+    if (action === "record-payment") {
+      const amount = Number(amountCents);
+      if (!Number.isInteger(amount) || amount <= 0) return json(400, { error: "Enter a payment amount greater than zero." });
+      const allowedTypes = new Set(["deposit", "balance", "full", "manual"]);
+      if (!allowedTypes.has(paymentType)) return json(400, { error: "Choose a valid payment type." });
+
+      const { data: request, error: requestError } = await supabase
+        .from("service_requests")
+        .select("id, user_id, quoted_total_cents, payment_mode")
+        .eq("id", id)
+        .single();
+      if (requestError || !request) return json(404, { error: "Could not find that service request." });
+
+      const { error: insertError } = await supabase.from("service_request_payments").insert({
+        amount_cents: amount,
+        note: String(note || "").slice(0, 500) || null,
+        paid_at: new Date().toISOString(),
+        payment_method: String(paymentMethod || "Admin recorded").slice(0, 120),
+        payment_type: paymentType,
+        service_request_id: id,
+        user_id: request.user_id,
+      });
+      if (insertError) return json(500, { error: "Could not record the payment. Run the service payment SQL migration first." });
+
+      const { data: payments } = await supabase
+        .from("service_request_payments")
+        .select("amount_cents, payment_type")
+        .eq("service_request_id", id);
+      const paid = (payments || []).reduce((sum, payment) => sum + (payment.payment_type === "refund" ? -1 : 1) * Number(payment.amount_cents || 0), 0);
+      const total = Number(request.quoted_total_cents) || 0;
+      const nextPaymentStatus = total > 0 && paid >= total ? "paid" : paymentType === "deposit" ? "deposit_paid" : "partially_paid";
+      const requestUpdate = { payment_status: nextPaymentStatus, updated_at: new Date().toISOString() };
+      if (nextPaymentStatus === "paid") requestUpdate.status = "Paid / Confirmed";
+      const { data, error } = await supabase
+        .from("service_requests")
+        .update(requestUpdate)
+        .eq("id", id)
+        .select("id, payment_mode, payment_status, quoted_total_cents, status")
+        .single();
+      if (error) return json(500, { error: "Payment saved, but the booking balance could not be refreshed." });
+      return json(200, { request: data });
     }
 
     const update = { updated_at: new Date().toISOString() };
 
     if (status) {
       update.status = status;
-    }
-
-    if (paymentAmount || paymentMode || paymentTitle || paymentNote) {
-      const { data: existingRequest, error: loadError } = await supabase
-        .from("service_requests")
-        .select("notes")
-        .eq("id", id)
-        .single();
-
-      if (loadError) {
-        console.error("Could not load service request before payment update", loadError);
-        return json(500, { error: "Could not load service request before updating payment" });
-      }
-
-      const paymentBlock = [
-        "Admin payment update",
-        `Updated: ${new Date().toLocaleString("en-CA", { timeZone: "America/Toronto" })}`,
-        paymentTitle && `Payment type: ${paymentTitle}`,
-        paymentMode && `Payment mode: ${paymentMode}`,
-        paymentAmount && `Amount: ${paymentAmount}`,
-        paymentNote && `Note: ${paymentNote}`,
-      ].filter(Boolean).join("\n");
-
-      update.notes = [existingRequest?.notes, paymentBlock].filter(Boolean).join("\n\n---\n\n");
     }
 
     const { data, error } = await supabase

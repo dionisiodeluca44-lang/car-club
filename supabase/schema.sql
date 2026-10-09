@@ -94,9 +94,31 @@ create table if not exists public.service_requests (
   preferred_time time,
   notes text,
   status text not null default 'Requested',
+  quoted_total_cents integer not null default 0 check (quoted_total_cents >= 0),
+  payment_mode text not null default 'custom' check (payment_mode in ('deposit', 'full', 'free', 'custom')),
+  payment_status text not null default 'unpaid' check (payment_status in ('unpaid', 'deposit_paid', 'partially_paid', 'paid', 'refunded')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+create table if not exists public.service_request_payments (
+  id uuid primary key default gen_random_uuid(),
+  service_request_id uuid not null references public.service_requests(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  amount_cents integer not null check (amount_cents > 0),
+  payment_type text not null check (payment_type in ('deposit', 'balance', 'full', 'manual', 'refund')),
+  payment_method text not null default 'Admin recorded',
+  stripe_checkout_session_id text unique,
+  note text,
+  paid_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists service_request_payments_request_date_idx
+  on public.service_request_payments (service_request_id, paid_at desc);
+
+create index if not exists service_request_payments_member_date_idx
+  on public.service_request_payments (user_id, paid_at desc);
 
 create table if not exists public.service_documents (
   id uuid primary key default gen_random_uuid(),
@@ -230,6 +252,9 @@ alter table public.profiles enable row level security;
 alter table public.vehicles enable row level security;
 alter table public.vehicle_valuation_history enable row level security;
 alter table public.service_requests enable row level security;
+alter table public.service_request_payments enable row level security;
+revoke insert, update, delete on public.service_request_payments from authenticated;
+grant select on public.service_request_payments to authenticated;
 alter table public.service_documents enable row level security;
 revoke insert, update, delete on public.service_documents from authenticated;
 grant select on public.service_documents to authenticated;
@@ -403,6 +428,11 @@ create policy "Members can update own service requests"
   on public.service_requests for update
   using (auth.uid() = user_id and public.has_active_membership())
   with check (auth.uid() = user_id and public.has_active_membership());
+
+drop policy if exists "Members can read own service payments" on public.service_request_payments;
+create policy "Members can read own service payments"
+  on public.service_request_payments for select
+  using (auth.uid() = user_id and public.has_active_membership());
 
 create policy "Members can read own service documents"
   on public.service_documents for select

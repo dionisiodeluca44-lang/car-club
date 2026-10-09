@@ -22,12 +22,14 @@ import Menu from "lucide-react/dist/esm/icons/menu.js";
 import MessageCircle from "lucide-react/dist/esm/icons/message-circle.js";
 import Plus from "lucide-react/dist/esm/icons/plus.js";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw.js";
+import Search from "lucide-react/dist/esm/icons/search.js";
 import Send from "lucide-react/dist/esm/icons/send.js";
 import ShieldCheck from "lucide-react/dist/esm/icons/shield-check.js";
 import Sparkles from "lucide-react/dist/esm/icons/sparkles.js";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2.js";
 import Upload from "lucide-react/dist/esm/icons/upload.js";
 import User from "lucide-react/dist/esm/icons/user.js";
+import Users from "lucide-react/dist/esm/icons/users.js";
 import Warehouse from "lucide-react/dist/esm/icons/warehouse.js";
 import Wrench from "lucide-react/dist/esm/icons/wrench.js";
 import X from "lucide-react/dist/esm/icons/x.js";
@@ -4218,6 +4220,250 @@ function AdminEventArchive({ events }) {
   );
 }
 
+const adminBookingStatuses = ["Requested", "In Review", "Approved", "Booked", "Paid / Confirmed", "Completed"];
+
+function adminStatusLabel(status) {
+  return status === "Paid / Confirmed" ? "Paid" : status || "Requested";
+}
+
+function adminMoney(cents) {
+  return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format((Number(cents) || 0) / 100);
+}
+
+function adminPayment(request) {
+  return request?.payment_summary || {
+    due_cents: null,
+    mode: "custom",
+    paid_cents: 0,
+    status: "unpaid",
+    total_cents: 0,
+    total_known: false,
+  };
+}
+
+function adminPaymentLabel(summary) {
+  if (summary.status === "paid") return "Fully paid";
+  if (summary.status === "deposit_paid") return "Deposit paid";
+  if (summary.status === "partially_paid") return "Partially paid";
+  if (summary.status === "refunded") return "Refunded";
+  return "Unpaid";
+}
+
+function AdminBookingDetail({ onDeleteDocument, onRecordPayment, onSaveTotal, onStatus, onUpdateBenefit, onUploadDocument, request }) {
+  const summary = adminPayment(request);
+  const [savingPayment, setSavingPayment] = useState(false);
+
+  async function saveTotal(event) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    setSavingPayment(true);
+    try {
+      await onSaveTotal(request.id, {
+        paymentMode: formData.get("paymentMode"),
+        quotedTotalCents: Math.round(Number(formData.get("quotedTotal")) * 100),
+      });
+    } finally {
+      setSavingPayment(false);
+    }
+  }
+
+  async function recordPayment(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    setSavingPayment(true);
+    try {
+      await onRecordPayment(request.id, {
+        amountCents: Math.round(Number(formData.get("amount")) * 100),
+        note: formData.get("note"),
+        paymentMethod: formData.get("paymentMethod"),
+        paymentType: formData.get("paymentType"),
+      });
+      form.reset();
+    } finally {
+      setSavingPayment(false);
+    }
+  }
+
+  return (
+    <section className="admin-booking-detail" aria-label="Selected booking details">
+      <header className="admin-booking-detail-header">
+        <div>
+          <span className="admin-status-pill">{adminStatusLabel(request.status)}</span>
+          <h2>{request.service_type || "Service request"}</h2>
+          <p>{request.vehicle_label || "Vehicle pending"}</p>
+        </div>
+        <label>
+          Booking status
+          <select value={request.status || "Requested"} onChange={(event) => onStatus(request.id, event.target.value)}>
+            {adminBookingStatuses.map((status) => <option key={status} value={status}>{adminStatusLabel(status)}</option>)}
+          </select>
+        </label>
+      </header>
+
+      <div className="admin-booking-facts">
+        <div><span>Member</span><strong>{request.member?.full_name || "Member"}</strong><small>{request.member?.email || "Email pending"}</small></div>
+        <div><span>Appointment</span><strong>{request.preferred_date || "Date pending"}</strong><small>{request.preferred_time || "Time pending"}</small></div>
+        <div><span>Package</span><strong>{request.member?.plan || "Unknown"}</strong><small>{request.member?.subscription_status || "Status unavailable"}</small></div>
+      </div>
+
+      <section className="admin-payment-panel">
+        <div className="admin-payment-heading">
+          <div><CreditCard size={19} /><span>Service payment</span></div>
+          <span className={`admin-payment-state payment-${summary.status}`}>{adminPaymentLabel(summary)}</span>
+        </div>
+        <div className="admin-payment-totals">
+          <div><span>Paid</span><strong>{adminMoney(summary.paid_cents)}</strong></div>
+          <div><span>Service total</span><strong>{summary.total_known ? adminMoney(summary.total_cents) : "Not set"}</strong></div>
+          <div><span>Still due</span><strong>{summary.total_known ? adminMoney(summary.due_cents) : "Set total"}</strong></div>
+        </div>
+        <form className="admin-payment-form" onSubmit={saveTotal}>
+          <label>Total service price (CAD)<input min="0" name="quotedTotal" step="0.01" type="number" defaultValue={summary.total_known ? (summary.total_cents / 100).toFixed(2) : ""} required /></label>
+          <label>Payment arrangement<select name="paymentMode" defaultValue={summary.mode || "custom"}><option value="deposit">Deposit then balance</option><option value="full">Full payment</option><option value="custom">Custom</option><option value="free">No charge</option></select></label>
+          <button className="button secondary compact-button" disabled={savingPayment} type="submit">Save Total</button>
+        </form>
+        <form className="admin-payment-form admin-record-payment-form" onSubmit={recordPayment}>
+          <label>Payment received (CAD)<input min="0.01" name="amount" step="0.01" type="number" required /></label>
+          <label>Payment type<select name="paymentType" defaultValue="balance"><option value="deposit">Deposit</option><option value="balance">Balance</option><option value="full">Full payment</option><option value="manual">Other payment</option></select></label>
+          <label>Method<input name="paymentMethod" placeholder="Card, cash, transfer" /></label>
+          <label className="admin-payment-note">Note<input name="note" placeholder="Optional internal note" /></label>
+          <button className="button primary compact-button" disabled={savingPayment} type="submit">Record Payment</button>
+        </form>
+        {ensureList(request.payments).length > 0 && (
+          <div className="admin-payment-ledger">
+            {ensureList(request.payments).map((payment) => (
+              <div key={payment.id}>
+                <span><strong>{adminMoney(payment.amount_cents)}</strong><small>{payment.payment_type} · {payment.payment_method}</small></span>
+                <time>{payment.paid_at ? new Date(payment.paid_at).toLocaleDateString() : "Recorded"}</time>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {request.notes && <details className="admin-booking-notes"><summary>Booking notes</summary><pre>{request.notes}</pre></details>}
+      <AdminServiceDocuments onDelete={onDeleteDocument} onUpload={onUploadDocument} request={request} />
+      <AdminBenefitControls onUpdate={onUpdateBenefit} request={request} />
+    </section>
+  );
+}
+
+function AdminBookingWorkspace({ onDeleteDocument, onRecordPayment, onSaveTotal, onStatus, onUpdateBenefit, onUploadDocument, requests, selectedId, setSelectedId }) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [paymentFilter, setPaymentFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
+
+  const filteredRequests = useMemo(() => {
+    const text = query.trim().toLowerCase();
+    const statusValue = statusFilter === "Paid" ? "Paid / Confirmed" : statusFilter;
+    return [...requests]
+      .filter((request) => statusFilter === "All" || request.status === statusValue)
+      .filter((request) => paymentFilter === "all" || (
+        paymentFilter === "due" ? adminPayment(request).total_known && adminPayment(request).due_cents > 0
+          : paymentFilter === "paid" ? adminPayment(request).status === "paid"
+            : paymentFilter === "deposit" ? adminPayment(request).status === "deposit_paid"
+              : adminPayment(request).status === "unpaid"
+      ))
+      .filter((request) => !text || [request.service_type, request.vehicle_label, request.member?.full_name, request.member?.email].some((value) => String(value || "").toLowerCase().includes(text)))
+      .sort((left, right) => {
+        if (sortBy === "oldest") return new Date(left.created_at || 0) - new Date(right.created_at || 0);
+        if (sortBy === "appointment") return String(left.preferred_date || "9999").localeCompare(String(right.preferred_date || "9999"));
+        if (sortBy === "due") return Number(adminPayment(right).due_cents || 0) - Number(adminPayment(left).due_cents || 0);
+        return new Date(right.created_at || 0) - new Date(left.created_at || 0);
+      });
+  }, [paymentFilter, query, requests, sortBy, statusFilter]);
+
+  useEffect(() => {
+    if (filteredRequests[0] && !filteredRequests.some((request) => request.id === selectedId)) {
+      setSelectedId(filteredRequests[0].id);
+    }
+  }, [filteredRequests, selectedId, setSelectedId]);
+
+  const selectedRequest = filteredRequests.find((request) => request.id === selectedId) || filteredRequests[0];
+  const paidTotal = requests.reduce((total, request) => total + Number(adminPayment(request).paid_cents || 0), 0);
+  const dueTotal = requests.reduce((total, request) => total + Number(adminPayment(request).due_cents || 0), 0);
+
+  return (
+    <section className="admin-booking-workspace">
+      <div className="admin-summary-strip">
+        <div><span>Bookings</span><strong>{requests.length}</strong></div>
+        <div><span>In progress</span><strong>{requests.filter((request) => !["Completed", "Paid / Confirmed"].includes(request.status)).length}</strong></div>
+        <div><span>Collected</span><strong>{adminMoney(paidTotal)}</strong></div>
+        <div><span>Known balance due</span><strong>{adminMoney(dueTotal)}</strong></div>
+      </div>
+
+      <div className="admin-booking-toolbar">
+        <label className="admin-search-field"><Search size={18} /><input aria-label="Search bookings" onChange={(event) => setQuery(event.target.value)} placeholder="Search member, vehicle, or service" value={query} /></label>
+        <label><span>Payment</span><select value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)}><option value="all">All payments</option><option value="due">Balance due</option><option value="deposit">Deposit paid</option><option value="paid">Fully paid</option><option value="unpaid">Unpaid</option></select></label>
+        <label><span>Sort</span><select value={sortBy} onChange={(event) => setSortBy(event.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="appointment">Appointment date</option><option value="due">Highest balance due</option></select></label>
+      </div>
+
+      <div className="admin-status-tabs" role="tablist" aria-label="Booking status">
+        {["All", "Requested", "In Review", "Approved", "Booked", "Paid", "Completed"].map((status) => (
+          <button className={statusFilter === status ? "active" : ""} key={status} onClick={() => setStatusFilter(status)} type="button">{status}<span>{status === "All" ? requests.length : requests.filter((request) => request.status === (status === "Paid" ? "Paid / Confirmed" : status)).length}</span></button>
+        ))}
+      </div>
+
+      <div className="admin-booking-layout">
+        <div className="admin-booking-list" aria-label="Bookings">
+          {filteredRequests.length ? filteredRequests.map((request) => {
+            const payment = adminPayment(request);
+            return (
+              <button className={request.id === selectedRequest?.id ? "active" : ""} key={request.id} onClick={() => setSelectedId(request.id)} type="button">
+                <span className="admin-booking-row-main"><strong>{request.member?.full_name || "Member"}</strong><small>{request.service_type || "Service request"}</small><small>{request.vehicle_label || "Vehicle pending"}</small></span>
+                <span className="admin-booking-row-meta"><span className="admin-status-pill">{adminStatusLabel(request.status)}</span><small>{adminPaymentLabel(payment)}</small>{payment.total_known && payment.due_cents > 0 && <strong>{adminMoney(payment.due_cents)} due</strong>}</span>
+                <ChevronRight size={18} />
+              </button>
+            );
+          }) : <div className="admin-list-empty">No bookings match these filters.</div>}
+        </div>
+        {selectedRequest ? <AdminBookingDetail key={selectedRequest.id} onDeleteDocument={onDeleteDocument} onRecordPayment={onRecordPayment} onSaveTotal={onSaveTotal} onStatus={onStatus} onUpdateBenefit={onUpdateBenefit} onUploadDocument={onUploadDocument} request={selectedRequest} /> : <div className="admin-list-empty">Select a booking to review it.</div>}
+      </div>
+    </section>
+  );
+}
+
+function AdminMemberDirectory({ members, onOpenBooking, requests }) {
+  const [query, setQuery] = useState("");
+  const [selectedMemberId, setSelectedMemberId] = useState("");
+  const directory = useMemo(() => {
+    const merged = new Map(members.map((member) => [member.id, member]));
+    requests.forEach((request) => {
+      if (request.user_id && !merged.has(request.user_id)) merged.set(request.user_id, { id: request.user_id, ...request.member });
+    });
+    return [...merged.values()].filter((member) => [member.full_name, member.email, member.plan].some((value) => String(value || "").toLowerCase().includes(query.trim().toLowerCase())));
+  }, [members, query, requests]);
+  const selectedMember = directory.find((member) => member.id === selectedMemberId) || directory[0];
+  const memberRequests = requests.filter((request) => request.user_id === selectedMember?.id);
+  const totalPaid = memberRequests.reduce((total, request) => total + Number(adminPayment(request).paid_cents || 0), 0);
+  const totalDue = memberRequests.reduce((total, request) => total + Number(adminPayment(request).due_cents || 0), 0);
+
+  return (
+    <section className="admin-member-directory">
+      <div className="admin-directory-list">
+        <label className="admin-search-field"><Search size={18} /><input aria-label="Search members" onChange={(event) => setQuery(event.target.value)} placeholder="Search members" value={query} /></label>
+        <div>
+          {directory.map((member) => (
+            <button className={member.id === selectedMember?.id ? "active" : ""} key={member.id} onClick={() => setSelectedMemberId(member.id)} type="button">
+              <span className="admin-member-avatar"><User size={18} /></span>
+              <span><strong>{member.full_name || "Member"}</strong><small>{member.email || "Email pending"}</small></span>
+              <span><small>{member.plan || "No package"}</small><strong>{requests.filter((request) => request.user_id === member.id).length} bookings</strong></span>
+            </button>
+          ))}
+        </div>
+      </div>
+      {selectedMember ? (
+        <div className="admin-member-activity">
+          <header><div><span className="admin-member-avatar"><User size={21} /></span><div><h2>{selectedMember.full_name || "Member"}</h2><p>{selectedMember.email || "Email pending"}</p></div></div><span>{selectedMember.plan || "No package"}</span></header>
+          <div className="admin-booking-facts"><div><span>Membership</span><strong>{selectedMember.subscription_status || "Unknown"}</strong><small>Account status</small></div><div><span>Service payments</span><strong>{adminMoney(totalPaid)}</strong><small>Collected</small></div><div><span>Known balance</span><strong>{adminMoney(totalDue)}</strong><small>Still due</small></div></div>
+          <section className="admin-member-timeline"><h3>Account activity</h3>{memberRequests.length ? memberRequests.map((request) => <button key={request.id} onClick={() => onOpenBooking(request.id)} type="button"><CalendarCheck size={18} /><span><strong>{request.service_type}</strong><small>{request.vehicle_label} · {adminStatusLabel(request.status)}</small></span><span><strong>{adminPaymentLabel(adminPayment(request))}</strong><small>{request.created_at ? new Date(request.created_at).toLocaleDateString() : ""}</small></span><ChevronRight size={17} /></button>) : <p>No booking activity yet.</p>}</section>
+        </div>
+      ) : <div className="admin-list-empty">No members match this search.</div>}
+    </section>
+  );
+}
+
 function AdminPortal({ onBack }) {
   const [adminToken, setAdminToken] = useState("");
   const [draftToken, setDraftToken] = useState(() => localStorage.getItem("whiteGloveAdminToken") || "");
@@ -4231,6 +4477,7 @@ function AdminPortal({ onBack }) {
   const [adminFeedEvents, setAdminFeedEvents] = useState([]);
   const [servicePricing, setServicePricing] = useState({});
   const [serviceRequests, setServiceRequests] = useState([]);
+  const [selectedAdminRequestId, setSelectedAdminRequestId] = useState("");
 
   async function loadAdminRequests(token = adminToken, options = {}) {
     if (!token) return;
@@ -4381,6 +4628,29 @@ function AdminPortal({ onBack }) {
       setServiceRequests((requests) => requests.map((request) => (request.id === id ? { ...request, ...payload.request } : request)));
     } catch (error) {
       setAdminError(error.message || "Could not update the service demand.");
+    }
+  }
+
+  async function updateDemandPayment(id, action, update) {
+    setAdminError("");
+    setAdminNotice("");
+
+    try {
+      const response = await fetch("/.netlify/functions/admin-service-requests", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": adminToken,
+        },
+        body: JSON.stringify({ action, id, ...update }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Could not update the service payment.");
+      await loadAdminRequests(adminToken, { keepNotice: true });
+      setAdminNotice(action === "record-payment" ? "Payment recorded and the remaining balance was updated." : "Service total and payment arrangement updated.");
+    } catch (error) {
+      setAdminError(error.message || "Could not update the service payment.");
+      throw error;
     }
   }
 
@@ -4545,7 +4815,8 @@ function AdminPortal({ onBack }) {
   }
 
   const adminNavigation = [
-    { id: "requests", label: "Service Requests" },
+    { id: "requests", label: "Bookings", icon: CalendarCheck },
+    { id: "member-activity", label: "Members", icon: Users },
     { id: "past-events", label: "Past Events" },
     { id: "pricing", label: "Booking Price Settings" },
     { id: "memberships", label: "Subscription Price Settings" },
@@ -4553,8 +4824,12 @@ function AdminPortal({ onBack }) {
   ];
   const adminPageContent = {
     requests: {
-      title: "Service Requests",
-      description: "Review paid bookings, member service requests, preferred timing, vehicle details, and concierge status.",
+      title: "Bookings",
+      description: "Review booking status, payment progress, balances, documents, and member details in one place.",
+    },
+    "member-activity": {
+      title: "Members",
+      description: "Open each account to review its membership, complete booking history, payments, and remaining balances.",
     },
     "past-events": {
       title: "Past Events",
@@ -4640,6 +4915,17 @@ function AdminPortal({ onBack }) {
           </aside>
         )}
 
+        <nav className="admin-primary-navigation" aria-label="Admin sections">
+          {adminNavigation.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button className={adminMenu === item.id ? "active" : ""} key={item.id} onClick={() => setAdminMenu(item.id)} type="button">
+                {Icon && <Icon size={17} />}{item.label}
+              </button>
+            );
+          })}
+        </nav>
+
         {adminError && <div className="error-message">{adminError}</div>}
         {adminNotice && <div className="admin-notice">{adminNotice}</div>}
 
@@ -4648,53 +4934,33 @@ function AdminPortal({ onBack }) {
         {adminMenu === "garage-capacity" && <AdminGarageCapacity members={adminMembers} onSave={updateMemberGarageCapacity} />}
         {adminMenu === "past-events" && <AdminEventArchive events={adminFeedEvents} />}
 
+        {adminMenu === "member-activity" && (
+          <AdminMemberDirectory
+            members={adminMembers}
+            requests={serviceRequests}
+            onOpenBooking={(requestId) => {
+              setSelectedAdminRequestId(requestId);
+              setAdminMenu("requests");
+            }}
+          />
+        )}
+
         {adminMenu === "requests" && (
-          <div className="admin-request-grid">
-            {serviceRequests.length === 0 ? (
-              <article className="admin-empty-card">
-                <h2>No service requests yet</h2>
-                <p>New bookings and service requests will appear here.</p>
-              </article>
-            ) : (
-              serviceRequests.map((request) => (
-                <article className="admin-request-card" key={request.id}>
-                  <div>
-                    <span>{request.status || "Requested"}</span>
-                    <h2>{request.service_type}</h2>
-                    <p>{request.vehicle_label}</p>
-                  </div>
-                  <dl>
-                    <div>
-                      <dt>Member</dt>
-                      <dd>{request.member?.full_name || "Member"} · {request.member?.email || "Email pending"}</dd>
-                    </div>
-                    <div>
-                      <dt>Package</dt>
-                      <dd>{request.member?.plan || "Unknown"}</dd>
-                    </div>
-                    <div>
-                      <dt>Preferred time</dt>
-                      <dd>{request.preferred_date || "Date pending"} {request.preferred_time || ""}</dd>
-                    </div>
-                    <div>
-                      <dt>Received</dt>
-                      <dd>{request.created_at ? new Date(request.created_at).toLocaleString() : "Just now"}</dd>
-                    </div>
-                  </dl>
-                  {request.notes && <pre>{request.notes}</pre>}
-                  <AdminServiceDocuments onDelete={deleteDemandDocument} onUpload={uploadDemandDocuments} request={request} />
-                  <AdminBenefitControls onUpdate={updateDemandBenefit} request={request} />
-                  <div className="admin-status-actions">
-                    {["Requested", "In Review", "Approved", "Booked", "Paid / Confirmed", "Completed"].map((status) => (
-                      <button key={status} type="button" onClick={() => updateDemandStatus(request.id, status)}>
-                        {status}
-                      </button>
-                    ))}
-                  </div>
-                </article>
-              ))
-            )}
-          </div>
+          serviceRequests.length === 0 ? (
+            <article className="admin-empty-card"><h2>No service requests yet</h2><p>New bookings and service requests will appear here.</p></article>
+          ) : (
+            <AdminBookingWorkspace
+              onDeleteDocument={deleteDemandDocument}
+              onRecordPayment={(id, update) => updateDemandPayment(id, "record-payment", update)}
+              onSaveTotal={(id, update) => updateDemandPayment(id, "set-payment-total", update)}
+              onStatus={updateDemandStatus}
+              onUpdateBenefit={updateDemandBenefit}
+              onUploadDocument={uploadDemandDocuments}
+              requests={serviceRequests}
+              selectedId={selectedAdminRequestId}
+              setSelectedId={setSelectedAdminRequestId}
+            />
+          )
         )}
       </section>
     </main>

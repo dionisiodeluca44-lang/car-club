@@ -283,13 +283,19 @@ async function createPaidServiceRequest(session) {
     throw new Error(`Stripe checkout session ${session.id} is missing a Supabase user id.`);
   }
 
-  const { error } = await supabase.from("service_requests").insert({
+  const amountPaidCents = Math.max(0, Number(session.amount_total || metadata.amountCents) || 0);
+  const paymentMode = ["deposit", "full", "free", "custom"].includes(metadata.paymentMode) ? metadata.paymentMode : "custom";
+  const quotedTotalCents = Math.max(0, Number(metadata.quotedTotalCents) || (paymentMode === "full" ? amountPaidCents : 0));
+  const requestRecord = {
     user_id: userId,
     vehicle_label: metadata.vehicle || "Vehicle pending",
     service_type: metadata.service || "Concierge service",
     preferred_date: metadata.date || null,
     preferred_time: metadata.time || null,
     status: "Paid / Confirmed",
+    quoted_total_cents: quotedTotalCents,
+    payment_mode: paymentMode,
+    payment_status: paymentMode === "full" || (quotedTotalCents > 0 && amountPaidCents >= quotedTotalCents) ? "paid" : "deposit_paid",
     notes: [
       `Payment source: ${metadata.source || "White Glove Concierge app"}`,
       `Stripe project tag: ${metadata.project || "white_glove_concierge"}`,
@@ -306,9 +312,44 @@ async function createPaidServiceRequest(session) {
       `Stripe session: ${session.id}`,
       metadata.notes,
     ].filter(Boolean).join("\n\n"),
-  });
+  };
+
+  let { data: request, error } = await supabase
+    .from("service_requests")
+    .insert(requestRecord)
+    .select("id, user_id")
+    .single();
+
+  if (error?.code === "42703") {
+    const {
+      payment_mode: ignoredPaymentMode,
+      payment_status: ignoredPaymentStatus,
+      quoted_total_cents: ignoredQuotedTotal,
+      ...legacyRecord
+    } = requestRecord;
+    const legacyResult = await supabase
+      .from("service_requests")
+      .insert(legacyRecord)
+      .select("id, user_id")
+      .single();
+    request = legacyResult.data;
+    error = legacyResult.error;
+  }
 
   if (error) throw error;
+
+  const { error: paymentError } = await supabase.from("service_request_payments").insert({
+    amount_cents: amountPaidCents,
+    payment_method: metadata.paymentMethod || "Stripe Checkout",
+    payment_type: paymentMode === "full" ? "full" : "deposit",
+    service_request_id: request.id,
+    stripe_checkout_session_id: session.id,
+    user_id: userId,
+  });
+
+  if (paymentError) {
+    console.warn("Service request was created, but its structured payment record was not saved. Run the service payment migration.", paymentError);
+  }
 }
 
 export async function handler(event) {
