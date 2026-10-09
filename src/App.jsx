@@ -7,6 +7,7 @@ import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left.js";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.js";
 import ClipboardCheck from "lucide-react/dist/esm/icons/clipboard-check.js";
 import Clock from "lucide-react/dist/esm/icons/clock.js";
+import Copy from "lucide-react/dist/esm/icons/copy.js";
 import CreditCard from "lucide-react/dist/esm/icons/credit-card.js";
 import Download from "lucide-react/dist/esm/icons/download.js";
 import FileText from "lucide-react/dist/esm/icons/file-text.js";
@@ -1097,6 +1098,14 @@ function paymentAmountCents(paymentTerms) {
   return Math.round(Number(match[1].replace(/,/g, "")) * 100);
 }
 
+function resetAppScroll() {
+  const appMain = document.querySelector(".app-main");
+  appMain?.scrollTo?.({ top: 0, left: 0, behavior: "auto" });
+  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+}
+
 let googlePlacesScriptPromise = null;
 
 function loadGooglePlacesScript(apiKey) {
@@ -1670,6 +1679,11 @@ function appointmentDateTime(appointment) {
   return new Date(`${appointment.date}T${appointment.time || "09:00"}`);
 }
 
+function transportDateTime(appointment) {
+  if (!dateInputValue(appointment?.transportDate || appointment?.transport_date)) return null;
+  return new Date(`${appointment.transportDate || appointment.transport_date}T${appointment.transportTime || appointment.transport_time || "09:00"}`);
+}
+
 function countdownLabel(target, nowMs) {
   const differenceMs = target.getTime() - nowMs;
   if (differenceMs <= 0) {
@@ -1698,10 +1712,12 @@ function upcomingAppointmentCountdowns(appointments, nowMs) {
       const target = appointmentDateTime(appointment);
       if (!target) return null;
       const countdown = countdownLabel(target, nowMs);
+      const transportTarget = transportDateTime(appointment);
       return {
         ...appointment,
         countdown,
         target,
+        transportCountdown: transportTarget && transportTarget.getTime() > nowMs ? countdownLabel(transportTarget, nowMs) : null,
       };
     })
     .filter((appointment) => appointment && appointment.target.getTime() >= nowMs - 86400000)
@@ -1730,6 +1746,13 @@ function AppointmentFlipClock({ appointment, compact = false }) {
           </div>
         ))}
       </div>
+      {appointment.transportCountdown && (
+        <div className="transport-countdown-summary">
+          <Car size={15} />
+          <span>Transport arrives in</span>
+          <strong>{appointment.transportCountdown.primary} {appointment.transportCountdown.secondary}</strong>
+        </div>
+      )}
     </div>
   );
 }
@@ -2633,6 +2656,16 @@ function App() {
   const memberAccessLabel = nativeAppRuntime ? "Sign in / Sign up" : "Open Member App";
 
   const closeMenu = () => setMenuOpen(false);
+
+  useEffect(() => {
+    resetAppScroll();
+    const frame = window.requestAnimationFrame(resetAppScroll);
+    const timer = window.setTimeout(resetAppScroll, 80);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [adminMode, mode, signupConfirmationEmail]);
 
   function openMemberAccess() {
     closeMenu();
@@ -4220,7 +4253,7 @@ function AdminEventArchive({ events }) {
   );
 }
 
-const adminBookingStatuses = ["Requested", "In Review", "Approved", "Booked", "Paid / Confirmed", "Completed"];
+const adminBookingStatuses = ["Requested", "In Review", "Approved", "Booked", "Paid / Confirmed", "Completed", "Cancelled"];
 
 function adminStatusLabel(status) {
   return status === "Paid / Confirmed" ? "Paid" : status || "Requested";
@@ -4249,9 +4282,66 @@ function adminPaymentLabel(summary) {
   return "Unpaid";
 }
 
-function AdminBookingDetail({ onDeleteDocument, onRecordPayment, onSaveTotal, onStatus, onUpdateBenefit, onUploadDocument, request }) {
+function AdminBookingDetail({ onCancel, onCreatePaymentLink, onDeleteDocument, onRecordPayment, onSaveSchedule, onSaveTotal, onStatus, onUpdateBenefit, onUploadDocument, request }) {
   const summary = adminPayment(request);
   const [savingPayment, setSavingPayment] = useState(false);
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [creatingPaymentLink, setCreatingPaymentLink] = useState(false);
+  const [paymentLink, setPaymentLink] = useState(request.payment_link_url || "");
+  const [paymentLinkLabel, setPaymentLinkLabel] = useState(request.payment_link_label || "");
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  async function saveSchedule(event) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    setSavingSchedule(true);
+    try {
+      await onSaveSchedule(request.id, {
+        preferredDate: formData.get("preferredDate"),
+        preferredTime: formData.get("preferredTime"),
+        transportDate: formData.get("transportDate"),
+        transportTime: formData.get("transportTime"),
+      });
+    } finally {
+      setSavingSchedule(false);
+    }
+  }
+
+  async function cancelRequest(event) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    if (!window.confirm("Cancel this service request? The booking will stay in the member and admin history.")) return;
+    setSavingSchedule(true);
+    try {
+      await onCancel(request.id, formData.get("cancellationReason"));
+    } finally {
+      setSavingSchedule(false);
+    }
+  }
+
+  async function createPaymentLink(event) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    setCreatingPaymentLink(true);
+    setLinkCopied(false);
+    try {
+      const result = await onCreatePaymentLink(request.id, {
+        amountCents: Math.round(Number(formData.get("linkAmount")) * 100),
+        label: formData.get("linkLabel"),
+        paymentType: formData.get("linkPaymentType"),
+      });
+      setPaymentLink(result.url);
+      setPaymentLinkLabel(result.label);
+    } finally {
+      setCreatingPaymentLink(false);
+    }
+  }
+
+  async function copyPaymentLink() {
+    if (!paymentLink) return;
+    await navigator.clipboard.writeText(paymentLink);
+    setLinkCopied(true);
+  }
 
   async function saveTotal(event) {
     event.preventDefault();
@@ -4307,6 +4397,22 @@ function AdminBookingDetail({ onDeleteDocument, onRecordPayment, onSaveTotal, on
         <div><span>Package</span><strong>{request.member?.plan || "Unknown"}</strong><small>{request.member?.subscription_status || "Status unavailable"}</small></div>
       </div>
 
+      <section className="admin-schedule-panel">
+        <div className="admin-payment-heading"><div><CalendarCheck size={19} /><span>Appointment and transport</span></div></div>
+        <form className="admin-schedule-form" onSubmit={saveSchedule}>
+          <label>Service date<input defaultValue={request.preferred_date || ""} name="preferredDate" required type="date" /></label>
+          <label>Service time<input defaultValue={request.preferred_time?.slice(0, 5) || ""} name="preferredTime" type="time" /></label>
+          <label>Transport arrival date<input defaultValue={request.transport_date || ""} name="transportDate" type="date" /></label>
+          <label>Transport arrival time<input defaultValue={request.transport_time?.slice(0, 5) || ""} name="transportTime" type="time" /></label>
+          <button className="button primary compact-button" disabled={savingSchedule || request.status === "Cancelled"} type="submit">{savingSchedule ? "Saving..." : "Save Schedule"}</button>
+        </form>
+        {request.transport_date && <p className="admin-transport-note"><Car size={16} /> Member transport is scheduled for {request.transport_date}{request.transport_time ? ` at ${request.transport_time.slice(0, 5)}` : ""}.</p>}
+        <form className="admin-cancel-form" onSubmit={cancelRequest}>
+          <label>Cancellation note<input defaultValue={request.cancellation_reason || ""} name="cancellationReason" placeholder="Reason shown in the booking history" /></label>
+          <button className="button secondary compact-button danger-button" disabled={savingSchedule || request.status === "Cancelled"} type="submit">{request.status === "Cancelled" ? "Request Cancelled" : "Cancel Request"}</button>
+        </form>
+      </section>
+
       <section className="admin-payment-panel">
         <div className="admin-payment-heading">
           <div><CreditCard size={19} /><span>Service payment</span></div>
@@ -4329,6 +4435,26 @@ function AdminBookingDetail({ onDeleteDocument, onRecordPayment, onSaveTotal, on
           <label className="admin-payment-note">Note<input name="note" placeholder="Optional internal note" /></label>
           <button className="button primary compact-button" disabled={savingPayment} type="submit">Record Payment</button>
         </form>
+        <div className="admin-payment-link-section">
+          <div>
+            <strong>Send a secure payment link</strong>
+            <p>Set any amount, then copy or email the Stripe checkout link to this member.</p>
+          </div>
+          <form className="admin-payment-link-form" onSubmit={createPaymentLink}>
+            <label>Amount (CAD)<input defaultValue={summary.due_cents > 0 ? (summary.due_cents / 100).toFixed(2) : ""} min="0.01" name="linkAmount" required step="0.01" type="number" /></label>
+            <label>Payment type<select defaultValue={summary.paid_cents > 0 ? "balance" : "deposit"} name="linkPaymentType"><option value="deposit">Deposit</option><option value="balance">Remaining balance</option><option value="full">Full payment</option><option value="manual">Custom payment</option></select></label>
+            <label className="admin-payment-link-label">Description<input defaultValue={request.payment_link_label || `${request.service_type} payment`} name="linkLabel" placeholder="Service deposit" required /></label>
+            <button className="button primary compact-button" disabled={creatingPaymentLink} type="submit">{creatingPaymentLink ? "Creating..." : "Create Payment Link"}</button>
+          </form>
+          {paymentLink && (
+            <div className="admin-generated-link">
+              <div><span>Ready to send</span><strong>{paymentLinkLabel || "Service payment"}</strong></div>
+              <input aria-label="Generated payment link" readOnly value={paymentLink} />
+              <button className="button secondary compact-button" onClick={copyPaymentLink} type="button"><Copy size={16} /> {linkCopied ? "Copied" : "Copy"}</button>
+              <a className="button secondary compact-button" href={`mailto:${encodeURIComponent(request.member?.email || "")}?subject=${encodeURIComponent("White Glove Concierge payment")}&body=${encodeURIComponent(`Please use this secure link to complete your ${paymentLinkLabel || "service payment"}:\n\n${paymentLink}`)}`}><Send size={16} /> Email</a>
+            </div>
+          )}
+        </div>
         {ensureList(request.payments).length > 0 && (
           <div className="admin-payment-ledger">
             {ensureList(request.payments).map((payment) => (
@@ -4348,7 +4474,7 @@ function AdminBookingDetail({ onDeleteDocument, onRecordPayment, onSaveTotal, on
   );
 }
 
-function AdminBookingWorkspace({ onDeleteDocument, onRecordPayment, onSaveTotal, onStatus, onUpdateBenefit, onUploadDocument, requests, selectedId, setSelectedId }) {
+function AdminBookingWorkspace({ onCancel, onCreatePaymentLink, onDeleteDocument, onRecordPayment, onSaveSchedule, onSaveTotal, onStatus, onUpdateBenefit, onUploadDocument, requests, selectedId, setSelectedId }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [paymentFilter, setPaymentFilter] = useState("all");
@@ -4388,7 +4514,7 @@ function AdminBookingWorkspace({ onDeleteDocument, onRecordPayment, onSaveTotal,
     <section className="admin-booking-workspace">
       <div className="admin-summary-strip">
         <div><span>Bookings</span><strong>{requests.length}</strong></div>
-        <div><span>In progress</span><strong>{requests.filter((request) => !["Completed", "Paid / Confirmed"].includes(request.status)).length}</strong></div>
+        <div><span>In progress</span><strong>{requests.filter((request) => !["Completed", "Paid / Confirmed", "Cancelled"].includes(request.status)).length}</strong></div>
         <div><span>Collected</span><strong>{adminMoney(paidTotal)}</strong></div>
         <div><span>Known balance due</span><strong>{adminMoney(dueTotal)}</strong></div>
       </div>
@@ -4400,7 +4526,7 @@ function AdminBookingWorkspace({ onDeleteDocument, onRecordPayment, onSaveTotal,
       </div>
 
       <div className="admin-status-tabs" role="tablist" aria-label="Booking status">
-        {["All", "Requested", "In Review", "Approved", "Booked", "Paid", "Completed"].map((status) => (
+        {["All", "Requested", "In Review", "Approved", "Booked", "Paid", "Completed", "Cancelled"].map((status) => (
           <button className={statusFilter === status ? "active" : ""} key={status} onClick={() => setStatusFilter(status)} type="button">{status}<span>{status === "All" ? requests.length : requests.filter((request) => request.status === (status === "Paid" ? "Paid / Confirmed" : status)).length}</span></button>
         ))}
       </div>
@@ -4418,7 +4544,7 @@ function AdminBookingWorkspace({ onDeleteDocument, onRecordPayment, onSaveTotal,
             );
           }) : <div className="admin-list-empty">No bookings match these filters.</div>}
         </div>
-        {selectedRequest ? <AdminBookingDetail key={selectedRequest.id} onDeleteDocument={onDeleteDocument} onRecordPayment={onRecordPayment} onSaveTotal={onSaveTotal} onStatus={onStatus} onUpdateBenefit={onUpdateBenefit} onUploadDocument={onUploadDocument} request={selectedRequest} /> : <div className="admin-list-empty">Select a booking to review it.</div>}
+        {selectedRequest ? <AdminBookingDetail key={`${selectedRequest.id}-${selectedRequest.preferred_date || "pending"}-${selectedRequest.preferred_time || "pending"}-${selectedRequest.transport_date || "none"}-${selectedRequest.transport_time || "none"}-${selectedRequest.status || "Requested"}`} onCancel={onCancel} onCreatePaymentLink={onCreatePaymentLink} onDeleteDocument={onDeleteDocument} onRecordPayment={onRecordPayment} onSaveSchedule={onSaveSchedule} onSaveTotal={onSaveTotal} onStatus={onStatus} onUpdateBenefit={onUpdateBenefit} onUploadDocument={onUploadDocument} request={selectedRequest} /> : <div className="admin-list-empty">Select a booking to review it.</div>}
       </div>
     </section>
   );
@@ -4650,6 +4776,70 @@ function AdminPortal({ onBack }) {
       setAdminNotice(action === "record-payment" ? "Payment recorded and the remaining balance was updated." : "Service total and payment arrangement updated.");
     } catch (error) {
       setAdminError(error.message || "Could not update the service payment.");
+      throw error;
+    }
+  }
+
+  async function updateDemandSchedule(id, update) {
+    setAdminError("");
+    setAdminNotice("");
+    try {
+      const response = await fetch("/.netlify/functions/admin-service-requests", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+        body: JSON.stringify({ action: "schedule", id, ...update }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Could not update the appointment.");
+      await loadAdminRequests(adminToken, { keepNotice: true });
+      setAdminNotice("The service and transport schedule was updated for the member.");
+    } catch (error) {
+      setAdminError(error.message || "Could not update the appointment.");
+      throw error;
+    }
+  }
+
+  async function cancelDemand(id, cancellationReason) {
+    setAdminError("");
+    setAdminNotice("");
+    try {
+      const response = await fetch("/.netlify/functions/admin-service-requests", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+        body: JSON.stringify({ action: "cancel-request", cancellationReason, id }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Could not cancel the request.");
+      await loadAdminRequests(adminToken, { keepNotice: true });
+      setAdminNotice("The request was cancelled and kept in the booking history.");
+    } catch (error) {
+      setAdminError(error.message || "Could not cancel the request.");
+      throw error;
+    }
+  }
+
+  async function createDemandPaymentLink(requestId, update) {
+    setAdminError("");
+    setAdminNotice("");
+    try {
+      const response = await fetch("/.netlify/functions/admin-create-service-payment-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+        body: JSON.stringify({ requestId, ...update }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Could not create the payment link.");
+      setServiceRequests((requests) => requests.map((request) => request.id === requestId ? {
+        ...request,
+        payment_link_amount_cents: payload.amountCents,
+        payment_link_created_at: payload.createdAt,
+        payment_link_label: payload.label,
+        payment_link_url: payload.url,
+      } : request));
+      setAdminNotice("The secure Stripe payment link is ready to send.");
+      return payload;
+    } catch (error) {
+      setAdminError(error.message || "Could not create the payment link.");
       throw error;
     }
   }
@@ -4950,8 +5140,11 @@ function AdminPortal({ onBack }) {
             <article className="admin-empty-card"><h2>No service requests yet</h2><p>New bookings and service requests will appear here.</p></article>
           ) : (
             <AdminBookingWorkspace
+              onCancel={cancelDemand}
+              onCreatePaymentLink={createDemandPaymentLink}
               onDeleteDocument={deleteDemandDocument}
               onRecordPayment={(id, update) => updateDemandPayment(id, "record-payment", update)}
+              onSaveSchedule={updateDemandSchedule}
               onSaveTotal={(id, update) => updateDemandPayment(id, "set-payment-total", update)}
               onStatus={updateDemandStatus}
               onUpdateBenefit={updateDemandBenefit}
@@ -5448,16 +5641,17 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
     setActiveVehicleId(vehicleId);
     localStorage.setItem(activeVehicleStorageKey, vehicleId);
   };
+  const scrollToAppTop = useCallback(() => {
+    appMainRef.current?.scrollTo?.({ top: 0, left: 0, behavior: "auto" });
+    resetAppScroll();
+  }, []);
   const navigateToTab = (tab) => {
     setCompletion(null);
     setInstantBooking(null);
     setActiveTab(tab);
     setTabRefreshKey((key) => key + 1);
 
-    window.requestAnimationFrame(() => {
-      appMainRef.current?.scrollTo?.({ top: 0, behavior: "smooth" });
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    });
+    scrollToAppTop();
 
     onRefreshMemberAppData?.().catch(() => {});
   };
@@ -5468,11 +5662,13 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
     setActiveTab("schedule");
     setTabRefreshKey((key) => key + 1);
 
-    window.requestAnimationFrame(() => {
-      appMainRef.current?.scrollTo?.({ top: 0, behavior: "smooth" });
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    });
+    scrollToAppTop();
   };
+
+  const showCompletion = useCallback((nextCompletion) => {
+    setCompletion(nextCompletion);
+    scrollToAppTop();
+  }, [scrollToAppTop]);
 
   useEffect(() => {
     if (initialCompletion) {
@@ -5480,6 +5676,16 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
       setActiveTab(initialCompletion.actionTab || "schedule");
     }
   }, [initialCompletion]);
+
+  useEffect(() => {
+    scrollToAppTop();
+    const frame = window.requestAnimationFrame(scrollToAppTop);
+    const timer = window.setTimeout(scrollToAppTop, 80);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [activeTab, completion, scrollToAppTop, tabRefreshKey]);
 
   useEffect(() => {
     if (activeTab === "feed" && !completion) {
@@ -5550,9 +5756,9 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
                 setActiveTab={navigateToTab}
               />
             )}
-            {!completion && activeTab === "garage" && <GarageScreen activeVehicleId={activeVehicleId} appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onSelectVehicle={selectActiveVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={setCompletion} vehicleValuations={vehicleValuations} />}
-            {!completion && activeTab === "schedule" && <ScheduleScreen activeVehicleId={activeVehicleId} appointments={appointmentList} benefitSummary={benefitSummary} garage={garageList} instantBooking={instantBooking} member={member} onAddAppointment={onAddAppointment} onCancelInstantBooking={() => setInstantBooking(null)} onComplete={setCompletion} onSelectVehicle={selectActiveVehicle} onUpdateAppointment={onUpdateAppointment} servicePricing={servicePricing} setActiveTab={navigateToTab} vehicleOptions={vehicleOptions} />}
-            {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedComment={onAddFeedComment} onAddFeedPost={onAddFeedPost} onComplete={setCompletion} onDeleteFeedPost={onDeleteFeedPost} onEditFeedPost={onEditFeedPost} onRefreshFeedPosts={onRefreshFeedPosts} onToggleFeedReaction={onToggleFeedReaction} vehicleOptions={vehicleOptions} />}
+            {!completion && activeTab === "garage" && <GarageScreen activeVehicleId={activeVehicleId} appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onSelectVehicle={selectActiveVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={showCompletion} vehicleValuations={vehicleValuations} />}
+            {!completion && activeTab === "schedule" && <ScheduleScreen activeVehicleId={activeVehicleId} appointments={appointmentList} benefitSummary={benefitSummary} garage={garageList} instantBooking={instantBooking} member={member} onAddAppointment={onAddAppointment} onCancelInstantBooking={() => setInstantBooking(null)} onComplete={showCompletion} onSelectVehicle={selectActiveVehicle} onUpdateAppointment={onUpdateAppointment} servicePricing={servicePricing} setActiveTab={navigateToTab} vehicleOptions={vehicleOptions} />}
+            {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedComment={onAddFeedComment} onAddFeedPost={onAddFeedPost} onComplete={showCompletion} onDeleteFeedPost={onDeleteFeedPost} onEditFeedPost={onEditFeedPost} onRefreshFeedPosts={onRefreshFeedPosts} onToggleFeedReaction={onToggleFeedReaction} vehicleOptions={vehicleOptions} />}
             {!completion && activeTab === "account" && <AccountScreen garageCount={garageList.length} member={member} onLogout={onLogout} onUpdateMember={onUpdateMember} />}
           </div>
         </MemberPanelErrorBoundary>
@@ -7963,7 +8169,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
 function ScheduleForm({ appointments, garage, instantMode = false, member, onAddAppointment, onChangeVehicle, onComplete, servicePricing, selectedService, selectedServiceOption, selectedVehicle, setSelectedService, setSelectedServiceOption }) {
   const [bookingStep, setBookingStep] = useState("details");
   const [pendingBooking, setPendingBooking] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState(instantMode ? "apple-pay" : "card-on-file");
+  const [paymentMethod, setPaymentMethod] = useState(instantMode ? "apple-pay" : "new-card");
   const [currentLocation, setCurrentLocation] = useState(selectedVehicle?.pickupLocation || selectedVehicle?.location || "");
   const [transportChoice, setTransportChoice] = useState("self-dropoff");
   const [warrantyCoverage, setWarrantyCoverage] = useState("not-warranty");
@@ -7987,12 +8193,18 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
   useEffect(() => {
     setBookingStep("details");
     setPendingBooking(null);
-    setPaymentMethod(instantMode ? "apple-pay" : "card-on-file");
+    setPaymentMethod(instantMode ? "apple-pay" : "new-card");
     setRequestError("");
     setCurrentLocation(selectedVehicle?.pickupLocation || selectedVehicle?.location || "");
     setTransportChoice("self-dropoff");
     setWarrantyCoverage("not-warranty");
   }, [instantMode, selectedService, selectedServiceOption, selectedVehicle?.id]);
+
+  useEffect(() => {
+    resetAppScroll();
+    const frame = window.requestAnimationFrame(resetAppScroll);
+    return () => window.cancelAnimationFrame(frame);
+  }, [bookingStep]);
 
   async function submitAppointment(event) {
     event.preventDefault();
@@ -8123,7 +8335,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
     try {
       setProcessingPayment(true);
 
-      if (amountCents > 0 && window.location.hostname !== "127.0.0.1" && window.location.hostname !== "localhost") {
+      if (amountCents > 0 && paymentMethod !== "card-on-file" && window.location.hostname !== "127.0.0.1" && window.location.hostname !== "localhost") {
         const response = await fetch(netlifyFunctionUrl("/.netlify/functions/create-checkout-session"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -8260,7 +8472,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
             Back To Details
           </button>
           <button className="button primary submit" type="submit" disabled={processingPayment}>
-            {processingPayment ? "Opening Secure Checkout..." : instantMode ? "Pay & Book Now" : "Confirm Booking"}
+            {processingPayment ? (paymentMethod === "card-on-file" ? "Submitting Booking..." : "Opening Secure Checkout...") : paymentMethod === "card-on-file" ? "Submit With Card On File" : "Pay Now"}
           </button>
         </div>
       </form>
@@ -9536,17 +9748,20 @@ function ServiceRequestCard({ appointment, onUpdateAppointment }) {
   const [editError, setEditError] = useState("");
   const [nowMs, setNowMs] = useState(Date.now());
   const paymentSummary = appointment.paymentTitle || appointment.notes?.match(/Payment:\s*([^-.\n]+)/i)?.[1]?.trim();
-  const canEdit = Boolean(onUpdateAppointment) && isFutureServiceDate(appointment.date);
   const ServiceIcon = serviceIconForRequest(appointment.service);
   const target = appointmentDateTime(appointment);
+  const transportTarget = transportDateTime(appointment);
   const activeStatus = !["completed", "cancelled", "canceled"].includes(normalizeRequestValue(appointment.status));
+  const canEdit = Boolean(onUpdateAppointment) && activeStatus && isFutureServiceDate(appointment.date);
   const countdown = activeStatus && target && target.getTime() > nowMs ? countdownLabel(target, nowMs) : null;
+  const transportCountdown = activeStatus && transportTarget && transportTarget.getTime() > nowMs ? countdownLabel(transportTarget, nowMs) : null;
 
   useEffect(() => {
-    if (!target || !activeStatus || target.getTime() <= Date.now()) return undefined;
+    const hasLiveCountdown = activeStatus && [target, transportTarget].some((date) => date && date.getTime() > Date.now());
+    if (!hasLiveCountdown) return undefined;
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [activeStatus, appointment.date, appointment.time]);
+  }, [activeStatus, appointment.date, appointment.time, appointment.transportDate, appointment.transportTime]);
 
   async function saveRequestEdits(event) {
     event.preventDefault();
@@ -9584,7 +9799,10 @@ function ServiceRequestCard({ appointment, onUpdateAppointment }) {
       <div className="request-date">
         <strong>{appointment.date || "Date pending"}</strong>
         <span>{appointment.time || "Time pending"}</span>
-        {countdown && <span className="request-live-countdown"><Clock size={14} /> {countdown.primary} {countdown.secondary}</span>}
+        {countdown && <span className="request-live-countdown"><Clock size={14} /> Service: {countdown.primary} {countdown.secondary}</span>}
+        {transportCountdown && <span className="request-live-countdown transport"><Car size={14} /> Transport: {transportCountdown.primary} {transportCountdown.secondary}</span>}
+        {appointment.status === "Cancelled" && appointment.cancellationReason && <small className="request-cancellation-note">{appointment.cancellationReason}</small>}
+        {appointment.paymentLinkUrl && appointment.paymentStatus !== "paid" && activeStatus && <a className="request-payment-link" href={appointment.paymentLinkUrl} rel="noreferrer" target="_blank"><CreditCard size={14} /> Pay securely</a>}
         {canEdit ? (
           <button type="button" onClick={() => setEditing((open) => !open)}>
             {editing ? "Close" : "Edit"}

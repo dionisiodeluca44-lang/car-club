@@ -239,7 +239,7 @@ export async function handler(event) {
   if (event.httpMethod === "GET") {
     let { data, error } = await supabase
       .from("service_requests")
-      .select("id, user_id, vehicle_label, service_type, preferred_date, preferred_time, notes, status, quoted_total_cents, payment_mode, payment_status, created_at")
+      .select("id, user_id, vehicle_label, service_type, preferred_date, preferred_time, transport_date, transport_time, cancelled_at, cancellation_reason, payment_link_url, payment_link_amount_cents, payment_link_label, payment_link_created_at, notes, status, quoted_total_cents, payment_mode, payment_status, created_at")
       .order("created_at", { ascending: false })
       .limit(100);
 
@@ -494,8 +494,13 @@ export async function handler(event) {
       paymentMethod,
       paymentMode,
       paymentType,
+      preferredDate,
+      preferredTime,
       quotedTotalCents,
       status,
+      transportDate,
+      transportTime,
+      cancellationReason,
     } = payload;
 
     if (action === "redeem-benefit" || action === "restore-benefit") {
@@ -504,8 +509,45 @@ export async function handler(event) {
       return json(result.statusCode, result.body);
     }
 
-    if (!id || (!status && !["set-payment-total", "record-payment"].includes(action))) {
+    if (!id || (!status && !["set-payment-total", "record-payment", "schedule", "cancel-request"].includes(action))) {
       return json(400, { error: "Request id and update details are required" });
+    }
+
+    if (action === "schedule") {
+      if (!preferredDate) return json(400, { error: "Choose an appointment date." });
+      const scheduleUpdate = {
+        preferred_date: preferredDate,
+        preferred_time: preferredTime || null,
+        transport_date: transportDate || null,
+        transport_time: transportTime || null,
+        updated_at: new Date().toISOString(),
+      };
+      const { data: currentRequest } = await supabase.from("service_requests").select("status").eq("id", id).maybeSingle();
+      if (!["Completed", "Paid / Confirmed", "Cancelled"].includes(currentRequest?.status)) scheduleUpdate.status = "Booked";
+      const { data, error } = await supabase
+        .from("service_requests")
+        .update(scheduleUpdate)
+        .eq("id", id)
+        .select("id, preferred_date, preferred_time, transport_date, transport_time, status")
+        .single();
+      if (error) return json(500, { error: "Could not update the appointment. Run the latest service payment SQL migration first." });
+      return json(200, { request: data });
+    }
+
+    if (action === "cancel-request") {
+      const { data, error } = await supabase
+        .from("service_requests")
+        .update({
+          cancellation_reason: String(cancellationReason || "Cancelled by the concierge team").slice(0, 500),
+          cancelled_at: new Date().toISOString(),
+          status: "Cancelled",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .select("id, cancelled_at, cancellation_reason, status")
+        .single();
+      if (error) return json(500, { error: "Could not cancel this request. Run the latest service payment SQL migration first." });
+      return json(200, { request: data });
     }
 
     if (action === "set-payment-total") {

@@ -2278,6 +2278,50 @@ textarea:focus {
   font-variant-numeric: tabular-nums;
 }
 
+.request-live-countdown.transport {
+  color: #8fc8ff;
+}
+
+.request-cancellation-note {
+  max-width: 18rem;
+  color: #f2a3a3;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.request-payment-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: fit-content;
+  margin-left: auto;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid rgba(229, 200, 121, 0.42);
+  border-radius: 5px;
+  color: var(--gold-bright);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.transport-countdown-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.45rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--line);
+  color: #8fc8ff;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.transport-countdown-summary strong {
+  color: var(--ink);
+  text-align: right;
+}
+
 .countdown-time {
   display: grid;
   justify-items: end;
@@ -5466,6 +5510,45 @@ textarea:focus {
   background: rgba(201, 164, 92, 0.045);
 }
 
+.admin-schedule-panel {
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.admin-schedule-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(125px, 1fr)) auto;
+  align-items: end;
+  gap: 0.55rem;
+}
+
+.admin-transport-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: #8fc8ff;
+  font-size: 0.76rem;
+}
+
+.admin-cancel-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  align-items: end;
+  gap: 0.55rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.danger-button {
+  border-color: rgba(224, 97, 97, 0.5) !important;
+  color: #f2a3a3 !important;
+}
+
 .admin-payment-heading,
 .admin-payment-heading > div {
   display: flex;
@@ -5537,6 +5620,61 @@ textarea:focus {
   grid-template-columns: repeat(3, minmax(130px, 1fr)) minmax(170px, 1.2fr) auto;
   padding-top: 0.75rem;
   border-top: 1px solid var(--line);
+}
+
+.admin-payment-link-section {
+  display: grid;
+  gap: 0.7rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line);
+}
+
+.admin-payment-link-section > div:first-child p {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.admin-payment-link-form {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.65fr) minmax(155px, 0.8fr) minmax(190px, 1.3fr) auto;
+  align-items: end;
+  gap: 0.55rem;
+}
+
+.admin-generated-link {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.75fr) minmax(180px, 1.5fr) auto auto;
+  align-items: end;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(83, 190, 126, 0.28);
+  border-radius: 6px;
+  background: rgba(83, 190, 126, 0.06);
+}
+
+.admin-generated-link > div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.admin-generated-link span {
+  color: #86dfa9;
+  font-size: 0.65rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-generated-link strong,
+.admin-generated-link input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-generated-link .button {
+  min-height: 2.65rem;
 }
 
 .admin-payment-ledger {
@@ -7224,8 +7362,17 @@ textarea:focus {
 
   .admin-booking-toolbar,
   .admin-payment-form,
-  .admin-record-payment-form {
+  .admin-record-payment-form,
+  .admin-schedule-form,
+  .admin-cancel-form,
+  .admin-payment-link-form,
+  .admin-generated-link {
     grid-template-columns: 1fr;
+  }
+
+  .admin-generated-link .button,
+  .admin-generated-link input {
+    width: 100%;
   }
 
   .admin-booking-detail-header {

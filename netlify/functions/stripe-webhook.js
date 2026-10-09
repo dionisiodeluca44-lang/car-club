@@ -286,6 +286,54 @@ async function createPaidServiceRequest(session) {
   const amountPaidCents = Math.max(0, Number(session.amount_total || metadata.amountCents) || 0);
   const paymentMode = ["deposit", "full", "free", "custom"].includes(metadata.paymentMode) ? metadata.paymentMode : "custom";
   const quotedTotalCents = Math.max(0, Number(metadata.quotedTotalCents) || (paymentMode === "full" ? amountPaidCents : 0));
+
+  if (metadata.serviceRequestId) {
+    const { data: existingRequest, error: requestError } = await supabase
+      .from("service_requests")
+      .select("id, user_id, quoted_total_cents, payment_mode, status")
+      .eq("id", metadata.serviceRequestId)
+      .single();
+    if (requestError || !existingRequest) throw requestError || new Error("Could not find the linked service request.");
+
+    const allowedPaymentTypes = new Set(["deposit", "balance", "full", "manual"]);
+    const paymentType = allowedPaymentTypes.has(metadata.paymentType)
+      ? metadata.paymentType
+      : paymentMode === "full" ? "full" : paymentMode === "deposit" ? "deposit" : "manual";
+    const { error: paymentError } = await supabase
+      .from("service_request_payments")
+      .upsert({
+        amount_cents: amountPaidCents,
+        note: metadata.paymentTitle || "Paid through an admin payment link",
+        payment_method: metadata.paymentMethod || "Stripe Checkout",
+        payment_type: paymentType,
+        service_request_id: existingRequest.id,
+        stripe_checkout_session_id: session.id,
+        user_id: existingRequest.user_id,
+      }, { onConflict: "stripe_checkout_session_id", ignoreDuplicates: true });
+    if (paymentError) throw paymentError;
+
+    const { data: payments, error: paymentsError } = await supabase
+      .from("service_request_payments")
+      .select("amount_cents, payment_type")
+      .eq("service_request_id", existingRequest.id);
+    if (paymentsError) throw paymentsError;
+
+    const paidCents = (payments || []).reduce((total, payment) => (
+      total + (payment.payment_type === "refund" ? -1 : 1) * Number(payment.amount_cents || 0)
+    ), 0);
+    const totalCents = Math.max(0, Number(existingRequest.quoted_total_cents) || quotedTotalCents);
+    const fullyPaid = paymentType === "full" || (totalCents > 0 && paidCents >= totalCents);
+    const nextPaymentStatus = fullyPaid ? "paid" : paymentType === "deposit" ? "deposit_paid" : "partially_paid";
+    const requestUpdate = {
+      payment_status: nextPaymentStatus,
+      updated_at: new Date().toISOString(),
+    };
+    if (fullyPaid) requestUpdate.status = "Paid / Confirmed";
+    const { error: updateError } = await supabase.from("service_requests").update(requestUpdate).eq("id", existingRequest.id);
+    if (updateError) throw updateError;
+    return;
+  }
+
   const requestRecord = {
     user_id: userId,
     vehicle_label: metadata.vehicle || "Vehicle pending",

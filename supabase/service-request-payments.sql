@@ -4,7 +4,15 @@
 alter table public.service_requests
   add column if not exists quoted_total_cents integer not null default 0 check (quoted_total_cents >= 0),
   add column if not exists payment_mode text not null default 'custom' check (payment_mode in ('deposit', 'full', 'free', 'custom')),
-  add column if not exists payment_status text not null default 'unpaid' check (payment_status in ('unpaid', 'deposit_paid', 'partially_paid', 'paid', 'refunded'));
+  add column if not exists payment_status text not null default 'unpaid' check (payment_status in ('unpaid', 'deposit_paid', 'partially_paid', 'paid', 'refunded')),
+  add column if not exists transport_date date,
+  add column if not exists transport_time time,
+  add column if not exists cancelled_at timestamptz,
+  add column if not exists cancellation_reason text,
+  add column if not exists payment_link_url text,
+  add column if not exists payment_link_amount_cents integer check (payment_link_amount_cents is null or payment_link_amount_cents > 0),
+  add column if not exists payment_link_label text,
+  add column if not exists payment_link_created_at timestamptz;
 
 create table if not exists public.service_request_payments (
   id uuid primary key default gen_random_uuid(),

@@ -97,6 +97,14 @@ create table if not exists public.service_requests (
   quoted_total_cents integer not null default 0 check (quoted_total_cents >= 0),
   payment_mode text not null default 'custom' check (payment_mode in ('deposit', 'full', 'free', 'custom')),
   payment_status text not null default 'unpaid' check (payment_status in ('unpaid', 'deposit_paid', 'partially_paid', 'paid', 'refunded')),
+  transport_date date,
+  transport_time time,
+  cancelled_at timestamptz,
+  cancellation_reason text,
+  payment_link_url text,
+  payment_link_amount_cents integer check (payment_link_amount_cents is null or payment_link_amount_cents > 0),
+  payment_link_label text,
+  payment_link_created_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
