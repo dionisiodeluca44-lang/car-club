@@ -275,6 +275,39 @@ async function handleRefundEvent(stripeEvent) {
   await reverseMembershipInvoiceRevenue(invoiceId, charge.amount_refunded);
 }
 
+async function checkoutPaymentMethod(session) {
+  const paymentIntentId = stripeId(session.payment_intent);
+  if (!paymentIntentId) return session.metadata?.paymentMethod || "Stripe Checkout";
+
+  const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+    expand: ["payment_method"],
+  });
+  const paymentMethod = paymentIntent.payment_method;
+
+  if (!paymentMethod || typeof paymentMethod === "string") return "Stripe Checkout";
+  if (paymentMethod.type === "card") {
+    const walletType = paymentMethod.card?.wallet?.type;
+    if (walletType === "apple_pay") return "Apple Pay";
+    if (walletType === "google_pay") return "Google Pay";
+    if (paymentMethod.card?.last4) return `Card ending in ${paymentMethod.card.last4}`;
+    return "Credit or debit card";
+  }
+
+  return String(paymentMethod.type || "Stripe Checkout")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+async function saveBookingCustomer(userId, customerId) {
+  if (!customerId) return;
+  const { error } = await supabase
+    .from("profiles")
+    .update({ stripe_customer_id: customerId, updated_at: new Date().toISOString() })
+    .eq("id", userId)
+    .is("stripe_customer_id", null);
+  if (error) throw error;
+}
+
 async function createPaidServiceRequest(session) {
   const metadata = session.metadata || {};
   const userId = metadata.userId || null;
@@ -283,6 +316,8 @@ async function createPaidServiceRequest(session) {
     throw new Error(`Stripe checkout session ${session.id} is missing a Supabase user id.`);
   }
 
+  await saveBookingCustomer(userId, stripeId(session.customer));
+  const paymentMethod = await checkoutPaymentMethod(session);
   const amountPaidCents = Math.max(0, Number(session.amount_total || metadata.amountCents) || 0);
   const paymentMode = ["deposit", "full", "free", "custom"].includes(metadata.paymentMode) ? metadata.paymentMode : "custom";
   const quotedTotalCents = Math.max(0, Number(metadata.quotedTotalCents) || (paymentMode === "full" ? amountPaidCents : 0));
@@ -304,7 +339,7 @@ async function createPaidServiceRequest(session) {
       .upsert({
         amount_cents: amountPaidCents,
         note: metadata.paymentTitle || "Paid through an admin payment link",
-        payment_method: metadata.paymentMethod || "Stripe Checkout",
+        payment_method: paymentMethod,
         payment_type: paymentType,
         service_request_id: existingRequest.id,
         stripe_checkout_session_id: session.id,
@@ -356,7 +391,7 @@ async function createPaidServiceRequest(session) {
       `Transportation charge: ${metadata.transportAmount || "not provided"}`,
       `Warranty: ${metadata.warrantyLabel || metadata.warrantyCoverage || "not provided"}`,
       `Payment: ${metadata.paymentTitle || "Payment"} - ${metadata.paymentAmount || "Paid through Stripe"}`,
-      `Payment method: ${metadata.paymentMethod || "Stripe Checkout"}`,
+      `Payment method: ${paymentMethod}`,
       `Stripe session: ${session.id}`,
       metadata.notes,
     ].filter(Boolean).join("\n\n"),
@@ -388,7 +423,7 @@ async function createPaidServiceRequest(session) {
 
   const { error: paymentError } = await supabase.from("service_request_payments").insert({
     amount_cents: amountPaidCents,
-    payment_method: metadata.paymentMethod || "Stripe Checkout",
+    payment_method: paymentMethod,
     payment_type: paymentMode === "full" ? "full" : "deposit",
     service_request_id: request.id,
     stripe_checkout_session_id: session.id,

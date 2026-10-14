@@ -1085,12 +1085,6 @@ function paymentTermsForService(serviceLabel, vehicle, selectedOptionName, servi
   return servicePaymentRules[serviceLabel] || defaultDepositTerms;
 }
 
-function paymentMethodLabel(method) {
-  if (method === "new-card") return "New credit card";
-  if (method === "apple-pay") return "Apple Pay";
-  return "Card on file";
-}
-
 function paymentAmountCents(paymentTerms) {
   if (Number.isFinite(paymentTerms?.amountCents)) return paymentTerms.amountCents;
   const match = String(paymentTerms?.amount || "").match(/\$([\d,]+(?:\.\d{2})?)/);
@@ -8169,7 +8163,6 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
 function ScheduleForm({ appointments, garage, instantMode = false, member, onAddAppointment, onChangeVehicle, onComplete, servicePricing, selectedService, selectedServiceOption, selectedVehicle, setSelectedService, setSelectedServiceOption }) {
   const [bookingStep, setBookingStep] = useState("details");
   const [pendingBooking, setPendingBooking] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState(instantMode ? "apple-pay" : "new-card");
   const [currentLocation, setCurrentLocation] = useState(selectedVehicle?.pickupLocation || selectedVehicle?.location || "");
   const [transportChoice, setTransportChoice] = useState("self-dropoff");
   const [warrantyCoverage, setWarrantyCoverage] = useState("not-warranty");
@@ -8193,7 +8186,6 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
   useEffect(() => {
     setBookingStep("details");
     setPendingBooking(null);
-    setPaymentMethod(instantMode ? "apple-pay" : "new-card");
     setRequestError("");
     setCurrentLocation(selectedVehicle?.pickupLocation || selectedVehicle?.location || "");
     setTransportChoice("self-dropoff");
@@ -8313,9 +8305,8 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
       return;
     }
 
-    const paymentLabel = paymentMethodLabel(paymentMethod);
     const amountCents = paymentAmountCents({ amount: pendingBooking.appointment.paymentAmount, amountCents: pendingBooking.formData.paymentAmountCents });
-    const paymentSummary = paymentLabel;
+    const paymentSummary = amountCents > 0 ? "Stripe Checkout" : "No payment required";
     const appointment = {
       ...pendingBooking.appointment,
       notes: [
@@ -8335,17 +8326,20 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
     try {
       setProcessingPayment(true);
 
-      if (amountCents > 0 && paymentMethod !== "card-on-file" && window.location.hostname !== "127.0.0.1" && window.location.hostname !== "localhost") {
+      if (amountCents > 0) {
+        const accessToken = await getCurrentAccessToken();
         const response = await fetch(netlifyFunctionUrl("/.netlify/functions/create-checkout-session"), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Authorization": accessToken ? `Bearer ${accessToken}` : "",
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({
             ...netlifyFormData,
             amountCents,
             description: `${appointment.serviceOption} for ${appointment.vehicle}`,
             memberEmail: member.email,
             memberName: member.name,
-            paymentMethod: paymentSummary,
             serviceLabel: `${appointment.service} - ${appointment.serviceOption}`,
             currentLocation: appointment.currentLocation,
             transportAmount: pendingBooking.formData.transportAmount,
@@ -8357,9 +8351,15 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
           }),
         });
 
-        const checkout = await response.json().catch(() => ({}));
+        const responseText = await response.text();
+        let checkout = {};
+        try {
+          checkout = responseText ? JSON.parse(responseText) : {};
+        } catch {
+          checkout = { error: responseText };
+        }
         if (!response.ok || !checkout.url) {
-          throw new Error(checkout.error || "Could not start secure payment checkout.");
+          throw new Error(readableError(checkout.error || checkout, "Could not start secure payment checkout."));
         }
 
         window.location.assign(checkout.url);
@@ -8411,6 +8411,8 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
 
   if (bookingStep === "payment" && pendingBooking) {
     const appointment = pendingBooking.appointment;
+    const amountCents = paymentAmountCents({ amount: appointment.paymentAmount, amountCents: pendingBooking.formData.paymentAmountCents });
+    const requiresPayment = amountCents > 0;
 
     return (
       <form className="app-form inline-form payment-checkout" onSubmit={confirmPayment}>
@@ -8430,40 +8432,37 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
             <strong>{appointment.paymentAmount}</strong>
           </div>
         </div>
-        <div className="payment-method-grid">
-          {(instantMode ? [
-            ["apple-pay", "Apple Pay", "Fast checkout on a supported Apple device."],
-            ["new-card", "Add credit card", "Enter your card securely through Stripe."],
-          ] : [
-            ["card-on-file", "Card on file", "Use your saved member payment method."],
-            ["new-card", "Add credit card", "Use a different card for this booking."],
-            ["apple-pay", "Apple Pay", "Confirm with Apple Pay on supported devices."],
-          ]).map(([value, label, description]) => (
-            <label className={paymentMethod === value ? "selected-payment-method" : ""} key={value}>
-              <input checked={paymentMethod === value} name="paymentMethod" onChange={() => setPaymentMethod(value)} type="radio" value={value} />
-              <CreditCard size={20} />
-              <span>{label}</span>
-              <small>{description}</small>
-            </label>
-          ))}
-        </div>
-        {paymentMethod === "new-card" && (
-          <div className="payment-terms full-payment-card">
-            <CreditCard size={22} />
-            <div>
-              <span>Secure checkout</span>
-              <h3>Enter card details on Stripe</h3>
-              <p>Your card details are entered on Stripe's secure payment page after you confirm this booking.</p>
+        {requiresPayment ? (
+          <>
+            <div className="payment-method-grid" aria-label="Payment options available in secure checkout">
+              {[
+                ["Apple Pay", "Pay with Apple Pay when it is available on your Apple device and browser."],
+                ["Card on file", "Choose an eligible saved card already connected to your member account."],
+                ["Add credit card", "Enter a new credit or debit card securely on Stripe's payment page."],
+              ].map(([label, description]) => (
+                <div className="payment-method-option" key={label}>
+                  <CreditCard size={20} />
+                  <span>{label}</span>
+                  <small>{description}</small>
+                </div>
+              ))}
             </div>
-          </div>
-        )}
-        {paymentMethod === "apple-pay" && (
+            <div className="payment-terms full-payment-card">
+              <ShieldCheck size={22} />
+              <div>
+                <span>Secure Stripe checkout</span>
+                <h3>Choose how you want to pay</h3>
+                <p>The next page displays the payment options available to you. You can also choose to save a new card to your member payment profile for future bookings.</p>
+              </div>
+            </div>
+          </>
+        ) : (
           <div className="payment-terms full-payment-card">
-            <CreditCard size={22} />
+            <ShieldCheck size={22} />
             <div>
-              <span>Apple Pay selected</span>
-              <h3>Ready to confirm</h3>
-              <p>Apple Pay appears automatically on Stripe Checkout when it is supported by the device and browser.</p>
+              <span>No payment due</span>
+              <h3>Confirm this service request</h3>
+              <p>This request has no charge today, so you can submit it without entering a payment method.</p>
             </div>
           </div>
         )}
@@ -8472,7 +8471,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
             Back To Details
           </button>
           <button className="button primary submit" type="submit" disabled={processingPayment}>
-            {processingPayment ? (paymentMethod === "card-on-file" ? "Submitting Booking..." : "Opening Secure Checkout...") : paymentMethod === "card-on-file" ? "Submit With Card On File" : "Pay Now"}
+            {processingPayment ? (requiresPayment ? "Opening Secure Checkout..." : "Submitting Booking...") : requiresPayment ? "Continue To Secure Payment" : "Confirm Free Request"}
           </button>
         </div>
       </form>

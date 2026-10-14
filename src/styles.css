@@ -4770,7 +4770,7 @@ textarea:focus {
   gap: 0.85rem;
 }
 
-.payment-method-grid label {
+.payment-method-option {
   display: grid;
   gap: 0.45rem;
   min-height: 150px;
@@ -4778,19 +4778,6 @@ textarea:focus {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: rgba(0, 0, 0, 0.22);
-  cursor: pointer;
-  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
-}
-
-.payment-method-grid label:hover,
-.payment-method-grid label.selected-payment-method {
-  transform: translateY(-2px);
-  border-color: rgba(229, 200, 121, 0.62);
-  background: rgba(201, 164, 92, 0.12);
-}
-
-.payment-method-grid input {
-  width: fit-content;
 }
 
 .payment-method-grid svg {
@@ -6980,7 +6967,7 @@ textarea:focus {
   }
 
   .booking-choice-grid label,
-  .payment-method-grid label {
+  .payment-method-option {
     min-height: 0;
   }
 

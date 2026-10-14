@@ -30,7 +30,7 @@ pnpm dev
 
 The app is wired for Supabase auth, database records, service requests, and vehicle photo storage. It falls back to local prototype mode until Supabase environment variables are added.
 
-Membership leads submit to the `membership-lead` Netlify form. Member app booking requests save to Supabase. Paid bookings redirect to Stripe Checkout, then the Stripe webhook creates the confirmed service demand in Supabase.
+Membership leads submit to the `membership-lead` Netlify form. Member app booking requests save to Supabase. Paid bookings redirect to Stripe Checkout, where eligible members can use Apple Pay, a saved card, or a new card. Members can choose to save a new card to their Stripe customer for future bookings, and the Stripe webhook creates the confirmed service demand in Supabase after payment succeeds.
 
 Required environment variables:
 
@@ -62,8 +62,9 @@ Setup steps:
    - `invoice.payment_failed`
    - `invoice.voided`
    - `charge.refunded`
-7. Enable Stripe customer email receipts in the Stripe dashboard if you want automatic payment receipts.
-8. Redeploy Netlify.
+7. Confirm cards and Apple Pay are enabled in Stripe's payment-method settings. Apple Pay appears only on a supported Apple device and browser with an eligible card in Wallet.
+8. Enable Stripe customer email receipts in the Stripe dashboard if you want automatic payment receipts.
+9. Redeploy Netlify.
 
 Once configured, members can create accounts, activate a recurring membership, sign in, save garage vehicles, upload vehicle photos, update vehicle values/horsepower/work history, create paid booking requests, and have those confirmed requests appear in the backend portal. Stripe lifecycle webhooks pause access for `past_due`, `unpaid`, `paused`, and `canceled` subscriptions and restore it when Stripe reports the subscription `active` or `trialing` again. Supabase row-level policies enforce the same rule for garage, service-request, feed, and vehicle-upload operations.
 
