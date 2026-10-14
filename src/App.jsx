@@ -8163,6 +8163,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
 function ScheduleForm({ appointments, garage, instantMode = false, member, onAddAppointment, onChangeVehicle, onComplete, servicePricing, selectedService, selectedServiceOption, selectedVehicle, setSelectedService, setSelectedServiceOption }) {
   const [bookingStep, setBookingStep] = useState("details");
   const [pendingBooking, setPendingBooking] = useState(null);
+  const paymentFormRef = useRef(null);
   const [currentLocation, setCurrentLocation] = useState(selectedVehicle?.pickupLocation || selectedVehicle?.location || "");
   const [transportChoice, setTransportChoice] = useState("self-dropoff");
   const [warrantyCoverage, setWarrantyCoverage] = useState("not-warranty");
@@ -8193,8 +8194,11 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
   }, [instantMode, selectedService, selectedServiceOption, selectedVehicle?.id]);
 
   useEffect(() => {
-    resetAppScroll();
-    const frame = window.requestAnimationFrame(resetAppScroll);
+    if (bookingStep !== "payment") return undefined;
+
+    const frame = window.requestAnimationFrame(() => {
+      paymentFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
     return () => window.cancelAnimationFrame(frame);
   }, [bookingStep]);
 
@@ -8415,7 +8419,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
     const requiresPayment = amountCents > 0;
 
     return (
-      <form className="app-form inline-form payment-checkout" onSubmit={confirmPayment}>
+      <form className="app-form inline-form payment-checkout" onSubmit={confirmPayment} ref={paymentFormRef}>
         {requestError && (
           <div className="error-message" role="alert">
             {requestError}
