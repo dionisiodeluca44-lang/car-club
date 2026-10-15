@@ -4641,8 +4641,47 @@ textarea:focus {
   border-color: rgba(117, 214, 166, 0.28);
 }
 
+.payment-checkout-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom));
+  background: rgba(3, 3, 3, 0.92);
+  backdrop-filter: blur(18px);
+}
+
 .payment-checkout {
+  width: min(100%, 720px);
   gap: 1rem;
+  padding: clamp(1rem, 4vw, 1.5rem);
+  border: 1px solid rgba(229, 200, 121, 0.34);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(circle at top right, rgba(201, 164, 92, 0.16), transparent 24rem),
+    #0b0b0b;
+  box-shadow: 0 30px 100px rgba(0, 0, 0, 0.55);
+}
+
+.payment-checkout:focus {
+  outline: none;
+}
+
+@media (max-width: 720px) {
+  .payment-checkout-backdrop {
+    padding: env(safe-area-inset-top) 0 calc(1rem + env(safe-area-inset-bottom));
+  }
+
+  .payment-checkout {
+    min-height: 100%;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+  }
 }
 
 .instant-book-flow-header {

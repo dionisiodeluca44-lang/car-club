@@ -8197,7 +8197,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
     if (bookingStep !== "payment") return undefined;
 
     const frame = window.requestAnimationFrame(() => {
-      paymentFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      paymentFormRef.current?.focus({ preventScroll: true });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [bookingStep]);
@@ -8419,66 +8419,76 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
     const requiresPayment = amountCents > 0;
 
     return (
-      <form className="app-form inline-form payment-checkout" onSubmit={confirmPayment} ref={paymentFormRef}>
-        {requestError && (
-          <div className="error-message" role="alert">
-            {requestError}
-          </div>
-        )}
-        <div className="checkout-summary">
-          <div>
-            <p className="eyebrow">{instantMode ? "Instant checkout" : "Payment"}</p>
-            <h3>{instantMode ? "Pay and book now" : "Confirm your booking"}</h3>
-            <p>{appointment.service} for {appointment.vehicle}</p>
-          </div>
-          <div>
-            <span>{appointment.paymentTitle}</span>
-            <strong>{appointment.paymentAmount}</strong>
-          </div>
-        </div>
-        {requiresPayment ? (
-          <>
-            <div className="payment-method-grid" aria-label="Payment options available in secure checkout">
-              {[
-                ["Apple Pay", "Pay with Apple Pay when it is available on your Apple device and browser."],
-                ["Card on file", "Choose an eligible saved card already connected to your member account."],
-                ["Add credit card", "Enter a new credit or debit card securely on Stripe's payment page."],
-              ].map(([label, description]) => (
-                <div className="payment-method-option" key={label}>
-                  <CreditCard size={20} />
-                  <span>{label}</span>
-                  <small>{description}</small>
-                </div>
-              ))}
+      <div className="payment-checkout-backdrop">
+        <form
+          aria-label="Confirm your booking and continue to secure payment"
+          aria-modal="true"
+          className="app-form inline-form payment-checkout"
+          onSubmit={confirmPayment}
+          ref={paymentFormRef}
+          role="dialog"
+          tabIndex="-1"
+        >
+          {requestError && (
+            <div className="error-message" role="alert">
+              {requestError}
             </div>
+          )}
+          <div className="checkout-summary">
+            <div>
+              <p className="eyebrow">{instantMode ? "Instant checkout" : "Payment"}</p>
+              <h3>{instantMode ? "Pay and book now" : "Confirm your booking"}</h3>
+              <p>{appointment.service} for {appointment.vehicle}</p>
+            </div>
+            <div>
+              <span>{appointment.paymentTitle}</span>
+              <strong>{appointment.paymentAmount}</strong>
+            </div>
+          </div>
+          {requiresPayment ? (
+            <>
+              <div className="payment-method-grid" aria-label="Payment options available in secure checkout">
+                {[
+                  ["Apple Pay", "Pay with Apple Pay when it is available on your Apple device and browser."],
+                  ["Card on file", "Choose an eligible saved card already connected to your member account."],
+                  ["Add credit card", "Enter a new credit or debit card securely on Stripe's payment page."],
+                ].map(([label, description]) => (
+                  <div className="payment-method-option" key={label}>
+                    <CreditCard size={20} />
+                    <span>{label}</span>
+                    <small>{description}</small>
+                  </div>
+                ))}
+              </div>
+              <div className="payment-terms full-payment-card">
+                <ShieldCheck size={22} />
+                <div>
+                  <span>Secure Stripe checkout</span>
+                  <h3>Choose how you want to pay</h3>
+                  <p>The next page displays the payment options available to you. You can also choose to save a new card to your member payment profile for future bookings.</p>
+                </div>
+              </div>
+            </>
+          ) : (
             <div className="payment-terms full-payment-card">
               <ShieldCheck size={22} />
               <div>
-                <span>Secure Stripe checkout</span>
-                <h3>Choose how you want to pay</h3>
-                <p>The next page displays the payment options available to you. You can also choose to save a new card to your member payment profile for future bookings.</p>
+                <span>No payment due</span>
+                <h3>Confirm this service request</h3>
+                <p>This request has no charge today, so you can submit it without entering a payment method.</p>
               </div>
             </div>
-          </>
-        ) : (
-          <div className="payment-terms full-payment-card">
-            <ShieldCheck size={22} />
-            <div>
-              <span>No payment due</span>
-              <h3>Confirm this service request</h3>
-              <p>This request has no charge today, so you can submit it without entering a payment method.</p>
-            </div>
+          )}
+          <div className="checkout-actions">
+            <button className="button secondary" type="button" onClick={() => setBookingStep("details")}>
+              Back To Details
+            </button>
+            <button className="button primary submit" type="submit" disabled={processingPayment}>
+              {processingPayment ? (requiresPayment ? "Opening Secure Checkout..." : "Submitting Booking...") : requiresPayment ? "Continue To Secure Payment" : "Confirm Free Request"}
+            </button>
           </div>
-        )}
-        <div className="checkout-actions">
-          <button className="button secondary" type="button" onClick={() => setBookingStep("details")}>
-            Back To Details
-          </button>
-          <button className="button primary submit" type="submit" disabled={processingPayment}>
-            {processingPayment ? (requiresPayment ? "Opening Secure Checkout..." : "Submitting Booking...") : requiresPayment ? "Continue To Secure Payment" : "Confirm Free Request"}
-          </button>
-        </div>
-      </form>
+        </form>
+      </div>
     );
   }
 
