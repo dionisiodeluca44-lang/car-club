@@ -79,13 +79,17 @@ export async function getCurrentMember() {
     stripeSubscriptionId: profile?.stripe_subscription_id || "",
     username: profile?.username || user.user_metadata?.username || "",
     avatarUrl: profile?.avatar_url || user.user_metadata?.avatar_url || "",
-    phone: user.user_metadata?.phone || "",
-    addresses: user.user_metadata?.addresses || [],
+    phone: profile?.phone || user.user_metadata?.phone || "",
+    addresses: profile?.addresses?.length ? profile.addresses : user.user_metadata?.addresses || [],
     notifications: profile?.notifications || defaultNotifications,
   };
 }
 
 export async function createAccount({ addresses = [], email, name, password, phone, plan, username }) {
+  if (!addresses.some((entry) => String(entry?.address || entry || "").trim())) {
+    throw new Error("Enter the primary address where your vehicle is normally kept.");
+  }
+
   if (!supabase) {
     return { addresses, avatarUrl: "", email, name, phone, plan, subscriptionStatus: "active", username, notifications: defaultNotifications };
   }
@@ -129,6 +133,8 @@ export async function createAccount({ addresses = [], email, name, password, pho
     plan,
     username,
     avatarUrl: "",
+    phone,
+    addresses,
     notifications: defaultNotifications,
   });
 
@@ -200,8 +206,8 @@ export async function signIn({ email, password }) {
     stripeSubscriptionId: profile?.stripe_subscription_id || "",
     username: profile?.username || data.user.user_metadata?.username || "",
     avatarUrl: profile?.avatar_url || data.user.user_metadata?.avatar_url || "",
-    phone: data.user.user_metadata?.phone || "",
-    addresses: data.user.user_metadata?.addresses || [],
+    phone: profile?.phone || data.user.user_metadata?.phone || "",
+    addresses: profile?.addresses?.length ? profile.addresses : data.user.user_metadata?.addresses || [],
     notifications: profile?.notifications || defaultNotifications,
   };
 }
@@ -219,13 +225,15 @@ export async function getCurrentAccessToken() {
   return data.session?.access_token || "";
 }
 
-export async function upsertProfile({ avatarUrl, email, id, name, notifications, plan, username }) {
+export async function upsertProfile({ addresses, avatarUrl, email, id, name, notifications, phone, plan, username }) {
   if (!supabase || !id) return;
 
   const payload = {
     full_name: name,
     username: username || null,
     avatar_url: avatarUrl || null,
+    phone: phone || null,
+    addresses: addresses || [],
     notifications: notifications || defaultNotifications,
     updated_at: new Date().toISOString(),
   };
@@ -235,7 +243,7 @@ export async function upsertProfile({ avatarUrl, email, id, name, notifications,
   if (error) throw error;
 }
 
-export async function updateMemberProfile({ avatarUrl, email, id, name, notifications, plan, username }) {
+export async function updateMemberProfile({ addresses = [], avatarUrl, email, id, name, notifications, phone, plan, username }) {
   let savedAvatarUrl = avatarUrl || "";
 
   if (String(savedAvatarUrl).startsWith("data:")) {
@@ -246,13 +254,25 @@ export async function updateMemberProfile({ avatarUrl, email, id, name, notifica
     }
   }
 
-  await upsertProfile({ avatarUrl: savedAvatarUrl, email, id, name, notifications, plan, username });
+  const { error: metadataError } = await supabase.auth.updateUser({
+    data: {
+      addresses,
+      full_name: name,
+      phone,
+      username,
+    },
+  });
+  if (metadataError) throw metadataError;
+
+  await upsertProfile({ addresses, avatarUrl: savedAvatarUrl, email, id, name, notifications, phone, plan, username });
   return {
     id,
+    addresses,
     avatarUrl: savedAvatarUrl,
     email,
     name,
     notifications: notifications || defaultNotifications,
+    phone: phone || "",
     plan,
     username: username || "",
   };

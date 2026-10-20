@@ -21,6 +21,7 @@ import LogOut from "lucide-react/dist/esm/icons/log-out.js";
 import MapPin from "lucide-react/dist/esm/icons/map-pin.js";
 import Menu from "lucide-react/dist/esm/icons/menu.js";
 import MessageCircle from "lucide-react/dist/esm/icons/message-circle.js";
+import Phone from "lucide-react/dist/esm/icons/phone.js";
 import Plus from "lucide-react/dist/esm/icons/plus.js";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw.js";
 import Search from "lucide-react/dist/esm/icons/search.js";
@@ -581,9 +582,9 @@ const bookingServiceCatalog = {
   "Pickup and delivery": {
     category: "Transport",
     options: [
-      { name: "Drop it off", price: 0 },
-      { name: "Pick up", price: 95 },
-      { name: "Pick up and drop off", price: 175 },
+      { name: "I'll deliver the vehicle", price: 0 },
+      { name: "One-way concierge pickup", price: 95 },
+      { name: "Round-trip concierge transport", price: 175 },
     ],
     note: "Montreal pricing. Off-island distance, tolls, and waiting time are quoted separately before confirmation.",
   },
@@ -747,8 +748,8 @@ const serviceBookingFields = {
     { name: "offerCondition", label: "Condition and disclosures", type: "textarea", placeholder: "Accidents, liens, warning lights, damage, recent work, or other details" },
   ],
   "Pickup and delivery": [
-    { name: "transportPickupAddress", label: "Pickup address", placeholder: "Full pickup address", required: true },
-    { name: "transportDeliveryAddress", label: "Delivery address", placeholder: "Full destination address", required: true },
+    { name: "transportPickupAddress", label: "Vehicle collection address", placeholder: "Address where the vehicle will be ready", required: true },
+    { name: "transportDeliveryAddress", label: "Service destination", placeholder: "Shop, dealer, storage facility, or destination", required: true },
     { name: "transportAccess", label: "Keys and access instructions", placeholder: "Who has the keys, parking details, gate, or concierge instructions" },
   ],
   "Tire change / storage": [
@@ -855,25 +856,25 @@ const vehicleLogisticsServices = new Set([
 
 function serviceDetailFieldsForBooking(serviceLabel, serviceOption = "") {
   if (serviceLabel === "Pickup and delivery") {
-    if (serviceOption === "Drop it off") {
+    if (serviceOption === "I'll deliver the vehicle") {
       return [
         { name: "transportDeliveryAddress", label: "Service destination", placeholder: "Shop, dealer, storage facility, or other destination" },
         { name: "transportAccess", label: "Drop-off instructions", placeholder: "Appointment name, entrance, parking, keys, or contact details" },
       ];
     }
 
-    if (serviceOption === "Pick up and drop off") {
+    if (serviceOption === "Round-trip concierge transport") {
       return [
-        { name: "transportPickupAddress", label: "Pickup address", placeholder: "Full pickup address", required: true },
+        { name: "transportPickupAddress", label: "Vehicle collection address", placeholder: "Address where the vehicle will be ready", required: true },
         { name: "transportDeliveryAddress", label: "Service destination", placeholder: "Where should we take the vehicle?", required: true },
-        { name: "transportReturnAddress", label: "Return address", placeholder: "Where should we return the vehicle?", required: true },
+        { name: "transportReturnAddress", label: "Vehicle return address", placeholder: "Where should we return the vehicle after service?", required: true },
         { name: "transportAccess", label: "Keys and access instructions", placeholder: "Who has the keys, parking details, gate, or concierge instructions" },
       ];
     }
 
     return [
-      { name: "transportPickupAddress", label: "Pickup address", placeholder: "Full pickup address", required: true },
-      { name: "transportDeliveryAddress", label: "Delivery address", placeholder: "Where should we take the vehicle?", required: true },
+      { name: "transportPickupAddress", label: "Vehicle collection address", placeholder: "Address where the vehicle will be ready", required: true },
+      { name: "transportDeliveryAddress", label: "Service destination", placeholder: "Where should we take the vehicle?", required: true },
       { name: "transportAccess", label: "Keys and access instructions", placeholder: "Who has the keys, parking details, gate, or concierge instructions" },
     ];
   }
@@ -1237,36 +1238,73 @@ function AddressAutocomplete({ label, name, onChange, placeholder, required, val
       <small>
         {apiKey
           ? placesReady
-            ? "Start typing and choose the matching address."
+            ? "Select the matching address so your concierge receives the exact location."
             : placesError
-              ? "Address suggestions are unavailable right now. You can still type the address."
-              : "Loading address suggestions..."
-          : "Type the full address. Add a Google Maps API key to turn on live address suggestions."}
+              ? "Address suggestions are unavailable. Enter the full address manually."
+              : "Address suggestions are loading. You can still enter the full address."
+          : "Enter the complete street address, including city and postal code."}
       </small>
     </label>
+  );
+}
+
+function VehicleCollectionLocation({ addresses = [], onChange, value }) {
+  const savedAddresses = ensureList(addresses)
+    .map((entry, index) => ({
+      address: String(entry?.address || entry || "").trim(),
+      label: String(entry?.label || (index === 0 ? "Primary" : `Address ${index + 1}`)).trim(),
+    }))
+    .filter((entry) => entry.address);
+
+  return (
+    <div className="vehicle-collection-panel">
+      <div>
+        <span className="eyebrow">Vehicle collection</span>
+        <h3>Where will the vehicle be ready?</h3>
+        <p>Confirm the exact collection location so your concierge can coordinate access and timing.</p>
+      </div>
+      {savedAddresses.length > 0 && (
+        <div className="saved-address-shortcuts" aria-label="Saved service addresses">
+          {savedAddresses.map((entry) => (
+            <button className={value === entry.address ? "active" : ""} key={`${entry.label}-${entry.address}`} onClick={() => onChange(entry.address)} type="button">
+              <MapPin size={15} />
+              <span><strong>{entry.label}</strong><small>{entry.address}</small></span>
+            </button>
+          ))}
+        </div>
+      )}
+      <AddressAutocomplete
+        label="Vehicle collection address"
+        name="currentLocation"
+        onChange={onChange}
+        placeholder="Address where the vehicle will be ready"
+        required
+        value={value}
+      />
+    </div>
   );
 }
 
 const transportChoices = [
   {
     amountCents: 0,
-    description: "You bring the vehicle to the service provider yourself.",
+    description: "You will bring the vehicle directly to the confirmed service provider.",
     direction: "self-dropoff",
-    label: "Drop it off",
+    label: "I'll deliver the vehicle",
     value: "self-dropoff",
   },
   {
     amountCents: 9500,
-    description: "White Glove picks up the vehicle and delivers it to the service provider. One-way Montreal service.",
+    description: "Your concierge arranges collection and one-way delivery to the service provider within Montreal.",
     direction: "one-way",
-    label: "Pick up",
+    label: "One-way concierge pickup",
     value: "pickup-one-way",
   },
   {
     amountCents: 17500,
-    description: "White Glove picks up the vehicle, delivers it for service, and returns it afterward. Montreal service.",
+    description: "Your concierge arranges collection, service delivery, and return transport within Montreal.",
     direction: "two-way",
-    label: "Pick up and drop off",
+    label: "Round-trip concierge transport",
     value: "pickup-two-way",
   },
 ];
@@ -3261,8 +3299,10 @@ function App() {
 
     const nextMember = {
       ...member,
+      addresses: settings.addresses || member?.addresses || [],
       avatarUrl: settings.avatarUrl || member?.avatarUrl || "",
       name: settings.name?.trim() || member?.name || "Member",
+      phone: settings.phone?.trim() || member?.phone || "",
       username: settings.username?.trim() || "",
       plan: nextPlan,
       notifications: {
@@ -3275,9 +3315,11 @@ function App() {
     if (isBackendConfigured && member?.id) {
       const savedMember = await updateMemberProfile({
         id: member.id,
+        addresses: nextMember.addresses,
         avatarUrl: nextMember.avatarUrl,
         email: member.email,
         name: nextMember.name,
+        phone: nextMember.phone,
         username: nextMember.username,
         plan: nextMember.plan,
         notifications: nextMember.notifications,
@@ -3717,17 +3759,17 @@ function App() {
           <div className="app-preview-grid">
             <article>
               <Upload size={24} />
-              <h3>Upload Your Garage</h3>
+              <h3>Build Your Digital Garage</h3>
               <p>Add vehicles with VIN, mileage, location, warranty, insurance, photos, value, and notes.</p>
             </article>
             <article>
               <CalendarCheck size={24} />
-              <h3>Schedule Anything</h3>
+              <h3>Request Vehicle Services</h3>
               <p>Maintenance, repairs, detailing, storage, transport, buying, selling, roadside, and insurance help.</p>
             </article>
             <article>
               <ClipboardCheck size={24} />
-              <h3>Track Ownership</h3>
+              <h3>Track Vehicle Care</h3>
               <p>See upcoming service, recalls, records, completed work, market value, and concierge updates.</p>
             </article>
           </div>
@@ -3740,7 +3782,7 @@ function App() {
           </div>
           <div className="steps">
             {[
-              ["Join White Glove", "Add your vehicles, VINs, mileage, location, insurance, warranty, preferred dealer, and pickup details."],
+              ["Join White Glove", "Add your vehicles, VINs, mileage, insurance, warranty, preferred dealer, and service addresses."],
               ["We Track Everything", "Your app monitors service intervals, tires, brakes, recalls, registration, battery age, records, and upcoming needs."],
               ["Tap Schedule Service", "Your concierge compares vetted providers, pricing, availability, reviews, distance, and transportation options, then books it."],
             ].map(([title, copy], index) => (
@@ -3868,7 +3910,7 @@ function App() {
       <footer className="footer">
         <div>
           <strong>White Glove Concierge</strong>
-          <span>Collection management, managed for you.</span>
+          <span>Vehicle ownership, coordinated for you.</span>
         </div>
         <div className="footer-actions">
           <button type="button" onClick={() => setMode("privacy")}>Privacy Policy</button>
@@ -3882,11 +3924,11 @@ function App() {
               <X size={20} />
             </button>
             <p className="eyebrow">White Glove member app</p>
-            <h2 id="member-access-title">How would you like to open it?</h2>
-            <p>Stay on the web member portal, or open White Glove Concierge in the App Store.</p>
+            <h2 id="member-access-title">Choose how to access your account.</h2>
+            <p>Continue in the secure web app or open White Glove Concierge from the App Store.</p>
             <div className="member-access-actions">
               <button className="button primary" type="button" onClick={continueMemberAccessOnWeb}>
-                Stay On Web
+                Open Web App
               </button>
               <button className="button secondary" type="button" onClick={openMemberAccessInStore}>
                 Open App Store
@@ -4698,6 +4740,9 @@ function AdminMemberDirectory({ members, onOpenBooking, requests }) {
   const memberRequests = requests.filter((request) => request.user_id === selectedMember?.id);
   const totalPaid = memberRequests.reduce((total, request) => total + Number(adminPayment(request).paid_cents || 0), 0);
   const totalDue = memberRequests.reduce((total, request) => total + Number(adminPayment(request).due_cents || 0), 0);
+  const selectedMemberAddresses = ensureList(selectedMember?.addresses)
+    .map((entry, index) => ({ label: entry?.label || (index === 0 ? "Primary" : `Address ${index + 1}`), address: entry?.address || entry || "" }))
+    .filter((entry) => entry.address);
 
   return (
     <section className="admin-member-directory">
@@ -4717,6 +4762,7 @@ function AdminMemberDirectory({ members, onOpenBooking, requests }) {
         <div className="admin-member-activity">
           <header><div><span className="admin-member-avatar"><User size={21} /></span><div><h2>{selectedMember.full_name || "Member"}</h2><p>{selectedMember.email || "Email pending"}</p></div></div><span>{selectedMember.plan || "No package"}</span></header>
           <div className="admin-booking-facts"><div><span>Membership</span><strong>{selectedMember.subscription_status || "Unknown"}</strong><small>Account status</small></div><div><span>Service payments</span><strong>{adminMoney(totalPaid)}</strong><small>Collected</small></div><div><span>Known balance</span><strong>{adminMoney(totalDue)}</strong><small>Still due</small></div></div>
+          <section className="admin-member-contact"><h3>Contact and service addresses</h3><div>{selectedMember.phone && <a href={`tel:${selectedMember.phone}`}><Phone size={17} /><span><small>Phone</small><strong>{selectedMember.phone}</strong></span></a>}{selectedMemberAddresses.map((entry) => <article key={`${entry.label}-${entry.address}`}><MapPin size={17} /><span><small>{entry.label}</small><strong>{entry.address}</strong></span></article>)}{!selectedMember.phone && selectedMemberAddresses.length === 0 && <p>No contact address has been saved yet.</p>}</div></section>
           <section className="admin-member-timeline"><h3>Account activity</h3>{memberRequests.length ? memberRequests.map((request) => <button key={request.id} onClick={() => onOpenBooking(request.id)} type="button"><CalendarCheck size={18} /><span><strong>{request.service_type}</strong><small>{request.vehicle_label} · {adminStatusLabel(request.status)}</small></span><span><strong>{adminPaymentLabel(adminPayment(request))}</strong><small>{request.created_at ? new Date(request.created_at).toLocaleDateString() : ""}</small></span><ChevronRight size={17} /></button>) : <p>No booking activity yet.</p>}</section>
         </div>
       ) : <div className="admin-list-empty">No members match this search.</div>}
@@ -5411,7 +5457,7 @@ function AdminPortal({ onBack }) {
 
 function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onForgotPassword, onLogin }) {
   const [authMode, setAuthMode] = useState("signin");
-  const [signupAddresses, setSignupAddresses] = useState([{ id: "primary-address", label: "Home" }]);
+  const [signupAddresses, setSignupAddresses] = useState([{ id: "primary-address", label: "Primary" }]);
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
@@ -5525,7 +5571,7 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
           <span>White Glove Member App</span>
         </div>
         <h1>{authMode === "create" ? "Create your member account." : "Sign in to your member account."}</h1>
-        <p>{backendEnabled ? authMode === "create" ? "Choose your package, create your account, then continue to secure membership payment." : "Use your member email and password to access saved vehicles and service requests." : "Backend keys are not connected yet, so this runs in local prototype mode."}</p>
+        <p>{backendEnabled ? authMode === "create" ? "Choose your package, create your account, and reserve your private consultation before secure membership payment." : "Use your member email and password to access saved vehicles and service requests." : "Backend keys are not connected yet, so this runs in local prototype mode."}</p>
         <div className="auth-mode-switch" aria-label="Account access options">
           <button className={authMode === "signin" ? "active" : ""} type="button" onClick={() => showAuthMode("signin")}>Sign In</button>
           <button className={authMode === "create" ? "active" : ""} type="button" onClick={() => showAuthMode("create")}>Create Account</button>
@@ -5587,16 +5633,20 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
           {authMode === "create" && (
             <div className="signup-address-list">
               <div className="signup-address-header">
-                <span>Saved addresses</span>
-                <button className="icon-button" type="button" onClick={addSignupAddress} aria-label="Add address">
+                <div>
+                  <span>Service addresses</span>
+                  <small>Add where your vehicle is normally kept. This prefills future collection requests.</small>
+                </div>
+                <button className="icon-button" type="button" onClick={addSignupAddress} aria-label="Add another service address">
                   <Plus size={18} />
                 </button>
               </div>
               {signupAddresses.map((address, index) => (
                 <div className="signup-address-row" key={address.id}>
                   <label>
-                    Type
+                    Location type
                     <select name={`addressLabel-${address.id}`} defaultValue={address.label}>
+                      <option>Primary</option>
                       <option>Home</option>
                       <option>Work</option>
                       <option>Storage</option>
@@ -5605,10 +5655,10 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
                     </select>
                   </label>
                   <label>
-                    Address
-                    <input name={`addressValue-${address.id}`} type="text" placeholder="Street address, city, province/state" required={index === 0} />
+                    Full address
+                    <input name={`addressValue-${address.id}`} type="text" autoComplete={index === 0 ? "street-address" : "off"} placeholder="Street address, city, province/state, postal code" required={index === 0} />
                   </label>
-                  <button className="icon-button" type="button" onClick={() => removeSignupAddress(address.id)} aria-label="Remove address" disabled={signupAddresses.length === 1}>
+                  <button className="icon-button" type="button" onClick={() => removeSignupAddress(address.id)} aria-label="Remove service address" disabled={signupAddresses.length === 1}>
                     <X size={18} />
                   </button>
                 </div>
@@ -5616,7 +5666,7 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
             </div>
           )}
           <button className="button primary submit" type="submit" disabled={authLoading}>
-            {authLoading ? "Working..." : authMode === "create" ? "Create Account & Continue To Payment" : "Sign In"} <ArrowRight size={18} />
+            {authLoading ? "Working..." : authMode === "create" ? "Create Account & Continue to Consultation" : "Sign In"} <ArrowRight size={18} />
           </button>
           {authMode === "signin" && (
             <button className="button ghost submit" type="button" onClick={handleResendConfirmation} disabled={authLoading || !backendEnabled}>
@@ -7190,7 +7240,7 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
       <section className="app-section" ref={vehicleSectionRef}>
         <div className="app-section-title">
           <div>
-            <h2>{selectedServiceNeedsVehicle ? "Select Your Vehicle" : "No Garage Vehicle Needed"}</h2>
+            <h2>{selectedServiceNeedsVehicle ? "Select Your Vehicle" : "No Garage Vehicle Required"}</h2>
             <p>{selectedServiceNeedsVehicle
               ? "Choose one saved Garage vehicle. We use its saved information for pricing, service history, VIN, mileage, and concierge coordination."
               : `${selectedService} is coordinated from the request details, so it does not need to be tied to a saved vehicle.`}</p>
@@ -7215,8 +7265,8 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
       <section className="app-section">
         <div className="app-section-title">
           <div>
-            <h2>Book A Service</h2>
-            <p>Select a service after choosing a saved vehicle. Included services are ready to book; locked services show which package unlocks them.</p>
+            <h2>Book a Service</h2>
+            <p>Choose a service available with your membership. Services outside your current package show the required level.</p>
           </div>
           <span className="section-count" aria-label={`${serviceOptions.length} services available`}>
             <Wrench aria-hidden="true" size={16} />
@@ -7324,7 +7374,7 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
       </section>
       <section className="app-section">
         <div className="app-section-title">
-          <h2>Current Bookings</h2>
+        <h2>Your Service Requests</h2>
           <span>{appointments.length} total</span>
         </div>
         {appointments.map((appointment) => (
@@ -7996,7 +8046,13 @@ function ProfileAvatar({ member, size = 32 }) {
 
 function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
   const includedServices = getAvailableServices(member.plan);
+  const initialAddresses = ensureList(member.addresses).map((entry, index) => ({
+    id: `account-address-${index}`,
+    label: entry?.label || (index === 0 ? "Primary" : "Other"),
+    address: entry?.address || entry || "",
+  }));
   const [avatarPreview, setAvatarPreview] = useState(member.avatarUrl || "");
+  const [accountAddresses, setAccountAddresses] = useState(initialAddresses.length ? initialAddresses : [{ id: "account-address-primary", label: "Primary", address: "" }]);
   const [settingsError, setSettingsError] = useState("");
   const [settingsNotice, setSettingsNotice] = useState("");
   const [savingSettings, setSavingSettings] = useState(false);
@@ -8038,23 +8094,39 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
       offers: formData.has("offers"),
       serviceReminders: formData.has("serviceReminders"),
     };
+    const addresses = accountAddresses
+      .map((address) => ({
+        label: formData.get(`accountAddressLabel-${address.id}`) || address.label,
+        address: String(formData.get(`accountAddressValue-${address.id}`) || "").trim(),
+      }))
+      .filter((address) => address.address);
 
     try {
       const savedMember = await onUpdateMember({
+        addresses,
         avatarUrl: avatarPreview,
         name: formData.get("name"),
+        phone: formData.get("phone"),
         username: formData.get("username"),
         notifications: nextNotifications,
         password: formData.get("password"),
       });
       setAvatarPreview(savedMember?.avatarUrl || avatarPreview);
       event.currentTarget.password.value = "";
-      setSettingsNotice("Profile settings successfully updated.");
+      setSettingsNotice("Your profile and service addresses have been updated.");
     } catch (error) {
       setSettingsError(error.message || "Could not update profile settings.");
     } finally {
       setSavingSettings(false);
     }
+  }
+
+  function addAccountAddress() {
+    setAccountAddresses((addresses) => [...addresses, { id: crypto.randomUUID(), label: "Other", address: "" }]);
+  }
+
+  function removeAccountAddress(addressId) {
+    setAccountAddresses((addresses) => (addresses.length > 1 ? addresses.filter((address) => address.id !== addressId) : addresses));
   }
 
   return (
@@ -8096,6 +8168,10 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
               <input type="email" value={member.email || ""} readOnly />
             </label>
             <label>
+              Phone number
+              <input name="phone" type="tel" autoComplete="tel" defaultValue={member.phone || ""} placeholder="Best number for service updates" required />
+            </label>
+            <label>
               Package
               <input type="text" value={`${member.plan || "Club Drive"} · managed through your subscription`} readOnly />
             </label>
@@ -8107,6 +8183,40 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
               Garage access
               <input type="text" value={hasCollectionPackage(member.plan) ? `${garageCount} vehicles saved · ${garageLimitLabel(member.plan, member.extraVehicleSlots)}` : `${garageCount}/1 vehicle used`} readOnly />
             </label>
+          </div>
+
+          <div className="signup-address-list account-address-list">
+            <div className="signup-address-header">
+              <div>
+                <span>Service addresses</span>
+                <small>Used to prefill future vehicle collection requests.</small>
+              </div>
+              <button className="icon-button" type="button" onClick={addAccountAddress} aria-label="Add another service address">
+                <Plus size={18} />
+              </button>
+            </div>
+            {accountAddresses.map((address, index) => (
+              <div className="signup-address-row" key={address.id}>
+                <label>
+                  Location type
+                  <select name={`accountAddressLabel-${address.id}`} defaultValue={address.label}>
+                    <option>Primary</option>
+                    <option>Home</option>
+                    <option>Work</option>
+                    <option>Storage</option>
+                    <option>Dealership</option>
+                    <option>Other</option>
+                  </select>
+                </label>
+                <label>
+                  Full address
+                  <input name={`accountAddressValue-${address.id}`} type="text" autoComplete={index === 0 ? "street-address" : "off"} defaultValue={address.address} placeholder="Street address, city, province/state, postal code" required={index === 0} />
+                </label>
+                <button className="icon-button" type="button" onClick={() => removeAccountAddress(address.id)} aria-label="Remove service address" disabled={accountAddresses.length === 1}>
+                  <X size={18} />
+                </button>
+              </div>
+            ))}
           </div>
 
           <fieldset className="notification-settings">
@@ -8140,7 +8250,7 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
         </form>
       </section>
       <section className="app-section">
-        <h2>Included In Your Package</h2>
+        <h2>Included in Your Package</h2>
         <ul className="next-list">
           {includedServices.map((service) => (
             <li key={service.label}>{service.label}</li>
@@ -8664,17 +8774,29 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         <textarea name="notes" rows="3" placeholder="Storage needs, preferred services, modifications, or special care notes." />
       </label>
       <button className="button primary submit" type="submit" disabled={savingVehicle}>
-        {savingVehicle ? "Saving Vehicle..." : "Save Vehicle"}
+        {savingVehicle ? "Saving vehicle..." : "Save Vehicle"}
       </button>
     </form>
   );
 }
 
 function ScheduleForm({ appointments, garage, instantMode = false, member, onAddAppointment, onChangeVehicle, onComplete, servicePricing, selectedService, selectedServiceOption, selectedVehicle, setSelectedService, setSelectedServiceOption }) {
+  const savedMemberAddresses = ensureList(member?.addresses);
+  const savedAddressEntries = savedMemberAddresses
+    .map((entry, index) => ({
+      address: cleanAiValuationValue(entry?.address || entry),
+      label: cleanAiValuationValue(entry?.label || (index === 0 ? "Primary" : `Address ${index + 1}`)),
+    }))
+    .filter((entry) => entry.address);
+  const vehicleCollectionPreference = cleanAiValuationValue(selectedVehicle?.pickupLocation || selectedVehicle?.location || "");
+  const normalizedVehiclePreference = vehicleCollectionPreference.toLowerCase().replace(/\s+(address|location)$/i, "").trim();
+  const matchedSavedAddress = savedAddressEntries.find((entry) => entry.label.toLowerCase() === normalizedVehiclePreference)?.address;
+  const isGenericLocationLabel = /^(primary|home|work|storage|dealership|other)(\s+(address|location))?$/i.test(vehicleCollectionPreference);
+  const preferredCollectionLocation = matchedSavedAddress || (!isGenericLocationLabel ? vehicleCollectionPreference : "") || savedAddressEntries[0]?.address || "";
   const [bookingStep, setBookingStep] = useState("details");
   const [pendingBooking, setPendingBooking] = useState(null);
   const paymentFormRef = useRef(null);
-  const [currentLocation, setCurrentLocation] = useState(selectedVehicle?.pickupLocation || selectedVehicle?.location || "");
+  const [currentLocation, setCurrentLocation] = useState(preferredCollectionLocation);
   const [transportChoice, setTransportChoice] = useState("self-dropoff");
   const [warrantyCoverage, setWarrantyCoverage] = useState("not-warranty");
   const [processingPayment, setProcessingPayment] = useState(false);
@@ -8688,6 +8810,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
   const basePaymentTerms = paymentTermsForService(selectedService, selectedVehicle, selectedServiceOption, servicePricing);
   const selectedTransportChoice = transportChoices.find((choice) => choice.value === transportChoice) || transportChoices[0];
   const showVehicleLogistics = needsSavedVehicle && serviceUsesVehicleLogistics(selectedService);
+  const needsVehicleCollection = showVehicleLogistics && transportChoice !== "self-dropoff";
   const showWarrantyQuestion = serviceSupportsWarranty(selectedService);
   const effectiveTransportChoice = showVehicleLogistics ? selectedTransportChoice : transportChoices[0];
   const effectiveWarrantyCoverage = showWarrantyQuestion ? warrantyCoverage : "not-warranty";
@@ -8698,10 +8821,17 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
     setBookingStep("details");
     setPendingBooking(null);
     setRequestError("");
-    setCurrentLocation(selectedVehicle?.pickupLocation || selectedVehicle?.location || "");
+    setCurrentLocation(preferredCollectionLocation);
     setTransportChoice("self-dropoff");
     setWarrantyCoverage("not-warranty");
   }, [instantMode, selectedService, selectedServiceOption, selectedVehicle?.id]);
+
+  function chooseTransportChoice(nextChoice) {
+    setTransportChoice(nextChoice);
+    if (nextChoice !== "self-dropoff" && !String(currentLocation || "").trim()) {
+      setCurrentLocation(preferredCollectionLocation);
+    }
+  }
 
   useEffect(() => {
     if (bookingStep !== "payment") return undefined;
@@ -8739,8 +8869,8 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
         `Vehicle ID: ${selectedVehicle?.id || "not selected"}`,
         `Vehicle class: ${selectedVehicleClass}`,
         `Service option: ${formData.get("serviceOption")}`,
-        showVehicleLogistics && `Current vehicle location: ${formData.get("currentLocation")}`,
-        showVehicleLogistics && `Drop-off / pickup: ${selectedPaymentTerms.transportLabel}`,
+        needsVehicleCollection && `Vehicle collection address: ${formData.get("currentLocation")}`,
+        showVehicleLogistics && `Vehicle transport: ${selectedPaymentTerms.transportLabel}`,
         showVehicleLogistics && `Transportation direction: ${selectedPaymentTerms.transportDirection}`,
         showVehicleLogistics && `Transportation charge: ${selectedPaymentTerms.transportAmount}`,
         showWarrantyQuestion && `Warranty: ${selectedPaymentTerms.warrantyLabel}`,
@@ -8752,7 +8882,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
       paymentMode: selectedPaymentTerms.mode,
       paymentNote: selectedPaymentTerms.note,
       paymentTitle: selectedPaymentTerms.title,
-      currentLocation: showVehicleLogistics ? formData.get("currentLocation") : "",
+      currentLocation: needsVehicleCollection ? formData.get("currentLocation") : "",
     };
 
     try {
@@ -8902,7 +9032,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
           ["Service", savedRequest?.service || appointment.service],
           ["Option", appointment.serviceOption],
           ["Vehicle", savedRequest?.vehicle || appointment.vehicle],
-          appointment.currentLocation && ["Current location", appointment.currentLocation],
+          appointment.currentLocation && ["Collection address", appointment.currentLocation],
           [serviceDateRange ? "Start" : "Preferred date", [savedRequest?.date || appointment.date || "Date pending", serviceDateRange && pendingBooking.formData[serviceDateRange.startTime]].filter(Boolean).join(" at ")],
           serviceDateRange && ["End", [pendingBooking.formData[serviceDateRange.endDate] || "Date pending", serviceDateRange.endTime && pendingBooking.formData[serviceDateRange.endTime]].filter(Boolean).join(" at ")],
           ["Payment", appointment.paymentTitle],
@@ -8994,7 +9124,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
               Back To Details
             </button>
             <button className="button primary submit" type="submit" disabled={processingPayment}>
-              {processingPayment ? (requiresPayment ? "Opening Secure Checkout..." : "Submitting Booking...") : requiresPayment ? "Continue To Secure Payment" : "Confirm Free Request"}
+              {processingPayment ? (requiresPayment ? "Opening secure checkout..." : "Submitting booking...") : requiresPayment ? "Continue to Secure Payment" : "Confirm Request"}
             </button>
           </div>
         </form>
@@ -9123,41 +9253,24 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
           {instantMode ? (
             <div className="instant-logistics-grid">
               <label>
-                Vehicle logistics
-                <select name="transportChoiceVisible" onChange={(event) => setTransportChoice(event.target.value)} value={transportChoice}>
+                Vehicle transport
+                <select name="transportChoiceVisible" onChange={(event) => chooseTransportChoice(event.target.value)} value={transportChoice}>
                   {transportChoices.map((choice) => (
                     <option key={choice.value} value={choice.value}>{choice.label}{choice.amountCents > 0 ? ` · ${formatCad(choice.amountCents / 100)}` : " · Free"}</option>
                   ))}
                 </select>
               </label>
-              {transportChoice !== "self-dropoff" ? (
-                <AddressAutocomplete
-                  label="Pickup address"
-                  name="currentLocation"
-                  onChange={setCurrentLocation}
-                  placeholder="Start typing the pickup address"
-                  required
-                  value={currentLocation}
-                />
-              ) : <input name="currentLocation" type="hidden" value={currentLocation} />}
             </div>
-          ) : <AddressAutocomplete
-            label="Car's current location"
-            name="currentLocation"
-            onChange={setCurrentLocation}
-            placeholder="Start typing a saved address, storage location, dealership, or shop"
-            required
-            value={currentLocation}
-          />}
+          ) : null}
           {!instantMode && <div className="booking-choice-section">
             <div>
-              <span className="eyebrow">Vehicle logistics</span>
+              <span className="eyebrow">Vehicle transport</span>
               <h3>How should the vehicle get there?</h3>
             </div>
             <div className="booking-choice-grid">
               {transportChoices.map((choice) => (
                 <label className={transportChoice === choice.value ? "selected-booking-choice" : ""} key={choice.value}>
-                  <input checked={transportChoice === choice.value} name="transportChoiceVisible" onChange={() => setTransportChoice(choice.value)} type="radio" value={choice.value} />
+                  <input checked={transportChoice === choice.value} name="transportChoiceVisible" onChange={() => chooseTransportChoice(choice.value)} type="radio" value={choice.value} />
                   <span>{choice.label}</span>
                   <small>{choice.description}</small>
                   {choice.amountCents > 0 && <strong>{formatCad(choice.amountCents / 100)}</strong>}
@@ -9166,6 +9279,9 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
             </div>
             <p className="booking-choice-note">Prices shown are for Montreal. Off-island distance, tolls, and waiting time are confirmed separately before booking.</p>
           </div>}
+          {needsVehicleCollection ? (
+            <VehicleCollectionLocation addresses={savedMemberAddresses} onChange={setCurrentLocation} value={currentLocation} />
+          ) : <input name="currentLocation" type="hidden" value="" />}
           {showWarrantyQuestion && <div className="booking-choice-section">
             <div>
               <span className="eyebrow">Warranty</span>
@@ -9187,7 +9303,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
         <div className={selectedPaymentTerms.mode === "full" ? "payment-terms full-payment-card" : "payment-terms deposit-payment-card"}>
           <CreditCard size={22} />
           <div>
-            <span>{selectedPaymentTerms.mode === "free" ? "Free request" : selectedPaymentTerms.mode === "full" ? "Accurate price service" : "Quote or diagnosis needed"}</span>
+            <span>{selectedPaymentTerms.mode === "free" ? "No charge today" : selectedPaymentTerms.mode === "full" ? "Fixed-price service" : "Estimate required"}</span>
             <h3>{selectedPaymentTerms.title}</h3>
             <p>{selectedPaymentTerms.amount}. {selectedPaymentTerms.note}</p>
           </div>
@@ -9197,7 +9313,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
         Notes
         <textarea name="notes" rows="3" placeholder="Tell the concierge what you need handled." />
       </label>
-      <button className="button primary submit" type="submit" disabled={!hasVehicles}>{instantMode ? "Continue To Instant Checkout" : "Continue To Payment"}</button>
+      <button className="button primary submit" type="submit" disabled={!hasVehicles}>{instantMode ? "Continue to Instant Checkout" : "Continue to Payment"}</button>
     </form>
   );
 }
@@ -10385,9 +10501,9 @@ function LeadSection({ handleSubmit, submitted, submitError }) {
     <section className="apply-section" id="apply">
       <div className="apply-copy">
         <p className="eyebrow">Apply</p>
-        <h2>Request membership info</h2>
+        <h2>Book your membership consultation</h2>
         <p>
-          Tell us about your vehicles and what you want handled. Our team will contact you shortly to build your ownership management plan.
+          Tell us about your vehicles and the support you need, then choose a private consultation time that works for you.
         </p>
         <div className="contact-strip">
           <span><MapPin size={18} /> Partner network coverage</span>
@@ -10497,7 +10613,7 @@ function LeadSection({ handleSubmit, submitted, submitError }) {
           <textarea name="message" rows="5" />
         </label>
         <button className="button primary submit" type="submit">
-          Continue To Consultation Calendar <CalendarCheck size={18} />
+          Continue to Consultation Calendar <CalendarCheck size={18} />
         </button>
       </form>
     </section>

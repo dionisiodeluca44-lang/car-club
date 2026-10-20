@@ -43,7 +43,7 @@ export async function handler(event) {
   if (event.httpMethod === "GET") {
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, email, full_name, plan, collector_access_override, extra_vehicle_slots, subscription_status, created_at")
+      .select("id, email, full_name, phone, addresses, plan, collector_access_override, extra_vehicle_slots, subscription_status, created_at")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -71,7 +71,7 @@ export async function handler(event) {
 
     const { data: existing, error: loadError } = await supabase
       .from("profiles")
-      .select("id, email, full_name, plan, collector_access_override, extra_vehicle_slots, subscription_status, created_at")
+      .select("id, email, full_name, phone, addresses, plan, collector_access_override, extra_vehicle_slots, subscription_status, created_at")
       .eq("id", memberId)
       .single();
 
@@ -84,7 +84,7 @@ export async function handler(event) {
       .from("profiles")
       .update({ extra_vehicle_slots: extraVehicleSlots, updated_at: new Date().toISOString() })
       .eq("id", memberId)
-      .select("id, email, full_name, plan, collector_access_override, extra_vehicle_slots, subscription_status, created_at")
+      .select("id, email, full_name, phone, addresses, plan, collector_access_override, extra_vehicle_slots, subscription_status, created_at")
       .single();
 
     if (error) {

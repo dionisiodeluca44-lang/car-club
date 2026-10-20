@@ -386,7 +386,7 @@ async function createPaidServiceRequest(session) {
       `Vehicle ID: ${metadata.vehicleId || "not provided"}`,
       `Vehicle class: ${metadata.vehicleClass || "not provided"}`,
       `Current vehicle location: ${metadata.currentLocation || "not provided"}`,
-      `Drop-off / pickup: ${metadata.transportChoice || "not provided"}`,
+      `Vehicle transport: ${metadata.transportChoice || "not provided"}`,
       `Transportation direction: ${metadata.transportDirection || "not provided"}`,
       `Transportation charge: ${metadata.transportAmount || "not provided"}`,
       `Warranty: ${metadata.warrantyLabel || metadata.warrantyCoverage || "not provided"}`,

@@ -1740,6 +1740,21 @@ textarea:focus {
   text-transform: uppercase;
 }
 
+.signup-address-header > div {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.signup-address-header small {
+  max-width: 560px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.45;
+  text-transform: none;
+}
+
 .signup-address-row {
   display: grid;
   grid-template-columns: minmax(120px, 0.4fr) 1fr auto;
@@ -5281,6 +5296,66 @@ textarea:focus {
   line-height: 1.45;
 }
 
+.vehicle-collection-panel {
+  display: grid;
+  gap: 1rem;
+  padding: 1.1rem;
+  border: 1px solid rgba(229, 200, 121, 0.35);
+  border-radius: var(--radius);
+  background: linear-gradient(145deg, rgba(201, 164, 92, 0.12), rgba(0, 0, 0, 0.2));
+}
+
+.vehicle-collection-panel h3 {
+  margin: 0.2rem 0 0.25rem;
+}
+
+.vehicle-collection-panel p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.saved-address-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.65rem;
+}
+
+.saved-address-shortcuts button {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.65rem;
+  align-items: start;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) - 3px);
+  background: rgba(0, 0, 0, 0.24);
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+}
+
+.saved-address-shortcuts button:hover,
+.saved-address-shortcuts button.active {
+  border-color: rgba(229, 200, 121, 0.62);
+  background: rgba(201, 164, 92, 0.13);
+  color: var(--gold-bright);
+}
+
+.saved-address-shortcuts span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.saved-address-shortcuts strong {
+  color: var(--ink);
+}
+
+.saved-address-shortcuts small {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 .payment-terms {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -6851,6 +6926,54 @@ textarea:focus {
   color: var(--gold-bright);
   font-size: 0.72rem;
   font-weight: 900;
+}
+
+.admin-member-contact {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.admin-member-contact > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.6rem;
+}
+
+.admin-member-contact a,
+.admin-member-contact article {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.6rem;
+  align-items: start;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) - 3px);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.admin-member-contact svg {
+  margin-top: 0.1rem;
+  color: var(--gold-bright);
+}
+
+.admin-member-contact span {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.admin-member-contact small,
+.admin-member-contact p {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.admin-member-contact strong {
+  line-height: 1.4;
 }
 
 .admin-member-timeline {

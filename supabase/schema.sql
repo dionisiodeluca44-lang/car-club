@@ -7,6 +7,8 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
   full_name text not null,
+  phone text,
+  addresses jsonb not null default '[]'::jsonb,
   username text,
   avatar_url text,
   plan text not null default 'Club Drive',
@@ -27,6 +29,8 @@ create table if not exists public.profiles (
 );
 
 alter table public.profiles
+  add column if not exists phone text,
+  add column if not exists addresses jsonb not null default '[]'::jsonb,
   add column if not exists collector_access_override boolean not null default false,
   add column if not exists extra_vehicle_slots integer not null default 0,
   add column if not exists subscription_status text not null default 'pending',
@@ -72,7 +76,7 @@ revoke all on public.membership_consultations from anon, authenticated;
 -- Members may edit their profile details, but only the service-role webhook may
 -- change Stripe identity or entitlement fields.
 revoke update on public.profiles from authenticated;
-grant update (id, email, full_name, username, avatar_url, notifications, updated_at)
+grant update (id, email, full_name, phone, addresses, username, avatar_url, notifications, updated_at)
   on public.profiles to authenticated;
 
 create table if not exists public.vehicles (
@@ -257,11 +261,13 @@ language plpgsql
 security definer set search_path = public
 as $$
 begin
-  insert into public.profiles (id, email, full_name, username, avatar_url, plan, subscription_status)
+  insert into public.profiles (id, email, full_name, phone, addresses, username, avatar_url, plan, subscription_status)
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data->>'full_name', 'Member'),
+    new.raw_user_meta_data->>'phone',
+    case when jsonb_typeof(new.raw_user_meta_data->'addresses') = 'array' then new.raw_user_meta_data->'addresses' else '[]'::jsonb end,
     new.raw_user_meta_data->>'username',
     new.raw_user_meta_data->>'avatar_url',
     coalesce(new.raw_user_meta_data->>'plan', 'Club Drive'),
@@ -271,6 +277,8 @@ begin
   set
     email = excluded.email,
     full_name = excluded.full_name,
+    phone = excluded.phone,
+    addresses = excluded.addresses,
     username = excluded.username,
     avatar_url = excluded.avatar_url,
     plan = excluded.plan,

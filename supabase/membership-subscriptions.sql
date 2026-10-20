@@ -13,7 +13,7 @@ alter table public.profiles
 
 -- Keep subscription access under the service-role webhook's control.
 revoke update on public.profiles from authenticated;
-grant update (id, email, full_name, username, avatar_url, notifications, updated_at)
+grant update (id, email, full_name, phone, addresses, username, avatar_url, notifications, updated_at)
   on public.profiles to authenticated;
 
 create or replace function public.has_active_membership()

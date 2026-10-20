@@ -8,6 +8,12 @@ alter table public.profiles
   add column if not exists avatar_url text;
 
 alter table public.profiles
+  add column if not exists phone text;
+
+alter table public.profiles
+  add column if not exists addresses jsonb not null default '[]'::jsonb;
+
+alter table public.profiles
   add column if not exists notifications jsonb not null default
     '{"bookingUpdates": true, "feedActivity": true, "offers": true, "serviceReminders": true}'::jsonb;
 
@@ -17,11 +23,13 @@ language plpgsql
 security definer set search_path = public
 as $$
 begin
-  insert into public.profiles (id, email, full_name, username, avatar_url, plan)
+  insert into public.profiles (id, email, full_name, phone, addresses, username, avatar_url, plan)
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data->>'full_name', 'Member'),
+    new.raw_user_meta_data->>'phone',
+    case when jsonb_typeof(new.raw_user_meta_data->'addresses') = 'array' then new.raw_user_meta_data->'addresses' else '[]'::jsonb end,
     new.raw_user_meta_data->>'username',
     new.raw_user_meta_data->>'avatar_url',
     coalesce(new.raw_user_meta_data->>'plan', 'Club Drive')
@@ -30,6 +38,8 @@ begin
   set
     email = excluded.email,
     full_name = excluded.full_name,
+    phone = excluded.phone,
+    addresses = excluded.addresses,
     username = excluded.username,
     avatar_url = excluded.avatar_url,
     plan = excluded.plan,
