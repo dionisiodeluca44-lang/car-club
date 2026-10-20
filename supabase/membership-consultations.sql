@@ -2,11 +2,13 @@
 
 create table if not exists public.membership_consultations (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete cascade,
   email text not null,
   full_name text not null,
   phone text,
   plan text not null,
+  lead_source text not null default 'membership_signup',
+  vehicles jsonb not null default '[]'::jsonb,
   consultation_date date not null,
   consultation_time time not null,
   timezone text not null default 'America/Toronto',

@@ -138,6 +138,14 @@ const consultationCallMethods = [
   { name: "WhatsApp", detail: "We will contact your WhatsApp number." },
 ];
 
+function emptyConsultationVehicle() {
+  return { year: "", make: "", model: "", trim: "", mileage: "", use: "Daily driven" };
+}
+
+function consultationVehicleLabel(vehicle = {}) {
+  return [vehicle.year, vehicle.make, vehicle.model, vehicle.trim].filter(Boolean).join(" ") || "Vehicle details pending";
+}
+
 function localIsoDate(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -2692,6 +2700,7 @@ function App() {
   const [servicePricing, setServicePricing] = useState({});
   const [membershipPricing, setMembershipPricing] = useState({});
   const [signupConsultation, setSignupConsultation] = useState(null);
+  const [leadConsultation, setLeadConsultation] = useState(null);
   const nativeAppRuntime = isNativeAppRuntime();
   const memberAccessLabel = nativeAppRuntime ? "Sign in / Sign up" : "Open Member App";
 
@@ -3020,7 +3029,17 @@ function App() {
 
     const form = event.currentTarget;
     const formData = new FormData(form);
+    const vehicleCount = Math.min(20, Math.max(1, Number(formData.get("vehicleCount")) || 1));
+    const vehicles = Array.from({ length: vehicleCount }, (_, index) => ({
+      year: String(formData.get(`vehicle-${index}-year`) || "").trim(),
+      make: String(formData.get(`vehicle-${index}-make`) || "").trim(),
+      model: String(formData.get(`vehicle-${index}-model`) || "").trim(),
+      trim: String(formData.get(`vehicle-${index}-trim`) || "").trim(),
+      mileage: String(formData.get(`vehicle-${index}-mileage`) || "").trim(),
+      use: String(formData.get(`vehicle-${index}-use`) || "").trim(),
+    }));
     formData.set("services", formData.getAll("services").join(", "));
+    formData.set("vehicles", JSON.stringify(vehicles));
 
     try {
       if (window.location.hostname !== "127.0.0.1" && window.location.hostname !== "localhost") {
@@ -3036,7 +3055,17 @@ function App() {
       }
 
       setSubmitted(true);
+      setLeadConsultation({
+        member: {
+          name: String(formData.get("fullName") || "").trim(),
+          email: String(formData.get("email") || "").trim(),
+          phone: String(formData.get("phone") || "").trim(),
+        },
+        plan: String(formData.get("membership") || "Not sure yet"),
+        vehicles,
+      });
       form.reset();
+      setMode("lead-consultation");
     } catch {
       setSubmitError("Something went wrong. Please try again or contact us directly.");
     }
@@ -3508,7 +3537,7 @@ function App() {
     return (
       <main className="admin-portal"><section className="admin-shell">
         <div className="admin-header"><div><p className="eyebrow">White Glove backend</p><h1>Membership Consultations</h1><p>See every private membership call on one calendar and keep each consultation organized.</p></div></div>
-        <AdminConsultationCalendar consultations={[{ id: "preview-consultation", full_name: "Alex Morgan", email: "member@example.com", phone: "+1 514 555 0188", plan: "Platinum", consultation_date: previewDate, consultation_time: "10:00", timezone: "America/Toronto", call_method: "Google Meet", call_details: "member@example.com", notes: "Interested in year-round care for three vehicles.", status: "confirmed" }]} onStatus={() => {}} />
+        <AdminConsultationCalendar consultations={[{ id: "preview-consultation", full_name: "Alex Morgan", email: "member@example.com", phone: "+1 514 555 0188", plan: "Platinum", consultation_date: previewDate, consultation_time: "10:00", timezone: "America/Toronto", call_method: "Google Meet", call_details: "member@example.com", notes: "Interested in year-round care for three vehicles.", status: "confirmed", vehicles: [{ year: "2024", make: "Porsche", model: "911 Carrera", trim: "4S", mileage: "18500", use: "Seasonal" }, { year: "2022", make: "Range Rover", model: "Autobiography", mileage: "42000", use: "Daily driven" }] }]} onStatus={() => {}} />
       </section></main>
     );
   }
@@ -3533,6 +3562,39 @@ function App() {
           setMode("login");
         }}
         onBooked={(consultation) => startSignupMembershipCheckout(signupConsultation.member, signupConsultation.profile, consultation)}
+      />
+    );
+  }
+
+  if (mode === "lead-consultation" && leadConsultation) {
+    return (
+      <ConsultationBookingScreen
+        member={leadConsultation.member}
+        plan={leadConsultation.plan}
+        publicInquiry
+        vehicles={leadConsultation.vehicles}
+        onBack={() => {
+          setMode("site");
+          window.setTimeout(() => document.getElementById("apply")?.scrollIntoView({ behavior: "smooth" }), 50);
+        }}
+        onBooked={(consultation) => {
+          setLeadConsultation((current) => ({ ...current, consultation }));
+          setMode("consultation-confirmation");
+        }}
+      />
+    );
+  }
+
+  if (mode === "consultation-confirmation" && leadConsultation?.consultation) {
+    return (
+      <ConsultationConfirmationScreen
+        consultation={leadConsultation.consultation}
+        member={leadConsultation.member}
+        onDone={() => {
+          setLeadConsultation(null);
+          setSubmitted(false);
+          setMode("site");
+        }}
       />
     );
   }
@@ -4716,6 +4778,17 @@ function AdminConsultationCalendar({ consultations, onStatus }) {
                 <div className="admin-consultation-time"><Clock size={18} /><strong>{readableConsultationTime(consultation.consultation_time)}</strong><span>{consultation.timezone}</span></div>
                 <div className="admin-consultation-person"><strong>{consultation.full_name}</strong><span>{consultation.plan} membership</span><a href={`mailto:${consultation.email}`}>{consultation.email}</a>{consultation.phone && <a href={`tel:${consultation.phone}`}>{consultation.phone}</a>}</div>
                 <div className="admin-consultation-method"><span>Call method</span><strong>{consultation.call_method}</strong><small>{consultation.call_details || "Use member contact information"}</small></div>
+                {ensureList(consultation.vehicles).length > 0 && (
+                  <div className="admin-consultation-vehicles">
+                    <span>{ensureList(consultation.vehicles).length} {ensureList(consultation.vehicles).length === 1 ? "vehicle" : "vehicles"}</span>
+                    {ensureList(consultation.vehicles).map((vehicle, index) => (
+                      <div key={`${consultation.id}-vehicle-${index}`}>
+                        <strong>{consultationVehicleLabel(vehicle)}</strong>
+                        <small>{[vehicle.mileage && `${vehicle.mileage} km`, vehicle.use].filter(Boolean).join(" · ")}</small>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {consultation.notes && <p>{consultation.notes}</p>}
                 <label>Status<select value={consultation.status} onChange={(event) => onStatus(consultation.id, event.target.value)}><option value="scheduled">Scheduled</option><option value="confirmed">Confirmed</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label>
               </article>
@@ -5640,7 +5713,7 @@ function PasswordRecoveryScreen({ onCancel, onComplete }) {
   );
 }
 
-function ConsultationBookingPanel({ member, onBack, onBooked, plan, signupActivation = false }) {
+function ConsultationBookingPanel({ member, onBack, onBooked, plan, publicInquiry = false, signupActivation = false, vehicles: initialVehicles = [] }) {
   const firstAvailableDate = useMemo(() => {
     const next = new Date();
     next.setHours(0, 0, 0, 0);
@@ -5654,6 +5727,10 @@ function ConsultationBookingPanel({ member, onBack, onBooked, plan, signupActiva
   const [callMethod, setCallMethod] = useState("Google Meet");
   const [callDetails, setCallDetails] = useState(member?.email || "");
   const [notes, setNotes] = useState("");
+  const [consultationVehicles, setConsultationVehicles] = useState(() => {
+    const savedVehicles = ensureList(initialVehicles).slice(0, 20).map((vehicle) => ({ ...emptyConsultationVehicle(), ...vehicle }));
+    return savedVehicles.length ? savedVehicles : [emptyConsultationVehicle()];
+  });
   const [busySlots, setBusySlots] = useState([]);
   const [bookingError, setBookingError] = useState("");
   const [booking, setBooking] = useState(false);
@@ -5683,6 +5760,17 @@ function ConsultationBookingPanel({ member, onBack, onBooked, plan, signupActiva
     else if (!callDetails || callDetails === member?.email) setCallDetails(member?.phone || "");
   }
 
+  function changeVehicleCount(value) {
+    const nextCount = Math.min(20, Math.max(1, Number(value) || 1));
+    setConsultationVehicles((current) => Array.from({ length: nextCount }, (_, index) => current[index] || emptyConsultationVehicle()));
+  }
+
+  function updateConsultationVehicle(index, field, value) {
+    setConsultationVehicles((current) => current.map((vehicle, vehicleIndex) => (
+      vehicleIndex === index ? { ...vehicle, [field]: value } : vehicle
+    )));
+  }
+
   async function submitConsultation(event) {
     event.preventDefault();
     setBookingError("");
@@ -5692,6 +5780,11 @@ function ConsultationBookingPanel({ member, onBack, onBooked, plan, signupActiva
     }
     if (detailsRequired && !callDetails.trim()) {
       setBookingError(`Enter the ${callMethod === "FaceTime" ? "phone number or Apple email" : "phone number"} we should use.`);
+      return;
+    }
+    const incompleteVehicle = consultationVehicles.findIndex((vehicle) => !vehicle.year.trim() || !vehicle.make.trim() || !vehicle.model.trim());
+    if (incompleteVehicle >= 0) {
+      setBookingError(`Add the year, make, and model for vehicle ${incompleteVehicle + 1}.`);
       return;
     }
 
@@ -5713,10 +5806,12 @@ function ConsultationBookingPanel({ member, onBack, onBooked, plan, signupActiva
           memberPhone: member?.phone,
           notes,
           plan,
+          publicInquiry,
           signupActivation,
           time: selectedTime,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Toronto",
           userId: member?.id,
+          vehicles: consultationVehicles,
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -5732,17 +5827,17 @@ function ConsultationBookingPanel({ member, onBack, onBooked, plan, signupActiva
     <section className="consultation-booking-card" aria-labelledby="consultation-title">
       <header className="consultation-booking-header">
         <div>
-          <p className="eyebrow">Private membership consultation</p>
+          <p className="eyebrow">Private consultation</p>
           <h1 id="consultation-title">Let’s plan your White Glove experience.</h1>
-          <p>Choose a private time with our concierge team. Your membership checkout opens immediately after your consultation is reserved.</p>
+          <p>{publicInquiry ? "Choose a private time and tell us about each vehicle so your concierge arrives prepared." : "Choose a private time with our concierge team. Your membership checkout opens immediately after your consultation is reserved."}</p>
         </div>
         {onBack && <button className="consultation-close" type="button" onClick={onBack} aria-label="Close consultation calendar"><X size={20} /></button>}
       </header>
 
       <div className="consultation-progress" aria-label="Membership activation steps">
-        <span className="complete"><strong>1</strong> Account</span>
+        <span className="complete"><strong>1</strong> {publicInquiry ? "Details" : "Account"}</span>
         <span className="active"><strong>2</strong> Consultation</span>
-        <span><strong>3</strong> Membership</span>
+        <span><strong>3</strong> {publicInquiry ? "Confirmed" : "Membership"}</span>
       </div>
 
       <form className="consultation-booking-layout" onSubmit={submitConsultation}>
@@ -5785,6 +5880,29 @@ function ConsultationBookingPanel({ member, onBack, onBooked, plan, signupActiva
             <div><span>Your selected time</span><strong>{readableConsultationDate(selectedDate, { short: true })}</strong><small>{readableConsultationTime(selectedTime)} · {Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Toronto"}</small></div>
           </div>
 
+          <section className="consultation-vehicle-intake">
+            <div className="consultation-vehicle-heading">
+              <div><span>Your garage</span><strong>Vehicle details</strong></div>
+              <label>Number of vehicles<input aria-label="Number of vehicles" min="1" max="20" onChange={(event) => changeVehicleCount(event.target.value)} type="number" value={consultationVehicles.length} /></label>
+            </div>
+            <p>Add each vehicle separately so we can prepare a precise ownership plan.</p>
+            <div className="consultation-vehicle-list">
+              {consultationVehicles.map((vehicle, index) => (
+                <fieldset className="consultation-vehicle-card" key={`consultation-vehicle-${index}`}>
+                  <legend><Car size={16} /> Vehicle {index + 1}</legend>
+                  <div className="consultation-vehicle-grid">
+                    <label>Year<input max="2035" min="1900" onChange={(event) => updateConsultationVehicle(index, "year", event.target.value)} placeholder="2024" required type="number" value={vehicle.year} /></label>
+                    <label>Make<input onChange={(event) => updateConsultationVehicle(index, "make", event.target.value)} placeholder="Porsche" required value={vehicle.make} /></label>
+                    <label>Model<input onChange={(event) => updateConsultationVehicle(index, "model", event.target.value)} placeholder="911 Carrera" required value={vehicle.model} /></label>
+                    <label>Trim <span>Optional</span><input onChange={(event) => updateConsultationVehicle(index, "trim", event.target.value)} placeholder="4S" value={vehicle.trim} /></label>
+                    <label>Mileage <span>Optional</span><input min="0" onChange={(event) => updateConsultationVehicle(index, "mileage", event.target.value)} placeholder="18,500" type="text" value={vehicle.mileage} /></label>
+                    <label>Primary use<select onChange={(event) => updateConsultationVehicle(index, "use", event.target.value)} value={vehicle.use}><option>Daily driven</option><option>Seasonal</option><option>Collection vehicle</option><option>Occasional use</option><option>Business / fleet</option></select></label>
+                  </div>
+                </fieldset>
+              ))}
+            </div>
+          </section>
+
           <fieldset className="consultation-call-methods">
             <legend>How should we meet?</legend>
             {consultationCallMethods.map((method) => (
@@ -5805,7 +5923,7 @@ function ConsultationBookingPanel({ member, onBack, onBooked, plan, signupActiva
 
           {bookingError && <div className="error-message" role="alert">{bookingError}</div>}
           <button className="button primary consultation-submit" disabled={booking} type="submit">
-            {booking ? "Reserving your consultation..." : "Reserve Consultation & Continue"} <ArrowRight size={18} />
+            {booking ? "Reserving your consultation..." : publicInquiry ? "Reserve Consultation" : "Reserve Consultation & Continue"} <ArrowRight size={18} />
           </button>
           <p className="consultation-privacy"><ShieldCheck size={15} /> Private, complimentary, and tailored to your membership.</p>
         </aside>
@@ -5816,6 +5934,26 @@ function ConsultationBookingPanel({ member, onBack, onBooked, plan, signupActiva
 
 function ConsultationBookingScreen(props) {
   return <main className="consultation-screen"><ConsultationBookingPanel {...props} /></main>;
+}
+
+function ConsultationConfirmationScreen({ consultation, member, onDone }) {
+  return (
+    <main className="consultation-screen">
+      <section className="consultation-confirmation-card">
+        <div className="completion-mark"><Check size={36} /></div>
+        <p className="eyebrow">Consultation reserved</p>
+        <h1>We look forward to meeting you{member?.name ? `, ${member.name.split(" ")[0]}` : ""}.</h1>
+        <p>Your concierge will review your vehicles before the call and contact you using your selected meeting method.</p>
+        <div className="consultation-confirmation-details">
+          <div><CalendarCheck size={20} /><span>Date</span><strong>{readableConsultationDate(consultation.consultation_date)}</strong></div>
+          <div><Clock size={20} /><span>Time</span><strong>{readableConsultationTime(consultation.consultation_time)}</strong></div>
+          <div><MessageCircle size={20} /><span>Meeting</span><strong>{consultation.call_method}</strong></div>
+        </div>
+        <div className="success-message" role="status">A confirmation has been saved for our concierge team. We will contact you at {member?.email || "the email provided"}.</div>
+        <button className="button primary submit" type="button" onClick={onDone}>Return To White Glove <ArrowRight size={18} /></button>
+      </section>
+    </main>
+  );
 }
 
 function SubscriptionActivationScreen({ appError, member, membershipPricing, onBack, onLogout, onRefreshMember }) {
@@ -10237,6 +10375,12 @@ function AppNavButton({ active, icon: Icon, label, onClick }) {
 }
 
 function LeadSection({ handleSubmit, submitted, submitError }) {
+  const [vehicleCount, setVehicleCount] = useState(1);
+
+  function updateVehicleCount(value) {
+    setVehicleCount(Math.min(20, Math.max(1, Number(value) || 1)));
+  }
+
   return (
     <section className="apply-section" id="apply">
       <div className="apply-copy">
@@ -10287,43 +10431,7 @@ function LeadSection({ handleSubmit, submitted, submitError }) {
           </label>
           <label>
             How many vehicles?
-            <input name="vehicleCount" type="number" min="1" placeholder="1" />
-          </label>
-          <label>
-            Year
-            <input name="year" type="number" min="1900" max="2035" />
-          </label>
-          <label>
-            Make
-            <input name="make" type="text" />
-          </label>
-          <label>
-            Model
-            <input name="model" type="text" />
-          </label>
-          <label>
-            Mileage
-            <input name="mileage" type="text" />
-          </label>
-          <label>
-            Vehicle type
-            <select name="vehicleType">
-              <option>Luxury</option>
-              <option>Exotic</option>
-              <option>Classic</option>
-              <option>Daily driver</option>
-              <option>SUV or family vehicle</option>
-              <option>Other</option>
-            </select>
-          </label>
-          <label>
-            Use
-            <select name="usage">
-              <option>Seasonal</option>
-              <option>Daily driven</option>
-              <option>Collection vehicle</option>
-              <option>Occasional use</option>
-            </select>
+            <input name="vehicleCount" type="number" min="1" max="20" onChange={(event) => updateVehicleCount(event.target.value)} value={vehicleCount} />
           </label>
           <label>
             Membership interest
@@ -10337,6 +10445,27 @@ function LeadSection({ handleSubmit, submitted, submitError }) {
             </select>
           </label>
         </div>
+        <section className="lead-vehicle-section">
+          <div className="lead-vehicle-heading">
+            <div><p className="eyebrow">Your garage</p><h3>{vehicleCount === 1 ? "Tell us about your vehicle" : `Tell us about all ${vehicleCount} vehicles`}</h3></div>
+            <span>{vehicleCount} {vehicleCount === 1 ? "vehicle" : "vehicles"}</span>
+          </div>
+          <div className="lead-vehicle-list">
+            {Array.from({ length: vehicleCount }, (_, index) => (
+              <fieldset className="lead-vehicle-card" key={`lead-vehicle-${index}`}>
+                <legend><Car size={16} /> Vehicle {index + 1}</legend>
+                <div className="lead-vehicle-grid">
+                  <label>Year<input name={`vehicle-${index}-year`} type="number" min="1900" max="2035" placeholder="2024" required /></label>
+                  <label>Make<input name={`vehicle-${index}-make`} type="text" placeholder="Porsche" required /></label>
+                  <label>Model<input name={`vehicle-${index}-model`} type="text" placeholder="911 Carrera" required /></label>
+                  <label>Trim <span>Optional</span><input name={`vehicle-${index}-trim`} type="text" placeholder="4S" /></label>
+                  <label>Mileage <span>Optional</span><input name={`vehicle-${index}-mileage`} type="text" placeholder="18,500 km" /></label>
+                  <label>Primary use<select name={`vehicle-${index}-use`}><option>Daily driven</option><option>Seasonal</option><option>Collection vehicle</option><option>Occasional use</option><option>Business / fleet</option></select></label>
+                </div>
+              </fieldset>
+            ))}
+          </div>
+        </section>
         <fieldset>
           <legend>Services interested in</legend>
           <div className="checkbox-grid">
@@ -10368,7 +10497,7 @@ function LeadSection({ handleSubmit, submitted, submitError }) {
           <textarea name="message" rows="5" />
         </label>
         <button className="button primary submit" type="submit">
-          Request Membership Info <ArrowRight size={18} />
+          Continue To Consultation Calendar <CalendarCheck size={18} />
         </button>
       </form>
     </section>

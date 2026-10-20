@@ -22,6 +22,18 @@ function clean(value, maxLength = 480) {
   return String(value || "").trim().slice(0, maxLength);
 }
 
+function cleanVehicles(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 20).map((vehicle) => ({
+    year: clean(vehicle?.year, 4),
+    make: clean(vehicle?.make, 80),
+    model: clean(vehicle?.model, 100),
+    trim: clean(vehicle?.trim, 100),
+    mileage: clean(vehicle?.mileage, 40),
+    use: clean(vehicle?.use, 60),
+  }));
+}
+
 async function verifySignupMember(payload) {
   const userId = clean(payload.userId);
   const memberEmail = clean(payload.memberEmail).toLowerCase();
@@ -40,6 +52,15 @@ async function verifyMember(event, payload) {
   const accessToken = authorization.replace(/^Bearer\s+/i, "").trim();
   if (!accessToken) {
     if (payload.signupActivation) return verifySignupMember(payload);
+    if (payload.publicInquiry) {
+      const email = clean(payload.memberEmail, 320).toLowerCase();
+      const fullName = clean(payload.memberName, 160);
+      const phone = clean(payload.memberPhone, 80);
+      if (!fullName || !email || !phone || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw Object.assign(new Error("Enter your name, email, and phone number before booking."), { statusCode: 400 });
+      }
+      return { id: null, email, user_metadata: { full_name: fullName, phone } };
+    }
     throw Object.assign(new Error("Sign in before booking your consultation."), { statusCode: 401 });
   }
 
@@ -110,8 +131,12 @@ export async function handler(event) {
     const time = clean(payload.time, 5);
     const timezone = clean(payload.timezone || "America/Toronto", 80);
     const callMethod = clean(payload.callMethod, 40);
+    const vehicles = cleanVehicles(payload.vehicles);
     if (!validateDateAndTime(date, time, timezone)) return json(400, { error: "Choose a future consultation date and time." });
     if (!callMethods.has(callMethod)) return json(400, { error: "Choose how you would like us to call you." });
+    if (!vehicles.length || vehicles.some((vehicle) => !vehicle.year || !vehicle.make || !vehicle.model)) {
+      return json(400, { error: "Add the year, make, and model for every vehicle." });
+    }
 
     const { data: occupied, error: availabilityError } = await supabase
       .from("membership_consultations")
@@ -137,12 +162,14 @@ export async function handler(event) {
         full_name: clean(payload.memberName || user.user_metadata?.full_name || user.email, 160),
         phone: clean(payload.memberPhone || user.user_metadata?.phone, 80) || null,
         plan: clean(payload.plan || user.user_metadata?.plan || "Club Drive", 80),
+        lead_source: payload.publicInquiry ? "website_consultation" : payload.signupActivation ? "membership_signup" : "membership_activation",
         consultation_date: date,
         consultation_time: time,
         timezone,
         call_method: callMethod,
         call_details: clean(payload.callDetails, 320) || null,
         notes: clean(payload.notes, 1200) || null,
+        vehicles,
       })
       .select("id, consultation_date, consultation_time, timezone, call_method, status")
       .single();
