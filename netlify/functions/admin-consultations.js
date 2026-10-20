@@ -21,7 +21,7 @@ export async function handler(event) {
   if (event.httpMethod === "GET") {
     const { data, error } = await supabase
       .from("membership_consultations")
-      .select("id, user_id, email, full_name, phone, plan, consultation_date, consultation_time, timezone, call_method, call_details, notes, status, created_at")
+      .select("id, user_id, email, full_name, phone, plan, lead_source, vehicles, consultation_date, consultation_time, timezone, call_method, call_details, notes, status, created_at")
       .order("consultation_date", { ascending: true })
       .order("consultation_time", { ascending: true });
 
