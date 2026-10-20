@@ -177,6 +177,35 @@ async function billingProfileForMember(userId) {
   return data || null;
 }
 
+async function verifiedConsultationForMember(userId, consultationId) {
+  if (!supabase || !userId || !consultationId) {
+    const error = new Error("Book your private consultation before continuing to membership payment.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const { data, error } = await supabase
+    .from("membership_consultations")
+    .select("id, consultation_date, consultation_time, call_method, status")
+    .eq("id", clean(consultationId))
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    const migrationError = new Error(error.code === "42P01" || error.code === "PGRST205"
+      ? "Run the membership consultation SQL migration in Supabase first."
+      : "We could not verify your consultation booking.");
+    migrationError.statusCode = 503;
+    throw migrationError;
+  }
+  if (!data || !["scheduled", "confirmed", "completed"].includes(data.status)) {
+    const consultationError = new Error("Book your private consultation before continuing to membership payment.");
+    consultationError.statusCode = 409;
+    throw consultationError;
+  }
+  return data;
+}
+
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") {
     return json(204, {});
@@ -197,6 +226,7 @@ export async function handler(event) {
     const pricing = await pricingForPlan(plan);
     await ensureSignupBillingProfile(verifiedUser, payload, plan);
     const billingProfile = await billingProfileForMember(verifiedUser?.id);
+    const consultation = await verifiedConsultationForMember(verifiedUser?.id, payload.consultationId);
     if (!billingProfile) {
       throw new Error("The member does not have a billing profile.");
     }
@@ -227,6 +257,10 @@ export async function handler(event) {
       memberPhone: clean(payload.memberPhone),
       plan,
       userId: clean(verifiedUser?.id || payload.userId),
+      consultationId: clean(consultation.id),
+      consultationDate: clean(consultation.consultation_date),
+      consultationTime: clean(consultation.consultation_time),
+      consultationCallMethod: clean(consultation.call_method),
     };
 
     const sessionOptions = {

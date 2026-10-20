@@ -130,6 +130,50 @@ const services = [
 const publicSiteUrl = import.meta.env.VITE_PUBLIC_SITE_URL || "https://vocal-pie-c034af.netlify.app";
 const appStoreUrl = import.meta.env.VITE_APP_STORE_URL || "https://apps.apple.com/search?term=White%20Glove%20Concierge";
 
+const consultationTimeSlots = ["09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00", "17:00"];
+const consultationCallMethods = [
+  { name: "Google Meet", detail: "We will email you a private meeting link." },
+  { name: "FaceTime", detail: "We will call your Apple phone number or email." },
+  { name: "Phone call", detail: "A concierge will call you directly." },
+  { name: "WhatsApp", detail: "We will contact your WhatsApp number." },
+];
+
+function localIsoDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function calendarMonthCells(monthDate) {
+  const firstDay = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const lastDay = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
+  const cells = Array.from({ length: firstDay.getDay() }, () => null);
+  for (let day = 1; day <= lastDay.getDate(); day += 1) {
+    cells.push(new Date(monthDate.getFullYear(), monthDate.getMonth(), day));
+  }
+  while (cells.length % 7) cells.push(null);
+  return cells;
+}
+
+function readableConsultationDate(value, options = {}) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  return new Intl.DateTimeFormat("en-CA", {
+    weekday: options.short ? "short" : "long",
+    month: options.short ? "short" : "long",
+    day: "numeric",
+    year: options.year === false ? undefined : "numeric",
+  }).format(date);
+}
+
+function readableConsultationTime(value) {
+  if (!value) return "";
+  const [hours, minutes] = String(value).slice(0, 5).split(":").map(Number);
+  const date = new Date(2020, 0, 1, hours, minutes);
+  return new Intl.DateTimeFormat("en-CA", { hour: "numeric", minute: "2-digit" }).format(date);
+}
+
 function isNativeAppRuntime() {
   if (typeof window === "undefined") return false;
   const capacitor = window.Capacitor;
@@ -2607,6 +2651,7 @@ class MemberPanelErrorBoundary extends Component {
 }
 
 function App() {
+  const developmentPreview = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("preview") : "";
   const [mode, setMode] = useState(() => new URLSearchParams(window.location.search).get("password") === "recovery" ? "password-recovery" : "site");
   const [menuOpen, setMenuOpen] = useState(false);
   const [memberAccessChoiceOpen, setMemberAccessChoiceOpen] = useState(false);
@@ -2646,6 +2691,7 @@ function App() {
   });
   const [servicePricing, setServicePricing] = useState({});
   const [membershipPricing, setMembershipPricing] = useState({});
+  const [signupConsultation, setSignupConsultation] = useState(null);
   const nativeAppRuntime = isNativeAppRuntime();
   const memberAccessLabel = nativeAppRuntime ? "Sign in / Sign up" : "Open Member App";
 
@@ -2996,7 +3042,7 @@ function App() {
     }
   }
 
-  async function startSignupMembershipCheckout(signedInMember, profile) {
+  async function startSignupMembershipCheckout(signedInMember, profile, consultation) {
     if (!signedInMember?.id) {
       throw new Error("The account was created, but checkout could not start. Sign in after confirming your email and start membership activation.");
     }
@@ -3015,6 +3061,7 @@ function App() {
         memberPhone: signedInMember.phone || profile.phone,
         plan: signedInMember.plan || profile.plan,
         userId: signedInMember.id,
+        consultationId: consultation?.id,
       }),
     });
     const responseText = await response.text();
@@ -3041,7 +3088,8 @@ function App() {
         ? await createAccount(profile)
         : await signIn(profile);
       if (profile.authAction === "create") {
-        await startSignupMembershipCheckout(signedInMember, profile);
+        setSignupConsultation({ member: signedInMember, profile });
+        setMode("membership-consultation");
         return;
       }
       if (signedInMember.pendingConfirmation) {
@@ -3451,12 +3499,42 @@ function App() {
     return savedComment;
   }
 
+  if (developmentPreview === "consultation") {
+    return <ConsultationBookingScreen member={{ id: "preview-member", email: "member@example.com", name: "Alex Morgan", phone: "+1 514 555 0188" }} plan="Platinum" onBack={() => {}} onBooked={async () => {}} />;
+  }
+
+  if (developmentPreview === "admin-consultations") {
+    const previewDate = localIsoDate(new Date(Date.now() + 86400000));
+    return (
+      <main className="admin-portal"><section className="admin-shell">
+        <div className="admin-header"><div><p className="eyebrow">White Glove backend</p><h1>Membership Consultations</h1><p>See every private membership call on one calendar and keep each consultation organized.</p></div></div>
+        <AdminConsultationCalendar consultations={[{ id: "preview-consultation", full_name: "Alex Morgan", email: "member@example.com", phone: "+1 514 555 0188", plan: "Platinum", consultation_date: previewDate, consultation_time: "10:00", timezone: "America/Toronto", call_method: "Google Meet", call_details: "member@example.com", notes: "Interested in year-round care for three vehicles.", status: "confirmed" }]} onStatus={() => {}} />
+      </section></main>
+    );
+  }
+
   if (mode === "login") {
     return <LoginScreen appError={appError} backendEnabled={isBackendConfigured} membershipPricing={membershipPricing} onForgotPassword={requestPasswordReset} onLogin={handleLogin} onBack={() => setMode("site")} />;
   }
 
   if (mode === "signup-confirmation") {
     return <SignupConfirmationScreen email={signupConfirmationEmail} onBack={() => setMode("site")} onSignIn={() => { setAppError(""); setMode("login"); }} />;
+  }
+
+  if (mode === "membership-consultation" && signupConsultation) {
+    return (
+      <ConsultationBookingScreen
+        member={signupConsultation.member}
+        plan={signupConsultation.member?.plan || signupConsultation.profile?.plan}
+        signupActivation
+        onBack={() => {
+          setAppError("Your account was created. Sign in to finish booking your consultation and activate your membership.");
+          setSignupConsultation(null);
+          setMode("login");
+        }}
+        onBooked={(consultation) => startSignupMembershipCheckout(signupConsultation.member, signupConsultation.profile, consultation)}
+      />
+    );
   }
 
   if (mode === "password-recovery") {
@@ -4584,6 +4662,71 @@ function AdminMemberDirectory({ members, onOpenBooking, requests }) {
   );
 }
 
+function AdminConsultationCalendar({ consultations, onStatus }) {
+  const initialDate = useMemo(() => {
+    const upcoming = consultations.find((consultation) => consultation.status !== "cancelled" && consultation.consultation_date >= localIsoDate(new Date()));
+    return upcoming?.consultation_date || localIsoDate(new Date());
+  }, [consultations]);
+  const [selectedDate, setSelectedDate] = useState(initialDate);
+  const [visibleMonth, setVisibleMonth] = useState(() => {
+    const date = new Date(`${initialDate}T12:00:00`);
+    return new Date(date.getFullYear(), date.getMonth(), 1);
+  });
+
+  const monthCells = useMemo(() => calendarMonthCells(visibleMonth), [visibleMonth]);
+  const countsByDate = consultations.reduce((counts, consultation) => {
+    counts[consultation.consultation_date] = (counts[consultation.consultation_date] || 0) + 1;
+    return counts;
+  }, {});
+  const selectedConsultations = consultations.filter((consultation) => consultation.consultation_date === selectedDate);
+  const upcomingCount = consultations.filter((consultation) => consultation.consultation_date >= localIsoDate(new Date()) && !["cancelled", "completed"].includes(consultation.status)).length;
+  const confirmedCount = consultations.filter((consultation) => consultation.status === "confirmed").length;
+
+  return (
+    <section className="admin-consultation-workspace">
+      <div className="admin-consultation-summary">
+        <div><span>Upcoming</span><strong>{upcomingCount}</strong><small>Private consultations</small></div>
+        <div><span>Confirmed</span><strong>{confirmedCount}</strong><small>Ready to meet</small></div>
+        <div><span>Total booked</span><strong>{consultations.length}</strong><small>Complete history</small></div>
+      </div>
+
+      <div className="admin-consultation-layout">
+        <article className="admin-consultation-calendar">
+          <header>
+            <div><p className="eyebrow">Consultation calendar</p><h2>{visibleMonth.toLocaleDateString("en-CA", { month: "long", year: "numeric" })}</h2></div>
+            <div><button type="button" onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1))} aria-label="Previous month"><ChevronLeft size={19} /></button><button type="button" onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1))} aria-label="Next month"><ChevronRight size={19} /></button></div>
+          </header>
+          <div className="admin-consultation-weekdays">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span key={day}>{day}</span>)}</div>
+          <div className="admin-consultation-days">
+            {monthCells.map((date, index) => {
+              if (!date) return <span key={`empty-${index}`} />;
+              const isoDate = localIsoDate(date);
+              const count = countsByDate[isoDate] || 0;
+              const isToday = isoDate === localIsoDate(new Date());
+              return <button className={`${selectedDate === isoDate ? "selected" : ""}${isToday ? " today" : ""}`} key={isoDate} type="button" onClick={() => setSelectedDate(isoDate)}><span>{date.getDate()}</span>{count > 0 && <strong>{count}</strong>}<small>{count ? `${count} booked` : ""}</small></button>;
+            })}
+          </div>
+        </article>
+
+        <aside className="admin-consultation-agenda">
+          <header><p className="eyebrow">Daily agenda</p><h2>{readableConsultationDate(selectedDate)}</h2><span>{selectedConsultations.length} {selectedConsultations.length === 1 ? "consultation" : "consultations"}</span></header>
+          <div className="admin-consultation-list">
+            {selectedConsultations.length ? selectedConsultations.map((consultation) => (
+              <article key={consultation.id}>
+                <div className="admin-consultation-time"><Clock size={18} /><strong>{readableConsultationTime(consultation.consultation_time)}</strong><span>{consultation.timezone}</span></div>
+                <div className="admin-consultation-person"><strong>{consultation.full_name}</strong><span>{consultation.plan} membership</span><a href={`mailto:${consultation.email}`}>{consultation.email}</a>{consultation.phone && <a href={`tel:${consultation.phone}`}>{consultation.phone}</a>}</div>
+                <div className="admin-consultation-method"><span>Call method</span><strong>{consultation.call_method}</strong><small>{consultation.call_details || "Use member contact information"}</small></div>
+                {consultation.notes && <p>{consultation.notes}</p>}
+                <label>Status<select value={consultation.status} onChange={(event) => onStatus(consultation.id, event.target.value)}><option value="scheduled">Scheduled</option><option value="confirmed">Confirmed</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label>
+              </article>
+            )) : <div className="admin-list-empty">No consultations scheduled for this date.</div>}
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
 function AdminPortal({ onBack }) {
   const [adminToken, setAdminToken] = useState("");
   const [draftToken, setDraftToken] = useState(() => localStorage.getItem("whiteGloveAdminToken") || "");
@@ -4595,6 +4738,7 @@ function AdminPortal({ onBack }) {
   const [membershipPricing, setMembershipPricing] = useState({});
   const [adminMembers, setAdminMembers] = useState([]);
   const [adminFeedEvents, setAdminFeedEvents] = useState([]);
+  const [consultations, setConsultations] = useState([]);
   const [servicePricing, setServicePricing] = useState({});
   const [serviceRequests, setServiceRequests] = useState([]);
   const [selectedAdminRequestId, setSelectedAdminRequestId] = useState("");
@@ -4692,6 +4836,19 @@ function AdminPortal({ onBack }) {
     }
   }
 
+  async function loadAdminConsultations(token = adminToken, options = {}) {
+    if (!token) return;
+    try {
+      const response = await fetch("/.netlify/functions/admin-consultations", { headers: { "x-admin-token": token } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Could not load consultations.");
+      setConsultations(payload.consultations || []);
+    } catch (error) {
+      if (options.throwOnError) throw error;
+      setAdminNotice(error.message || "Could not load consultations.");
+    }
+  }
+
   async function submitAdminLogin(event) {
     event.preventDefault();
     setAdminError("");
@@ -4706,6 +4863,7 @@ function AdminPortal({ onBack }) {
       loadAdminPricing(draftToken, { keepNotice: true });
       loadAdminMembershipPricing(draftToken, { keepNotice: true });
       loadAdminMembers(draftToken, { keepNotice: true });
+      loadAdminConsultations(draftToken, { keepNotice: true });
     } catch (error) {
       localStorage.removeItem("whiteGloveAdminToken");
       setAdminToken("");
@@ -4724,6 +4882,7 @@ function AdminPortal({ onBack }) {
     setMembershipPricing({});
     setAdminMembers([]);
     setAdminFeedEvents([]);
+    setConsultations([]);
     setAdminNotice("");
   }
 
@@ -4998,8 +5157,26 @@ function AdminPortal({ onBack }) {
     }
   }
 
+  async function updateConsultationStatus(id, status) {
+    setAdminError("");
+    try {
+      const response = await fetch("/.netlify/functions/admin-consultations", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+        body: JSON.stringify({ id, status }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Could not update the consultation.");
+      setConsultations((items) => items.map((item) => item.id === id ? { ...item, ...payload.consultation } : item));
+      setAdminNotice("Consultation status updated.");
+    } catch (error) {
+      setAdminError(error.message || "Could not update the consultation.");
+    }
+  }
+
   const adminNavigation = [
     { id: "requests", label: "Bookings", icon: CalendarCheck },
+    { id: "consultations", label: "Consultations", icon: MessageCircle },
     { id: "member-activity", label: "Members", icon: Users },
     { id: "past-events", label: "Past Events" },
     { id: "pricing", label: "Booking Price Settings" },
@@ -5010,6 +5187,10 @@ function AdminPortal({ onBack }) {
     requests: {
       title: "Bookings",
       description: "Review booking status, payment progress, balances, documents, and member details in one place.",
+    },
+    consultations: {
+      title: "Membership Consultations",
+      description: "See every private membership call on one calendar and keep each consultation organized.",
     },
     "member-activity": {
       title: "Members",
@@ -5073,7 +5254,7 @@ function AdminPortal({ onBack }) {
             <p>{adminPageContent.description}</p>
           </div>
           <div className="admin-header-actions">
-            <button className="button secondary compact-button" type="button" onClick={() => { loadAdminRequests(adminToken); loadAdminPricing(adminToken); loadAdminMembershipPricing(adminToken); loadAdminMembers(adminToken); }} disabled={loadingRequests}>
+            <button className="button secondary compact-button" type="button" onClick={() => { loadAdminRequests(adminToken); loadAdminPricing(adminToken); loadAdminMembershipPricing(adminToken); loadAdminMembers(adminToken); loadAdminConsultations(adminToken); }} disabled={loadingRequests}>
               {loadingRequests ? "Loading..." : "Refresh"}
             </button>
             <button className="button secondary compact-button" type="button" onClick={closeAdminPortal}>Log Out</button>
@@ -5117,6 +5298,7 @@ function AdminPortal({ onBack }) {
         {adminMenu === "memberships" && <AdminMembershipPricingEditor membershipPricing={membershipPricing} onSave={updateMembershipPrice} />}
         {adminMenu === "garage-capacity" && <AdminGarageCapacity members={adminMembers} onSave={updateMemberGarageCapacity} />}
         {adminMenu === "past-events" && <AdminEventArchive events={adminFeedEvents} />}
+        {adminMenu === "consultations" && <AdminConsultationCalendar consultations={consultations} onStatus={updateConsultationStatus} />}
 
         {adminMenu === "member-activity" && (
           <AdminMemberDirectory
@@ -5458,17 +5640,196 @@ function PasswordRecoveryScreen({ onCancel, onComplete }) {
   );
 }
 
+function ConsultationBookingPanel({ member, onBack, onBooked, plan, signupActivation = false }) {
+  const firstAvailableDate = useMemo(() => {
+    const next = new Date();
+    next.setHours(0, 0, 0, 0);
+    next.setDate(next.getDate() + 1);
+    while (next.getDay() === 0) next.setDate(next.getDate() + 1);
+    return next;
+  }, []);
+  const [visibleMonth, setVisibleMonth] = useState(() => new Date(firstAvailableDate.getFullYear(), firstAvailableDate.getMonth(), 1));
+  const [selectedDate, setSelectedDate] = useState(() => localIsoDate(firstAvailableDate));
+  const [selectedTime, setSelectedTime] = useState("10:00");
+  const [callMethod, setCallMethod] = useState("Google Meet");
+  const [callDetails, setCallDetails] = useState(member?.email || "");
+  const [notes, setNotes] = useState("");
+  const [busySlots, setBusySlots] = useState([]);
+  const [bookingError, setBookingError] = useState("");
+  const [booking, setBooking] = useState(false);
+  const monthCells = useMemo(() => calendarMonthCells(visibleMonth), [visibleMonth]);
+  const currentMonth = new Date(firstAvailableDate.getFullYear(), firstAvailableDate.getMonth(), 1);
+  const detailsRequired = callMethod !== "Google Meet";
+
+  useEffect(() => {
+    let active = true;
+    fetch(netlifyFunctionUrl("/.netlify/functions/membership-consultations"))
+      .then((response) => response.json().then((payload) => ({ ok: response.ok, payload })))
+      .then(({ ok, payload }) => {
+        if (active && ok) setBusySlots(payload.busySlots || []);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!busySlots.includes(`${selectedDate}|${selectedTime}`)) return;
+    setSelectedTime(consultationTimeSlots.find((time) => !busySlots.includes(`${selectedDate}|${time}`)) || "");
+  }, [busySlots, selectedDate, selectedTime]);
+
+  function chooseMethod(method) {
+    setCallMethod(method.name);
+    if (method.name === "Google Meet") setCallDetails(member?.email || "");
+    else if (!callDetails || callDetails === member?.email) setCallDetails(member?.phone || "");
+  }
+
+  async function submitConsultation(event) {
+    event.preventDefault();
+    setBookingError("");
+    if (!selectedDate || !selectedTime) {
+      setBookingError("Choose a consultation date and time.");
+      return;
+    }
+    if (detailsRequired && !callDetails.trim()) {
+      setBookingError(`Enter the ${callMethod === "FaceTime" ? "phone number or Apple email" : "phone number"} we should use.`);
+      return;
+    }
+
+    try {
+      setBooking(true);
+      const accessToken = await getCurrentAccessToken();
+      const response = await fetch(netlifyFunctionUrl("/.netlify/functions/membership-consultations"), {
+        method: "POST",
+        headers: {
+          "Authorization": accessToken ? `Bearer ${accessToken}` : "",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          callDetails,
+          callMethod,
+          date: selectedDate,
+          memberEmail: member?.email,
+          memberName: member?.name,
+          memberPhone: member?.phone,
+          notes,
+          plan,
+          signupActivation,
+          time: selectedTime,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Toronto",
+          userId: member?.id,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.consultation) throw new Error(payload.error || "Could not reserve the consultation.");
+      await onBooked(payload.consultation);
+    } catch (error) {
+      setBookingError(readableError(error, "Could not reserve the consultation."));
+      setBooking(false);
+    }
+  }
+
+  return (
+    <section className="consultation-booking-card" aria-labelledby="consultation-title">
+      <header className="consultation-booking-header">
+        <div>
+          <p className="eyebrow">Private membership consultation</p>
+          <h1 id="consultation-title">Let’s plan your White Glove experience.</h1>
+          <p>Choose a private time with our concierge team. Your membership checkout opens immediately after your consultation is reserved.</p>
+        </div>
+        {onBack && <button className="consultation-close" type="button" onClick={onBack} aria-label="Close consultation calendar"><X size={20} /></button>}
+      </header>
+
+      <div className="consultation-progress" aria-label="Membership activation steps">
+        <span className="complete"><strong>1</strong> Account</span>
+        <span className="active"><strong>2</strong> Consultation</span>
+        <span><strong>3</strong> Membership</span>
+      </div>
+
+      <form className="consultation-booking-layout" onSubmit={submitConsultation}>
+        <div className="consultation-calendar-panel">
+          <div className="consultation-calendar-heading">
+            <div><span>Select a date</span><strong>{visibleMonth.toLocaleDateString("en-CA", { month: "long", year: "numeric" })}</strong></div>
+            <div>
+              <button type="button" onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1))} disabled={visibleMonth <= currentMonth} aria-label="Previous month"><ChevronLeft size={19} /></button>
+              <button type="button" onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1))} aria-label="Next month"><ChevronRight size={19} /></button>
+            </div>
+          </div>
+          <div className="consultation-weekdays" aria-hidden="true">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span key={day}>{day}</span>)}</div>
+          <div className="consultation-calendar-grid">
+            {monthCells.map((date, index) => {
+              if (!date) return <span className="consultation-empty-day" key={`empty-${index}`} />;
+              const isoDate = localIsoDate(date);
+              const disabled = date < firstAvailableDate || date.getDay() === 0;
+              return (
+                <button className={selectedDate === isoDate ? "selected" : ""} disabled={disabled} key={isoDate} onClick={() => setSelectedDate(isoDate)} type="button" aria-label={readableConsultationDate(date)}>
+                  <span>{date.getDate()}</span>
+                  {!disabled && <small>Available</small>}
+                </button>
+              );
+            })}
+          </div>
+          <div className="consultation-time-section">
+            <span>Select a time</span>
+            <div className="consultation-time-grid">
+              {consultationTimeSlots.map((time) => {
+                const unavailable = busySlots.includes(`${selectedDate}|${time}`);
+                return <button className={selectedTime === time ? "selected" : ""} disabled={unavailable} key={time} onClick={() => setSelectedTime(time)} type="button">{unavailable ? "Reserved" : readableConsultationTime(time)}</button>;
+              })}
+            </div>
+          </div>
+        </div>
+
+        <aside className="consultation-details-panel">
+          <div className="consultation-selection-summary">
+            <CalendarCheck size={22} />
+            <div><span>Your selected time</span><strong>{readableConsultationDate(selectedDate, { short: true })}</strong><small>{readableConsultationTime(selectedTime)} · {Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Toronto"}</small></div>
+          </div>
+
+          <fieldset className="consultation-call-methods">
+            <legend>How should we meet?</legend>
+            {consultationCallMethods.map((method) => (
+              <button className={callMethod === method.name ? "selected" : ""} key={method.name} onClick={() => chooseMethod(method)} type="button">
+                <MessageCircle size={18} /><span><strong>{method.name}</strong><small>{method.detail}</small></span>{callMethod === method.name && <Check size={18} />}
+              </button>
+            ))}
+          </fieldset>
+
+          <label className="consultation-field">
+            {callMethod === "Google Meet" ? "Meeting email" : callMethod === "FaceTime" ? "FaceTime number or Apple email" : `${callMethod} number`}
+            <input value={callDetails} onChange={(event) => setCallDetails(event.target.value)} placeholder={callMethod === "Google Meet" ? "name@email.com" : "+1 514 555 0123"} required={detailsRequired} />
+          </label>
+          <label className="consultation-field">
+            Anything you would like us to prepare? <span>Optional</span>
+            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Tell us about your vehicles, collection, or the support you are looking for." rows="3" />
+          </label>
+
+          {bookingError && <div className="error-message" role="alert">{bookingError}</div>}
+          <button className="button primary consultation-submit" disabled={booking} type="submit">
+            {booking ? "Reserving your consultation..." : "Reserve Consultation & Continue"} <ArrowRight size={18} />
+          </button>
+          <p className="consultation-privacy"><ShieldCheck size={15} /> Private, complimentary, and tailored to your membership.</p>
+        </aside>
+      </form>
+    </section>
+  );
+}
+
+function ConsultationBookingScreen(props) {
+  return <main className="consultation-screen"><ConsultationBookingPanel {...props} /></main>;
+}
+
 function SubscriptionActivationScreen({ appError, member, membershipPricing, onBack, onLogout, onRefreshMember }) {
   const [selectedPlan, setSelectedPlan] = useState(member?.plan || "Club Drive");
   const [activationError, setActivationError] = useState("");
   const [activationNotice, setActivationNotice] = useState("");
   const [loading, setLoading] = useState(false);
+  const [consultationOpen, setConsultationOpen] = useState(false);
   const lifecycleContent = membershipLifecycleContent(member?.subscriptionStatus);
   const selectedPricing = membershipPricingForPlan(selectedPlan, membershipPricing);
   const hasCheckoutPrice = selectedPricing.amountCents !== null && selectedPricing.amountCents !== undefined && selectedPricing.amountCents > 0;
   const canCheckout = lifecycleContent.canStartCheckout && hasCheckoutPrice;
 
-  async function startMembershipCheckout() {
+  async function startMembershipCheckout(consultation) {
     setActivationError("");
     setActivationNotice("");
 
@@ -5496,6 +5857,7 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
           memberName: member.name,
           plan: selectedPlan,
           userId: member.id,
+          consultationId: consultation?.id,
         }),
       });
       const responseText = await response.text();
@@ -5596,8 +5958,8 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
 
         <div className="subscription-actions">
           {lifecycleContent.canStartCheckout && (
-            <button className="button primary submit" type="button" onClick={startMembershipCheckout} disabled={loading || !canCheckout}>
-              {loading ? "Opening checkout..." : member?.subscriptionStatus === "canceled" ? "Reactivate With Stripe" : "Activate With Stripe"} <ArrowRight size={18} />
+            <button className="button primary submit" type="button" onClick={() => setConsultationOpen(true)} disabled={loading || !canCheckout}>
+              {member?.subscriptionStatus === "canceled" ? "Book Consultation To Reactivate" : "Book Consultation To Continue"} <CalendarCheck size={18} />
             </button>
           )}
           <button className={lifecycleContent.canStartCheckout ? "button secondary submit" : "button primary submit"} type="button" onClick={checkMembership} disabled={loading}>
@@ -5608,6 +5970,16 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
           </button>
         </div>
       </section>
+      {consultationOpen && (
+        <div className="consultation-modal-backdrop" role="dialog" aria-modal="true" aria-label="Book your membership consultation">
+          <ConsultationBookingPanel
+            member={member}
+            plan={selectedPlan}
+            onBack={() => setConsultationOpen(false)}
+            onBooked={startMembershipCheckout}
+          />
+        </div>
+      )}
     </main>
   );
 }

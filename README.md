@@ -24,7 +24,7 @@ pnpm dev
 - Service request scheduling for detailing, tuning, storage, maintenance, and more
 - Netlify Forms capture for membership leads and in-app service requests
 - Stripe Checkout handoff for paid bookings
-- Private backend portal for incoming service demands
+- Private backend portal for incoming service demands and membership consultations
 
 ## Member app backend
 
@@ -47,7 +47,7 @@ ADMIN_PORTAL_PASSWORD=choose-a-strong-admin-password
 Setup steps:
 
 1. Create a Supabase project.
-2. Run `supabase/schema.sql` in the Supabase SQL editor. For a project that already ran the earlier membership setup, run `supabase/subscription-lifecycle.sql`, then `supabase/membership-benefits.sql`, `supabase/membership-benefit-unlocks.sql`, `supabase/vehicle-valuation-history.sql`, `supabase/feed-post-management.sql`, and `supabase/garage-capacity-window-stickers.sql`. Run `supabase/grandfather-current-members-collector.sql` once to give members who are active at that moment permanent Collector app access; this does not change their Stripe billing amount.
+2. Run `supabase/schema.sql` in the Supabase SQL editor. For a project that already ran the earlier membership setup, run `supabase/subscription-lifecycle.sql`, then `supabase/membership-consultations.sql`, `supabase/membership-benefits.sql`, `supabase/membership-benefit-unlocks.sql`, `supabase/vehicle-valuation-history.sql`, `supabase/feed-post-management.sql`, and `supabase/garage-capacity-window-stickers.sql`. Run `supabase/grandfather-current-members-collector.sql` once to give members who are active at that moment permanent Collector app access; this does not change their Stripe billing amount.
 3. In Supabase Authentication > URL Configuration, add `https://vocal-pie-c034af.netlify.app/?password=recovery` to the allowed redirect URLs so password-reset emails return to the new-password screen.
 4. Copy `.env.example` to `.env.local` for local development and fill in the keys.
 5. Add the same keys in Netlify under Site configuration > Environment variables.
@@ -66,7 +66,7 @@ Setup steps:
 8. Enable Stripe customer email receipts in the Stripe dashboard if you want automatic payment receipts.
 9. Redeploy Netlify.
 
-Once configured, members can create accounts, activate a recurring membership, sign in, save garage vehicles, upload vehicle photos, update vehicle values/horsepower/work history, create paid booking requests, and have those confirmed requests appear in the backend portal. Stripe lifecycle webhooks pause access for `past_due`, `unpaid`, `paused`, and `canceled` subscriptions and restore it when Stripe reports the subscription `active` or `trialing` again. Supabase row-level policies enforce the same rule for garage, service-request, feed, and vehicle-upload operations.
+Once configured, members can create accounts, reserve a private consultation, activate a recurring membership, sign in, save garage vehicles, upload vehicle photos, update vehicle values/horsepower/work history, create paid booking requests, and have those confirmed requests appear in the backend portal. Membership Stripe Checkout verifies that the member has a valid consultation booking before accepting payment. Stripe lifecycle webhooks pause access for `past_due`, `unpaid`, `paused`, and `canceled` subscriptions and restore it when Stripe reports the subscription `active` or `trialing` again. Supabase row-level policies enforce the same rule for garage, service-request, feed, and vehicle-upload operations.
 
 Annual membership benefits are tracked in `membership_benefit_usage`. Successful membership invoices and refunds are tracked in `membership_revenue_events`. Credits unlock on staged loyalty dates only when their face value fits inside a reserve capped at 40% of the member's successfully collected, non-refunded membership revenue for the current membership year. Members see earned, available, used, and locked wash, detail, Montreal transport, and protection credits; the admin endpoint independently enforces the same rule before allowing a credit to be applied.
 
@@ -76,7 +76,7 @@ Backend portal:
 https://vocal-pie-c034af.netlify.app/#admin
 ```
 
-Use the value from `ADMIN_PORTAL_PASSWORD` to sign in. This portal lets White Glove review service demands and move requests through Requested, In Review, Booked, Paid / Confirmed, and Completed.
+Use the value from `ADMIN_PORTAL_PASSWORD` to sign in. This portal lets White Glove review service demands, manage the membership consultation calendar, and move requests through Requested, In Review, Booked, Paid / Confirmed, and Completed.
 
 Important: production deploys require available Netlify credits. If Netlify says the team is out of credits, new GitHub pushes will not publish until credits are restored or the site is moved to another hosting plan.
 
