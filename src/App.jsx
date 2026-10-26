@@ -1145,12 +1145,30 @@ function paymentAmountCents(paymentTerms) {
   return Math.round(Number(match[1].replace(/,/g, "")) * 100);
 }
 
-function resetAppScroll() {
+function appScrollPosition() {
   const appMain = document.querySelector(".app-main");
-  appMain?.scrollTo?.({ top: 0, left: 0, behavior: "auto" });
-  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-  document.documentElement.scrollTop = 0;
-  document.body.scrollTop = 0;
+  return Math.max(
+    Number(appMain?.scrollTop || 0),
+    Number(window.scrollY || 0),
+    Number(document.documentElement.scrollTop || 0),
+    Number(document.body.scrollTop || 0),
+  );
+}
+
+function setAppScrollPosition(top = 0) {
+  const appMain = document.querySelector(".app-main");
+  const safeTop = Math.max(0, Number(top) || 0);
+  const previousScrollBehavior = document.documentElement.style.scrollBehavior;
+  document.documentElement.style.scrollBehavior = "auto";
+  appMain?.scrollTo?.(0, safeTop);
+  window.scrollTo(0, safeTop);
+  document.documentElement.scrollTop = safeTop;
+  document.body.scrollTop = safeTop;
+  document.documentElement.style.scrollBehavior = previousScrollBehavior;
+}
+
+function resetAppScroll() {
+  setAppScrollPosition(0);
 }
 
 let googlePlacesScriptPromise = null;
@@ -1264,7 +1282,7 @@ function VehicleCollectionLocation({ addresses = [], onChange, value }) {
         <p>Confirm the exact collection location so your concierge can coordinate access and timing.</p>
       </div>
       {savedAddresses.length > 0 && (
-        <div className="saved-address-shortcuts" aria-label="Saved service addresses">
+        <div className="saved-address-shortcuts" aria-label="Saved vehicle service locations">
           {savedAddresses.map((entry) => (
             <button className={value === entry.address ? "active" : ""} key={`${entry.label}-${entry.address}`} onClick={() => onChange(entry.address)} type="button">
               <MapPin size={15} />
@@ -3782,7 +3800,7 @@ function App() {
           </div>
           <div className="steps">
             {[
-              ["Join White Glove", "Add your vehicles, VINs, mileage, insurance, warranty, preferred dealer, and service addresses."],
+              ["Join White Glove", "Add your vehicles, VINs, mileage, insurance, warranty, preferred service provider, and vehicle locations."],
               ["We Track Everything", "Your app monitors service intervals, tires, brakes, recalls, registration, battery age, records, and upcoming needs."],
               ["Tap Schedule Service", "Your concierge compares vetted providers, pricing, availability, reviews, distance, and transportation options, then books it."],
             ].map(([title, copy], index) => (
@@ -4762,7 +4780,7 @@ function AdminMemberDirectory({ members, onOpenBooking, requests }) {
         <div className="admin-member-activity">
           <header><div><span className="admin-member-avatar"><User size={21} /></span><div><h2>{selectedMember.full_name || "Member"}</h2><p>{selectedMember.email || "Email pending"}</p></div></div><span>{selectedMember.plan || "No package"}</span></header>
           <div className="admin-booking-facts"><div><span>Membership</span><strong>{selectedMember.subscription_status || "Unknown"}</strong><small>Account status</small></div><div><span>Service payments</span><strong>{adminMoney(totalPaid)}</strong><small>Collected</small></div><div><span>Known balance</span><strong>{adminMoney(totalDue)}</strong><small>Still due</small></div></div>
-          <section className="admin-member-contact"><h3>Contact and service addresses</h3><div>{selectedMember.phone && <a href={`tel:${selectedMember.phone}`}><Phone size={17} /><span><small>Phone</small><strong>{selectedMember.phone}</strong></span></a>}{selectedMemberAddresses.map((entry) => <article key={`${entry.label}-${entry.address}`}><MapPin size={17} /><span><small>{entry.label}</small><strong>{entry.address}</strong></span></article>)}{!selectedMember.phone && selectedMemberAddresses.length === 0 && <p>No contact address has been saved yet.</p>}</div></section>
+          <section className="admin-member-contact"><h3>Contact and vehicle service locations</h3><div>{selectedMember.phone && <a href={`tel:${selectedMember.phone}`}><Phone size={17} /><span><small>Phone</small><strong>{selectedMember.phone}</strong></span></a>}{selectedMemberAddresses.map((entry) => <article key={`${entry.label}-${entry.address}`}><MapPin size={17} /><span><small>{entry.label}</small><strong>{entry.address}</strong></span></article>)}{!selectedMember.phone && selectedMemberAddresses.length === 0 && <p>No contact address has been saved yet.</p>}</div></section>
           <section className="admin-member-timeline"><h3>Account activity</h3>{memberRequests.length ? memberRequests.map((request) => <button key={request.id} onClick={() => onOpenBooking(request.id)} type="button"><CalendarCheck size={18} /><span><strong>{request.service_type}</strong><small>{request.vehicle_label} · {adminStatusLabel(request.status)}</small></span><span><strong>{adminPaymentLabel(adminPayment(request))}</strong><small>{request.created_at ? new Date(request.created_at).toLocaleDateString() : ""}</small></span><ChevronRight size={17} /></button>) : <p>No booking activity yet.</p>}</section>
         </div>
       ) : <div className="admin-list-empty">No members match this search.</div>}
@@ -5351,7 +5369,7 @@ function AdminPortal({ onBack }) {
             <button className="button primary compact-button" type="submit" disabled={loadingRequests || !draftToken.trim()}>
               <KeyRound size={18} /> {loadingRequests ? "Opening..." : "Open Portal"}
             </button>
-            <button className="button secondary compact-button" type="button" onClick={onBack}>Back To Website</button>
+            <button className="button secondary compact-button" type="button" onClick={onBack}>Back to Website</button>
           </form>
 
           {adminError && <div className="error-message">{adminError}</div>}
@@ -5377,7 +5395,7 @@ function AdminPortal({ onBack }) {
               {loadingRequests ? "Loading..." : "Refresh"}
             </button>
             <button className="button secondary compact-button" type="button" onClick={closeAdminPortal}>Log Out</button>
-            <button className="button secondary compact-button" type="button" onClick={onBack}>Back To Website</button>
+            <button className="button secondary compact-button" type="button" onClick={onBack}>Back to Website</button>
           </div>
         </div>
 
@@ -5603,7 +5621,7 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
                 <input name="phone" type="tel" autoComplete="tel" placeholder="Phone number" required />
               </label>
               <label>
-                Membership
+                Membership plan
                 <select name="plan" required>
                   {plans.map((plan) => (
                     <option key={plan.name} value={plan.name}>
@@ -5623,7 +5641,7 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
           </label>
           <label>
             Password
-            <input name="password" type="password" minLength="6" placeholder="Minimum 6 characters" required />
+            <input name="password" type="password" minLength="6" placeholder="At least 6 characters" required />
           </label>
           {authMode === "signin" && (
             <button className="forgot-password-button" type="button" onClick={handleForgotPassword} disabled={authLoading || !backendEnabled}>
@@ -5634,8 +5652,8 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
             <div className="signup-address-list">
               <div className="signup-address-header">
                 <div>
-                  <span>Service addresses</span>
-                  <small>Add where your vehicle is normally kept. This prefills future collection requests.</small>
+                  <span>Vehicle service locations</span>
+                  <small>Save the addresses where your vehicles are normally kept. We’ll use them to prefill future collection requests.</small>
                 </div>
                 <button className="icon-button" type="button" onClick={addSignupAddress} aria-label="Add another service address">
                   <Plus size={18} />
@@ -5644,7 +5662,7 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
               {signupAddresses.map((address, index) => (
                 <div className="signup-address-row" key={address.id}>
                   <label>
-                    Location type
+                    Address label
                     <select name={`addressLabel-${address.id}`} defaultValue={address.label}>
                       <option>Primary</option>
                       <option>Home</option>
@@ -5655,8 +5673,8 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
                     </select>
                   </label>
                   <label>
-                    Full address
-                    <input name={`addressValue-${address.id}`} type="text" autoComplete={index === 0 ? "street-address" : "off"} placeholder="Street address, city, province/state, postal code" required={index === 0} />
+                    Street address
+                    <input name={`addressValue-${address.id}`} type="text" autoComplete={index === 0 ? "street-address" : "off"} placeholder="Street, city, province or state, and postal code" required={index === 0} />
                   </label>
                   <button className="icon-button" type="button" onClick={() => removeSignupAddress(address.id)} aria-label="Remove service address" disabled={signupAddresses.length === 1}>
                     <X size={18} />
@@ -5748,7 +5766,7 @@ function PasswordRecoveryScreen({ onCancel, onComplete }) {
           {recoveryError && <div className="error-message" role="alert">{recoveryError}</div>}
           <label>
             New password
-            <input name="password" type="password" minLength="6" autoComplete="new-password" placeholder="Minimum 6 characters" required />
+            <input name="password" type="password" minLength="6" autoComplete="new-password" placeholder="At least 6 characters" required />
           </label>
           <label>
             Confirm new password
@@ -5879,7 +5897,7 @@ function ConsultationBookingPanel({ member, onBack, onBooked, plan, publicInquir
         <div>
           <p className="eyebrow">Private consultation</p>
           <h1 id="consultation-title">Let’s plan your White Glove experience.</h1>
-          <p>{publicInquiry ? "Choose a private time and tell us about each vehicle so your concierge arrives prepared." : "Choose a private time with our concierge team. Your membership checkout opens immediately after your consultation is reserved."}</p>
+          <p>{publicInquiry ? "Choose a private time and tell us about each vehicle so your concierge can prepare for the call." : "Choose a private time with our concierge team. Your secure membership checkout opens after the consultation is reserved."}</p>
         </div>
         {onBack && <button className="consultation-close" type="button" onClick={onBack} aria-label="Close consultation calendar"><X size={20} /></button>}
       </header>
@@ -5887,7 +5905,7 @@ function ConsultationBookingPanel({ member, onBack, onBooked, plan, publicInquir
       <div className="consultation-progress" aria-label="Membership activation steps">
         <span className="complete"><strong>1</strong> {publicInquiry ? "Details" : "Account"}</span>
         <span className="active"><strong>2</strong> Consultation</span>
-        <span><strong>3</strong> {publicInquiry ? "Confirmed" : "Membership"}</span>
+        <span><strong>3</strong> {publicInquiry ? "Confirmed" : "Secure payment"}</span>
       </div>
 
       <form className="consultation-booking-layout" onSubmit={submitConsultation}>
@@ -5933,7 +5951,7 @@ function ConsultationBookingPanel({ member, onBack, onBooked, plan, publicInquir
           <section className="consultation-vehicle-intake">
             <div className="consultation-vehicle-heading">
               <div><span>Your garage</span><strong>Vehicle details</strong></div>
-              <label>Number of vehicles<input aria-label="Number of vehicles" min="1" max="20" onChange={(event) => changeVehicleCount(event.target.value)} type="number" value={consultationVehicles.length} /></label>
+              <label>Vehicles to discuss<input aria-label="Vehicles to discuss" min="1" max="20" onChange={(event) => changeVehicleCount(event.target.value)} type="number" value={consultationVehicles.length} /></label>
             </div>
             <p>Add each vehicle separately so we can prepare a precise ownership plan.</p>
             <div className="consultation-vehicle-list">
@@ -5945,8 +5963,8 @@ function ConsultationBookingPanel({ member, onBack, onBooked, plan, publicInquir
                     <label>Make<input onChange={(event) => updateConsultationVehicle(index, "make", event.target.value)} placeholder="Porsche" required value={vehicle.make} /></label>
                     <label>Model<input onChange={(event) => updateConsultationVehicle(index, "model", event.target.value)} placeholder="911 Carrera" required value={vehicle.model} /></label>
                     <label>Trim <span>Optional</span><input onChange={(event) => updateConsultationVehicle(index, "trim", event.target.value)} placeholder="4S" value={vehicle.trim} /></label>
-                    <label>Mileage <span>Optional</span><input min="0" onChange={(event) => updateConsultationVehicle(index, "mileage", event.target.value)} placeholder="18,500" type="text" value={vehicle.mileage} /></label>
-                    <label>Primary use<select onChange={(event) => updateConsultationVehicle(index, "use", event.target.value)} value={vehicle.use}><option>Daily driven</option><option>Seasonal</option><option>Collection vehicle</option><option>Occasional use</option><option>Business / fleet</option></select></label>
+                    <label>Current mileage (km) <span>Optional</span><input min="0" onChange={(event) => updateConsultationVehicle(index, "mileage", event.target.value)} placeholder="18,500" type="text" value={vehicle.mileage} /></label>
+                    <label>Primary use<select onChange={(event) => updateConsultationVehicle(index, "use", event.target.value)} value={vehicle.use}><option>Daily driver</option><option>Seasonal</option><option>Collection vehicle</option><option>Occasional use</option><option>Business / fleet</option></select></label>
                   </div>
                 </fieldset>
               ))}
@@ -5963,19 +5981,19 @@ function ConsultationBookingPanel({ member, onBack, onBooked, plan, publicInquir
           </fieldset>
 
           <label className="consultation-field">
-            {callMethod === "Google Meet" ? "Meeting email" : callMethod === "FaceTime" ? "FaceTime number or Apple email" : `${callMethod} number`}
+            {callMethod === "Google Meet" ? "Google Meet email" : callMethod === "FaceTime" ? "FaceTime number or Apple email" : `${callMethod} number`}
             <input value={callDetails} onChange={(event) => setCallDetails(event.target.value)} placeholder={callMethod === "Google Meet" ? "name@email.com" : "+1 514 555 0123"} required={detailsRequired} />
           </label>
           <label className="consultation-field">
-            Anything you would like us to prepare? <span>Optional</span>
-            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Tell us about your vehicles, collection, or the support you are looking for." rows="3" />
+            What would you like to discuss? <span>Optional</span>
+            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Share your priorities, timeline, or any special requirements." rows="3" />
           </label>
 
           {bookingError && <div className="error-message" role="alert">{bookingError}</div>}
           <button className="button primary consultation-submit" disabled={booking} type="submit">
             {booking ? "Reserving your consultation..." : publicInquiry ? "Reserve Consultation" : "Reserve Consultation & Continue"} <ArrowRight size={18} />
           </button>
-          <p className="consultation-privacy"><ShieldCheck size={15} /> Private, complimentary, and tailored to your membership.</p>
+          <p className="consultation-privacy"><ShieldCheck size={15} /> Complimentary, private, and tailored to your vehicles.</p>
         </aside>
       </form>
     </section>
@@ -6000,7 +6018,7 @@ function ConsultationConfirmationScreen({ consultation, member, onDone }) {
           <div><MessageCircle size={20} /><span>Meeting</span><strong>{consultation.call_method}</strong></div>
         </div>
         <div className="success-message" role="status">A confirmation has been saved for our concierge team. We will contact you at {member?.email || "the email provided"}.</div>
-        <button className="button primary submit" type="button" onClick={onDone}>Return To White Glove <ArrowRight size={18} /></button>
+        <button className="button primary submit" type="button" onClick={onDone}>Return to White Glove <ArrowRight size={18} /></button>
       </section>
     </main>
   );
@@ -6178,8 +6196,10 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
   const [instantBooking, setInstantBooking] = useState(null);
   const activeVehicleStorageKey = `carClubActiveVehicle:${member.id || member.email || "member"}`;
   const [activeVehicleId, setActiveVehicleId] = useState(() => localStorage.getItem(activeVehicleStorageKey) || "");
-  const [tabRefreshKey, setTabRefreshKey] = useState(0);
+  const [tabRefreshKeys, setTabRefreshKeys] = useState({ account: 0, feed: 0, garage: 0, home: 0, schedule: 0 });
   const appMainRef = useRef(null);
+  const tabScrollPositionsRef = useRef({ account: 0, feed: 0, garage: 0, home: 0, schedule: 0 });
+  const lastTabPressRef = useRef({ tab: "", time: 0 });
   const garageList = ensureList(garage).map(normalizeVehicle);
   const appointmentList = ensureList(appointments);
   const benefitSummary = useMemo(() => summarizeMembershipBenefits(member.plan, ensureList(benefitUsage), {
@@ -6196,33 +6216,62 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
     localStorage.setItem(activeVehicleStorageKey, vehicleId);
   };
   const scrollToAppTop = useCallback(() => {
-    appMainRef.current?.scrollTo?.({ top: 0, left: 0, behavior: "auto" });
-    resetAppScroll();
+    setAppScrollPosition(0);
   }, []);
-  const navigateToTab = (tab) => {
+
+  const saveActiveTabPosition = useCallback(() => {
+    if (completion) return;
+    tabScrollPositionsRef.current[activeTab] = appScrollPosition();
+  }, [activeTab, completion]);
+
+  const navigateToTab = useCallback((tab) => {
+    if (!tab) return;
+    if (!completion && tab === activeTab) return;
+    saveActiveTabPosition();
     setCompletion(null);
-    setInstantBooking(null);
     setActiveTab(tab);
-    setTabRefreshKey((key) => key + 1);
-
-    scrollToAppTop();
-
     onRefreshMemberAppData?.().catch(() => {});
-  };
+  }, [activeTab, completion, onRefreshMemberAppData, saveActiveTabPosition]);
+
+  const resetTab = useCallback((tab) => {
+    tabScrollPositionsRef.current[tab] = 0;
+    setCompletion(null);
+    if (tab === "schedule") setInstantBooking(null);
+    setActiveTab(tab);
+    setTabRefreshKeys((keys) => ({ ...keys, [tab]: (keys[tab] || 0) + 1 }));
+    scrollToAppTop();
+    onRefreshMemberAppData?.().catch(() => {});
+  }, [onRefreshMemberAppData, scrollToAppTop]);
+
+  const handleTabPress = useCallback((tab) => {
+    const now = window.performance.now();
+    const lastPress = lastTabPressRef.current;
+    const isQuickSecondPress = !completion && activeTab === tab && lastPress.tab === tab && now - lastPress.time < 500;
+    lastTabPressRef.current = { tab, time: now };
+
+    if (isQuickSecondPress) {
+      resetTab(tab);
+      return;
+    }
+
+    navigateToTab(tab);
+  }, [activeTab, completion, navigateToTab, resetTab]);
 
   const startInstantBooking = (recommendation) => {
+    saveActiveTabPosition();
     setCompletion(null);
     setInstantBooking(recommendation);
+    tabScrollPositionsRef.current.schedule = 0;
     setActiveTab("schedule");
-    setTabRefreshKey((key) => key + 1);
-
+    setTabRefreshKeys((keys) => ({ ...keys, schedule: keys.schedule + 1 }));
     scrollToAppTop();
   };
 
   const showCompletion = useCallback((nextCompletion) => {
+    saveActiveTabPosition();
     setCompletion(nextCompletion);
     scrollToAppTop();
-  }, [scrollToAppTop]);
+  }, [saveActiveTabPosition, scrollToAppTop]);
 
   useEffect(() => {
     if (initialCompletion) {
@@ -6232,14 +6281,19 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
   }, [initialCompletion]);
 
   useEffect(() => {
-    scrollToAppTop();
-    const frame = window.requestAnimationFrame(scrollToAppTop);
-    const timer = window.setTimeout(scrollToAppTop, 80);
+    if (completion) {
+      scrollToAppTop();
+      return undefined;
+    }
+
+    const restorePosition = () => setAppScrollPosition(tabScrollPositionsRef.current[activeTab] || 0);
+    const frame = window.requestAnimationFrame(restorePosition);
+    const timer = window.setTimeout(restorePosition, 100);
     return () => {
       window.cancelAnimationFrame(frame);
       window.clearTimeout(timer);
     };
-  }, [activeTab, completion, scrollToAppTop, tabRefreshKey]);
+  }, [activeTab, completion, scrollToAppTop, tabRefreshKeys]);
 
   useEffect(() => {
     if (activeTab === "feed" && !completion) {
@@ -6267,11 +6321,11 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
           <span>White Glove</span>
         </div>
         <nav>
-          <AppNavButton active={activeTab === "home" && !completion} icon={Home} label="Home" onClick={() => navigateToTab("home")} />
-          <AppNavButton active={activeTab === "garage" && !completion} icon={Car} label="Garage" onClick={() => navigateToTab("garage")} />
-          <AppNavButton active={activeTab === "schedule" && !completion} icon={CalendarCheck} label="Schedule" onClick={() => navigateToTab("schedule")} />
-          <AppNavButton active={activeTab === "feed" && !completion} icon={Upload} label="Feed" onClick={() => navigateToTab("feed")} />
-          <AppNavButton active={activeTab === "account" && !completion} icon={User} label="Account" onClick={() => navigateToTab("account")} />
+          <AppNavButton active={activeTab === "home" && !completion} icon={Home} label="Home" onClick={() => handleTabPress("home")} />
+          <AppNavButton active={activeTab === "garage" && !completion} icon={Car} label="Garage" onClick={() => handleTabPress("garage")} />
+          <AppNavButton active={activeTab === "schedule" && !completion} icon={CalendarCheck} label="Schedule" onClick={() => handleTabPress("schedule")} />
+          <AppNavButton active={activeTab === "feed" && !completion} icon={Upload} label="Feed" onClick={() => handleTabPress("feed")} />
+          <AppNavButton active={activeTab === "account" && !completion} icon={User} label="Account" onClick={() => handleTabPress("account")} />
         </nav>
       </aside>
 
@@ -6279,9 +6333,9 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
         <header className="app-topbar">
           <div>
             <p className="eyebrow">Member app</p>
-            <h1>{completion ? "Successfully Updated" : activeTab === "home" ? `Welcome, ${firstName}` : tabTitle(activeTab)}</h1>
+            <h1>{completion ? "Update Complete" : activeTab === "home" ? `Welcome, ${firstName}` : tabTitle(activeTab)}</h1>
           </div>
-          <button className="icon-button profile-settings-button" type="button" aria-label="Profile settings" onClick={() => navigateToTab("account")}>
+          <button className="icon-button profile-settings-button" type="button" aria-label="Profile settings" title={activeTab === "account" && !completion ? "Double-click to refresh Account" : "Open Account"} onClick={() => handleTabPress("account")}>
             <ProfileAvatar member={member} size={48} />
           </button>
         </header>
@@ -6289,14 +6343,14 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
         {member.subscriptionCancelAtPeriodEnd && (
           <div className="subscription-lifecycle-notice" role="status">
             <strong>Your membership is scheduled to end.</strong>
-            <span>You can keep using the member app until Stripe closes the subscription. Contact White Glove if you want to keep it active.</span>
+            <span>You can keep using the member app until the end of your current billing period. Contact White Glove if you would like to keep your membership active.</span>
           </div>
         )}
 
-        <MemberPanelErrorBoundary resetKey={`${activeTab}-${tabRefreshKey}`} onRecover={() => setActiveTab("home")}>
-          <div key={`${activeTab}-${tabRefreshKey}`}>
-            {completion && <CompletionScreen completion={completion} onNavigate={navigateToTab} />}
-            {!completion && activeTab === "home" && (
+        {completion && <CompletionScreen completion={completion} onNavigate={navigateToTab} />}
+        <div className="member-tab-panel" hidden={Boolean(completion) || activeTab !== "home"}>
+          <MemberPanelErrorBoundary resetKey={`home-${tabRefreshKeys.home}`} onRecover={() => navigateToTab("home")}>
+            <div key={`home-${tabRefreshKeys.home}`}>
               <Dashboard
                 activeVehicleId={activeVehicleId}
                 appointments={appointmentList}
@@ -6309,20 +6363,36 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
                 servicePricing={servicePricing}
                 setActiveTab={navigateToTab}
               />
-            )}
-            {!completion && activeTab === "garage" && <GarageScreen activeVehicleId={activeVehicleId} appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onSelectVehicle={selectActiveVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={showCompletion} vehicleValuations={vehicleValuations} />}
-            {!completion && activeTab === "schedule" && <ScheduleScreen activeVehicleId={activeVehicleId} appointments={appointmentList} benefitSummary={benefitSummary} garage={garageList} instantBooking={instantBooking} member={member} onAddAppointment={onAddAppointment} onCancelInstantBooking={() => setInstantBooking(null)} onComplete={showCompletion} onSelectVehicle={selectActiveVehicle} onUpdateAppointment={onUpdateAppointment} servicePricing={servicePricing} setActiveTab={navigateToTab} vehicleOptions={vehicleOptions} />}
-            {!completion && activeTab === "feed" && <FeedScreen feedPosts={feedPosts} member={member} onAddFeedComment={onAddFeedComment} onAddFeedPost={onAddFeedPost} onComplete={showCompletion} onDeleteFeedPost={onDeleteFeedPost} onEditFeedPost={onEditFeedPost} onRefreshFeedPosts={onRefreshFeedPosts} onToggleFeedReaction={onToggleFeedReaction} vehicleOptions={vehicleOptions} />}
-            {!completion && activeTab === "account" && <AccountScreen garageCount={garageList.length} member={member} onLogout={onLogout} onUpdateMember={onUpdateMember} />}
-          </div>
-        </MemberPanelErrorBoundary>
+            </div>
+          </MemberPanelErrorBoundary>
+        </div>
+        <div className="member-tab-panel" hidden={Boolean(completion) || activeTab !== "garage"}>
+          <MemberPanelErrorBoundary resetKey={`garage-${tabRefreshKeys.garage}`} onRecover={() => navigateToTab("home")}>
+            <GarageScreen key={`garage-${tabRefreshKeys.garage}`} activeVehicleId={activeVehicleId} appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onSelectVehicle={selectActiveVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={showCompletion} vehicleValuations={vehicleValuations} />
+          </MemberPanelErrorBoundary>
+        </div>
+        <div className="member-tab-panel" hidden={Boolean(completion) || activeTab !== "schedule"}>
+          <MemberPanelErrorBoundary resetKey={`schedule-${tabRefreshKeys.schedule}`} onRecover={() => navigateToTab("home")}>
+            <ScheduleScreen key={`schedule-${tabRefreshKeys.schedule}`} activeVehicleId={activeVehicleId} appointments={appointmentList} benefitSummary={benefitSummary} garage={garageList} instantBooking={instantBooking} member={member} onAddAppointment={onAddAppointment} onCancelInstantBooking={() => setInstantBooking(null)} onComplete={showCompletion} onSelectVehicle={selectActiveVehicle} onUpdateAppointment={onUpdateAppointment} servicePricing={servicePricing} setActiveTab={navigateToTab} vehicleOptions={vehicleOptions} />
+          </MemberPanelErrorBoundary>
+        </div>
+        <div className="member-tab-panel" hidden={Boolean(completion) || activeTab !== "feed"}>
+          <MemberPanelErrorBoundary resetKey={`feed-${tabRefreshKeys.feed}`} onRecover={() => navigateToTab("home")}>
+            <FeedScreen key={`feed-${tabRefreshKeys.feed}`} feedPosts={feedPosts} member={member} onAddFeedComment={onAddFeedComment} onAddFeedPost={onAddFeedPost} onComplete={showCompletion} onDeleteFeedPost={onDeleteFeedPost} onEditFeedPost={onEditFeedPost} onRefreshFeedPosts={onRefreshFeedPosts} onToggleFeedReaction={onToggleFeedReaction} vehicleOptions={vehicleOptions} />
+          </MemberPanelErrorBoundary>
+        </div>
+        <div className="member-tab-panel" hidden={Boolean(completion) || activeTab !== "account"}>
+          <MemberPanelErrorBoundary resetKey={`account-${tabRefreshKeys.account}`} onRecover={() => navigateToTab("home")}>
+            <AccountScreen key={`account-${tabRefreshKeys.account}`} garageCount={garageList.length} member={member} onLogout={onLogout} onUpdateMember={onUpdateMember} />
+          </MemberPanelErrorBoundary>
+        </div>
       </main>
 
       <nav className="bottom-tabs" aria-label="App navigation">
-        <AppNavButton active={activeTab === "home" && !completion} icon={Home} label="Home" onClick={() => navigateToTab("home")} />
-        <AppNavButton active={activeTab === "garage" && !completion} icon={Car} label="Garage" onClick={() => navigateToTab("garage")} />
-        <AppNavButton active={activeTab === "schedule" && !completion} icon={CalendarCheck} label="Book" onClick={() => navigateToTab("schedule")} />
-        <AppNavButton active={activeTab === "feed" && !completion} icon={Upload} label="Feed" onClick={() => navigateToTab("feed")} />
+        <AppNavButton active={activeTab === "home" && !completion} icon={Home} label="Home" onClick={() => handleTabPress("home")} />
+        <AppNavButton active={activeTab === "garage" && !completion} icon={Car} label="Garage" onClick={() => handleTabPress("garage")} />
+        <AppNavButton active={activeTab === "schedule" && !completion} icon={CalendarCheck} label="Book" onClick={() => handleTabPress("schedule")} />
+        <AppNavButton active={activeTab === "feed" && !completion} icon={Upload} label="Feed" onClick={() => handleTabPress("feed")} />
       </nav>
     </div>
   );
@@ -6954,7 +7024,7 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
       <section className="app-section">
         <div className="app-section-title">
           <div>
-            <h2>Your Cars</h2>
+            <h2>Your Garage</h2>
             <p>{showHomeVehicleSelection
               ? `Select a vehicle to tailor Home recommendations, bookings, reminders, and offers to that car. Your package allows ${vehicleLimitText.toLowerCase()}.`
               : `Your only garage vehicle automatically tailors Home. Select it to see market value, service history, photos, and details.`}</p>
@@ -7040,7 +7110,7 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
       <section className="app-section garage-intelligence-section">
         <div className="app-section-title">
           <div>
-            <h2>Recommended For Your Garage</h2>
+            <h2>Recommendations for Your Garage</h2>
             <p>Maintenance, upgrades, and common watch items based on the vehicles you uploaded.</p>
           </div>
           <span>{garageInsights.length} recommendations</span>
@@ -7070,7 +7140,7 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
       <section className="app-section">
         <div className="app-section-title">
           <div>
-            <h2>Recommended Next</h2>
+            <h2>Upcoming Care</h2>
             <p>These prompts come from each vehicle's service timing, status, battery age, tire age, and care profile.</p>
           </div>
           <span>{serviceReminders.length} reminders</span>
@@ -7091,7 +7161,7 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
                   <h3>{reminder.title}</h3>
                   <p>{reminder.message}</p>
                 </div>
-                <button type="button" onClick={() => sendReminderRequest(reminder)}>Send Request</button>
+                <button type="button" onClick={() => sendReminderRequest(reminder)}>Request Service</button>
               </article>
             ))}
           </div>
@@ -7351,7 +7421,7 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
       <section className="app-section" ref={formSectionRef}>
         <div className="app-section-title">
           <div>
-            <h2>Appointment Details</h2>
+            <h2>Booking Details</h2>
             <p>{selectedServiceNeedsVehicle
               ? selectedVehicle ? `${vehicleLabel(selectedVehicle)} is selected. Choose the service option, timing, and notes.` : "Add a vehicle in your Garage before booking."
               : `Answer the questions for ${selectedService.toLowerCase()} and choose your timing.`}</p>
@@ -7717,8 +7787,8 @@ function FeedUploadForm({ initialType = "vehicle", onAddFeedPost, onComplete, on
         </label>
         {postType === "vehicle" ? (
           <label>
-            Caption
-            <input name="caption" type="text" placeholder="Fresh detail, delivery day, service update..." />
+            Post caption
+            <input name="caption" type="text" placeholder="Share a detail, delivery, or service update" />
           </label>
         ) : (
           <>
@@ -7735,17 +7805,17 @@ function FeedUploadForm({ initialType = "vehicle", onAddFeedPost, onComplete, on
               <input name="eventEndTime" required type="datetime-local" />
             </label>
             <label>
-              Place
+              Location
               <input name="eventPlace" required type="text" placeholder="Venue, city, or meeting point" />
             </label>
             <label>
               Description
-              <input name="eventDescription" required type="text" placeholder="What members should know before attending" />
+              <input name="eventDescription" required type="text" placeholder="Share what members should know before attending" />
             </label>
           </>
         )}
       </div>
-      <button className="button primary submit" type="submit">{postType === "event" ? "Post Event" : "Post To Feed"}</button>
+      <button className="button primary submit" type="submit">{postType === "event" ? "Post Event" : "Post to Feed"}</button>
     </form>
   );
 }
@@ -7889,7 +7959,7 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onDelete
           <label>Event title<input defaultValue={event.title} name="eventTitle" required type="text" /></label>
           <label>Starts<input defaultValue={event.time} name="eventTime" required type="datetime-local" /></label>
           <label>Ends<input defaultValue={event.endTime} name="eventEndTime" type="datetime-local" /></label>
-          <label>Place<input defaultValue={event.place} name="eventPlace" required type="text" /></label>
+          <label>Location<input defaultValue={event.place} name="eventPlace" required type="text" /></label>
           <label>Description<textarea defaultValue={event.description} name="eventDescription" required rows="3" /></label>
           <input name="vehicle" type="hidden" value={post.vehicle || ""} readOnly />
         </>
@@ -8113,7 +8183,7 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
       });
       setAvatarPreview(savedMember?.avatarUrl || avatarPreview);
       event.currentTarget.password.value = "";
-      setSettingsNotice("Your profile and service addresses have been updated.");
+      setSettingsNotice("Your profile and vehicle service locations have been updated.");
     } catch (error) {
       setSettingsError(error.message || "Could not update profile settings.");
     } finally {
@@ -8161,7 +8231,7 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
             </label>
             <label>
               Username
-              <input name="username" type="text" defaultValue={member.username || ""} placeholder="preferred member name" />
+              <input name="username" type="text" defaultValue={member.username || ""} placeholder="Name shown in the member community" />
             </label>
             <label>
               Email
@@ -8172,7 +8242,7 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
               <input name="phone" type="tel" autoComplete="tel" defaultValue={member.phone || ""} placeholder="Best number for service updates" required />
             </label>
             <label>
-              Package
+              Membership plan
               <input type="text" value={`${member.plan || "Club Drive"} · managed through your subscription`} readOnly />
             </label>
             <label>
@@ -8180,7 +8250,7 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
               <input name="password" type="password" minLength="6" placeholder="Leave blank to keep current password" />
             </label>
             <label>
-              Garage access
+              Garage allowance
               <input type="text" value={hasCollectionPackage(member.plan) ? `${garageCount} vehicles saved · ${garageLimitLabel(member.plan, member.extraVehicleSlots)}` : `${garageCount}/1 vehicle used`} readOnly />
             </label>
           </div>
@@ -8188,8 +8258,8 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
           <div className="signup-address-list account-address-list">
             <div className="signup-address-header">
               <div>
-                <span>Service addresses</span>
-                <small>Used to prefill future vehicle collection requests.</small>
+                <span>Vehicle service locations</span>
+                <small>Saved locations appear as quick choices when you request vehicle collection.</small>
               </div>
               <button className="icon-button" type="button" onClick={addAccountAddress} aria-label="Add another service address">
                 <Plus size={18} />
@@ -8198,7 +8268,7 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
             {accountAddresses.map((address, index) => (
               <div className="signup-address-row" key={address.id}>
                 <label>
-                  Location type
+                  Address label
                   <select name={`accountAddressLabel-${address.id}`} defaultValue={address.label}>
                     <option>Primary</option>
                     <option>Home</option>
@@ -8209,8 +8279,8 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
                   </select>
                 </label>
                 <label>
-                  Full address
-                  <input name={`accountAddressValue-${address.id}`} type="text" autoComplete={index === 0 ? "street-address" : "off"} defaultValue={address.address} placeholder="Street address, city, province/state, postal code" required={index === 0} />
+                  Street address
+                  <input name={`accountAddressValue-${address.id}`} type="text" autoComplete={index === 0 ? "street-address" : "off"} defaultValue={address.address} placeholder="Street, city, province or state, and postal code" required={index === 0} />
                 </label>
                 <button className="icon-button" type="button" onClick={() => removeAccountAddress(address.id)} aria-label="Remove service address" disabled={accountAddresses.length === 1}>
                   <X size={18} />
@@ -8241,7 +8311,7 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
 
           <div className="settings-actions">
             <button className="button primary" type="submit" disabled={savingSettings}>
-              {savingSettings ? "Saving..." : "Save Settings"}
+              {savingSettings ? "Saving..." : "Save Profile"}
             </button>
             <button className="button secondary" type="button" onClick={onLogout}>
               <LogOut size={18} /> Log out
@@ -8494,8 +8564,8 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         </div>
       )}
       <div className="valuation-form-intro">
-        <strong>Optional valuation profile</strong>
-        <p>Tap a dropdown suggestion or type your own answer. Add whatever you know—more vehicle information produces a closer modeled Canadian estimate, but nothing is required.</p>
+        <strong>Vehicle profile</strong>
+        <p>Add what you know now; you can update it later. More detail improves service recommendations and the Canadian market-value estimate.</p>
       </div>
       <label className={savingVehicle ? "upload-tile disabled-upload" : "upload-tile"}>
         {imagePreviews.length ? (
@@ -8553,8 +8623,8 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
           </datalist>
         </label>
         <label>
-          Current kilometres
-          <input inputMode="numeric" list="vehicle-mileage-options" min="0" name="mileage" step="1" type="number" placeholder="Choose or type kilometres" />
+          Current odometer (km)
+          <input inputMode="numeric" list="vehicle-mileage-options" min="0" name="mileage" step="1" type="number" placeholder="Enter the current odometer reading" />
           <datalist id="vehicle-mileage-options">
             {vehicleMileageSuggestions.map((mileage) => <option key={mileage} value={mileage} />)}
           </datalist>
@@ -8633,21 +8703,21 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
           <input name="plate" type="text" placeholder="License plate" />
         </label>
         <label>
-          Color
+          Colour
           <input autoComplete="off" list="vehicle-color-options" name="color" type="text" placeholder="Choose or type a colour" />
           <datalist id="vehicle-color-options">
             {vehicleColorSuggestions.map((color) => <option key={color} value={color} />)}
           </datalist>
         </label>
         <label>
-          Vehicle location
-          <input autoComplete="street-address" list="vehicle-location-options" name="location" type="text" placeholder="Choose or type the current location" />
+          Where is the vehicle usually kept?
+          <input autoComplete="street-address" list="vehicle-location-options" name="location" type="text" placeholder="Choose or enter the usual location" />
           <datalist id="vehicle-location-options">
             <option value="Home garage" /><option value="Storage facility" /><option value="Dealership" /><option value="Repair shop" /><option value="Workplace" />
           </datalist>
         </label>
         <label>
-          Current Canadian market value (CAD)
+          Estimated market value (CAD)
           <input inputMode="decimal" name="marketValue" type="text" placeholder="Example: 18500" />
         </label>
         <label>
@@ -8658,7 +8728,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
           </datalist>
         </label>
         <label>
-          Use
+          Primary use
           <select defaultValue="" name="use">
             <option value="">Not provided</option>
             <option>Seasonal</option>
@@ -8668,7 +8738,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
           </select>
         </label>
         <label>
-          Insurance
+          Insurance provider
           <input autoComplete="off" list="vehicle-insurance-options" name="insurance" type="text" placeholder="Choose or type the provider" />
           <datalist id="vehicle-insurance-options">
             {insuranceProviderSuggestions.map((provider) => <option key={provider} value={provider} />)}
@@ -8683,15 +8753,15 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
           </select>
         </label>
         <label>
-          Preferred dealership
+          Preferred dealer or service shop
           <input autoComplete="off" list="vehicle-dealership-options" name="preferredDealer" type="text" placeholder="Choose or type a dealer or shop" />
           <datalist id="vehicle-dealership-options">
             {dealershipSuggestions.map((dealer) => <option key={dealer} value={dealer} />)}
           </datalist>
         </label>
         <label>
-          Preferred pickup location
-          <input autoComplete="street-address" list="vehicle-pickup-options" name="pickupLocation" type="text" placeholder="Choose or type a pickup location" />
+          Preferred collection location
+          <input autoComplete="street-address" list="vehicle-pickup-options" name="pickupLocation" type="text" placeholder="Choose or enter a collection address" />
           <datalist id="vehicle-pickup-options">
             <option value="Same as vehicle location" /><option value="Home address" /><option value="Work address" /><option value="Preferred dealership" />
           </datalist>
@@ -8708,7 +8778,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
           </select>
         </label>
         <label>
-          Next service
+          Next service due
           <input name="nextService" type="date" />
         </label>
         <label>
@@ -8723,7 +8793,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
           </datalist>
         </label>
         <label>
-          Last detail
+          Last detailing service
           <input name="lastDetail" type="date" />
         </label>
         <label>
@@ -8762,16 +8832,16 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         </label>
       </div>
       <label>
-        Storage needs
-        <textarea name="storageNeeds" rows="2" placeholder="Indoor storage, battery tender, climate control, monthly start, fuel stabilizer..." />
+        Storage requirements
+        <textarea name="storageNeeds" rows="2" placeholder="Add indoor storage, climate control, battery tender, or other requirements." />
       </label>
       <label>
-        What has been done to the car?
-        <textarea name="workDone" rows="3" placeholder="Ceramic coating, exhaust, wheels, tune, wrap..." />
+        Completed upgrades and care
+        <textarea name="workDone" rows="3" placeholder="Add completed work such as ceramic coating, wheels, tuning, or paint protection." />
       </label>
       <label>
-        Notes
-        <textarea name="notes" rows="3" placeholder="Storage needs, preferred services, modifications, or special care notes." />
+        Additional vehicle notes
+        <textarea name="notes" rows="3" placeholder="Add service preferences, modifications, or special-care instructions." />
       </label>
       <button className="button primary submit" type="submit" disabled={savingVehicle}>
         {savingVehicle ? "Saving vehicle..." : "Save Vehicle"}
@@ -9121,7 +9191,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
           )}
           <div className="checkout-actions">
             <button className="button secondary" type="button" onClick={() => setBookingStep("details")}>
-              Back To Details
+              Back to Booking Details
             </button>
             <button className="button primary submit" type="submit" disabled={processingPayment}>
               {processingPayment ? (requiresPayment ? "Opening secure checkout..." : "Submitting booking...") : requiresPayment ? "Continue to Secure Payment" : "Confirm Request"}
@@ -9204,7 +9274,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
           </select>
         </label>}
         {!instantMode && <label>
-          Service option
+          Service request
           <select name="serviceOption" onChange={(event) => setSelectedServiceOption(event.target.value)} required value={selectedServiceOption}>
             {serviceSubOptions.map((option) => (
               <option key={option} value={option}>{option}</option>
@@ -9292,7 +9362,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
                 <label className={warrantyCoverage === choice.value ? "selected-booking-choice" : ""} key={choice.value}>
                   <input checked={warrantyCoverage === choice.value} name="warrantyCoverageVisible" onChange={() => setWarrantyCoverage(choice.value)} type="radio" value={choice.value} />
                   <span>{choice.label}</span>
-                  <small>{choice.value === "not-warranty" ? "Use normal service pricing." : "Warranty work is free today unless pickup is selected."}</small>
+                  <small>{choice.value === "not-warranty" ? "Use standard service pricing." : "No service charge is collected today; selected transport charges still apply."}</small>
                 </label>
               ))}
             </div>
@@ -9310,10 +9380,12 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
         </div>
       )}
       <label>
-        Notes
-        <textarea name="notes" rows="3" placeholder="Tell the concierge what you need handled." />
+        Additional instructions <span>Optional</span>
+        <textarea name="notes" rows="3" placeholder="Add access details, concerns, or anything your concierge should know." />
       </label>
-      <button className="button primary submit" type="submit" disabled={!hasVehicles}>{instantMode ? "Continue to Instant Checkout" : "Continue to Payment"}</button>
+      <button className="button primary submit" type="submit" disabled={!hasVehicles}>
+        {instantMode ? "Review and Pay" : selectedPaymentTerms.mode === "free" ? "Review Request" : "Review and Continue to Payment"}
+      </button>
     </form>
   );
 }
@@ -10006,13 +10078,13 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
               </datalist>
             </label>
             <label>
-              Vehicle use
+              Primary use
               <select defaultValue={vehicle.use || "Collection"} name="use">
                 <option>Daily</option><option>Seasonal</option><option>Collection</option><option>Track</option><option>Business</option><option>Other</option>
               </select>
             </label>
             <label>
-              Current Canadian market value (CAD)
+              Estimated market value (CAD)
               <input defaultValue={vehicle.marketValue || ""} inputMode="decimal" name="marketValue" placeholder="Example: 18500" type="text" />
             </label>
             <label>
@@ -10020,8 +10092,8 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
               <input defaultValue={vehicle.horsepower || ""} name="horsepower" placeholder="Horsepower if known" type="text" />
             </label>
             <label>
-              Current kilometres
-              <input defaultValue={String(vehicle.mileage || "").replace(/\D/g, "")} inputMode="numeric" min="0" name="mileage" placeholder="45000" step="1" type="number" />
+              Current odometer (km)
+              <input defaultValue={String(vehicle.mileage || "").replace(/\D/g, "")} inputMode="numeric" min="0" name="mileage" placeholder="45,000" step="1" type="number" />
             </label>
             <label>
               Status
@@ -10104,8 +10176,8 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
               <input defaultValue={vehicle.plate || ""} name="plate" placeholder="License plate" type="text" />
             </label>
             <label>
-              Color
-              <input defaultValue={vehicle.color || ""} name="color" placeholder="Vehicle color" type="text" />
+              Colour
+              <input defaultValue={vehicle.color || ""} name="color" placeholder="Vehicle colour" type="text" />
             </label>
             <label>
               Condition
@@ -10115,11 +10187,11 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
               </select>
             </label>
             <label>
-              Location
-              <input defaultValue={vehicle.location || ""} name="location" placeholder="Current city or address" type="text" />
+              Where is the vehicle usually kept?
+              <input defaultValue={vehicle.location || ""} name="location" placeholder="Usual city or address" type="text" />
             </label>
             <label>
-              Insurance
+              Insurance provider
               <input defaultValue={vehicle.insurance || ""} name="insurance" placeholder="Provider or policy notes" type="text" />
             </label>
             <label>
@@ -10127,15 +10199,15 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
               <input defaultValue={vehicle.warranty || ""} name="warranty" placeholder="Factory, extended, or none" type="text" />
             </label>
             <label>
-              Preferred dealership
+              Preferred dealer or service shop
               <input defaultValue={vehicle.preferredDealer || ""} name="preferredDealer" placeholder="Dealer or shop" type="text" />
             </label>
             <label>
-              Preferred pickup
-              <input defaultValue={vehicle.pickupLocation || ""} name="pickupLocation" placeholder="Preferred pickup address or location" type="text" />
+              Preferred collection location
+              <input defaultValue={vehicle.pickupLocation || ""} name="pickupLocation" placeholder="Preferred collection address" type="text" />
             </label>
             <label>
-              Next service
+              Next service due
               <input defaultValue={dateInputValue(vehicle.nextService)} name="nextService" type="date" />
             </label>
             <label>
@@ -10147,7 +10219,7 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
               <input defaultValue={vehicle.serviceInterval || ""} name="serviceInterval" placeholder="Every 6 months or 8,000 km" type="text" />
             </label>
             <label>
-              Last detail
+              Last detailing service
               <input defaultValue={dateInputValue(vehicle.lastDetail)} name="lastDetail" type="date" />
             </label>
             <label>
@@ -10180,15 +10252,15 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
             <textarea defaultValue={vehicle.storageNeeds || ""} name="storageNeeds" rows="2" placeholder="Indoor storage, battery tender, monthly start, fuel stabilizer..." />
           </label>
           <label>
-            Internal notes
-            <textarea defaultValue={vehicleFreeformNotes(vehicle.notes)} name="notes" rows="3" placeholder="Concierge notes, document status, owner preferences..." />
+            Additional vehicle notes
+            <textarea defaultValue={vehicleFreeformNotes(vehicle.notes)} name="notes" rows="3" placeholder="Add service preferences, document details, modifications, or special-care instructions." />
           </label>
           <button className="button primary submit" disabled={savingDetails} type="submit">{savingDetails ? "Saving Changes..." : "Save Vehicle Changes"}</button>
         </form>
       </section>
 
       <section className="app-section">
-        <h2>Work Done</h2>
+        <h2>Completed Upgrades and Care</h2>
         <form className="work-form" onSubmit={addWork}>
           <input name="workItem" placeholder="Add tune, wheels, ceramic coating, detail..." type="text" />
           <button className="button primary" type="submit"><Plus size={18} /> Add</button>
@@ -10483,7 +10555,13 @@ function ServiceRequestCard({ appointment, onUpdateAppointment }) {
 
 function AppNavButton({ active, icon: Icon, label, onClick }) {
   return (
-    <button className={active ? "app-nav-button active" : "app-nav-button"} type="button" onClick={onClick}>
+    <button
+      aria-current={active ? "page" : undefined}
+      className={active ? "app-nav-button active" : "app-nav-button"}
+      title={active ? `Double-click ${label} to refresh this section` : `Open ${label}`}
+      type="button"
+      onClick={onClick}
+    >
       <Icon size={20} />
       <span>{label}</span>
     </button>
@@ -10500,13 +10578,13 @@ function LeadSection({ handleSubmit, submitted, submitError }) {
   return (
     <section className="apply-section" id="apply">
       <div className="apply-copy">
-        <p className="eyebrow">Apply</p>
+        <p className="eyebrow">Private membership</p>
         <h2>Book your membership consultation</h2>
         <p>
           Tell us about your vehicles and the support you need, then choose a private consultation time that works for you.
         </p>
         <div className="contact-strip">
-          <span><MapPin size={18} /> Partner network coverage</span>
+          <span><MapPin size={18} /> Trusted service network</span>
           <span><CalendarCheck size={18} /> Concierge coordination</span>
           <span><ShieldCheck size={18} /> Ownership management</span>
         </div>
@@ -10520,7 +10598,7 @@ function LeadSection({ handleSubmit, submitted, submitError }) {
         </label>
         {submitted && (
           <div className="success-message" role="status">
-            Thank you. Our team will contact you shortly to build your custom vehicle care plan.
+            Your details are ready. Choose a consultation time to continue.
           </div>
         )}
         {submitError && (
@@ -10542,7 +10620,7 @@ function LeadSection({ handleSubmit, submitted, submitError }) {
             <input name="email" type="email" required />
           </label>
           <label>
-            City
+            Primary city
             <input name="city" type="text" required />
           </label>
           <label>
@@ -10550,7 +10628,7 @@ function LeadSection({ handleSubmit, submitted, submitError }) {
             <input name="vehicleCount" type="number" min="1" max="20" onChange={(event) => updateVehicleCount(event.target.value)} value={vehicleCount} />
           </label>
           <label>
-            Membership interest
+            Membership you’re considering
             <select name="membership">
               <option>Not sure yet</option>
               <option>Silver</option>
@@ -10575,15 +10653,15 @@ function LeadSection({ handleSubmit, submitted, submitError }) {
                   <label>Make<input name={`vehicle-${index}-make`} type="text" placeholder="Porsche" required /></label>
                   <label>Model<input name={`vehicle-${index}-model`} type="text" placeholder="911 Carrera" required /></label>
                   <label>Trim <span>Optional</span><input name={`vehicle-${index}-trim`} type="text" placeholder="4S" /></label>
-                  <label>Mileage <span>Optional</span><input name={`vehicle-${index}-mileage`} type="text" placeholder="18,500 km" /></label>
-                  <label>Primary use<select name={`vehicle-${index}-use`}><option>Daily driven</option><option>Seasonal</option><option>Collection vehicle</option><option>Occasional use</option><option>Business / fleet</option></select></label>
+                  <label>Current mileage <span>Optional</span><input name={`vehicle-${index}-mileage`} type="text" placeholder="18,500 km" /></label>
+                  <label>Primary use<select name={`vehicle-${index}-use`}><option>Daily driver</option><option>Seasonal</option><option>Collection vehicle</option><option>Occasional use</option><option>Business / fleet</option></select></label>
                 </div>
               </fieldset>
             ))}
           </div>
         </section>
         <fieldset>
-          <legend>Services interested in</legend>
+          <legend>Which services are you interested in?</legend>
           <div className="checkbox-grid">
             {[
               "Maintenance",
@@ -10609,8 +10687,8 @@ function LeadSection({ handleSubmit, submitted, submitError }) {
           </div>
         </fieldset>
         <label>
-          Tell us what you need help with
-          <textarea name="message" rows="5" />
+          Anything else we should know? <span>Optional</span>
+          <textarea name="message" rows="5" placeholder="Tell us about your priorities, timeline, or any special requirements." />
         </label>
         <button className="button primary submit" type="submit">
           Continue to Consultation Calendar <CalendarCheck size={18} />
