@@ -6603,7 +6603,7 @@ function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, o
             <div>
               <p className="eyebrow">Recommended for your garage</p>
               <h2>Instant Book</h2>
-              <p>Swipe one service at a time or use the slider to choose your appointment.</p>
+              <p>Use the arrows or swipe to browse one service at a time.</p>
             </div>
             <div className="instant-book-carousel-controls" aria-label="Instant Book carousel controls">
               <button
@@ -6657,18 +6657,6 @@ function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, o
               </article>
             </div>
           )}
-          <div className="instant-book-slider-bar">
-            <span>Choose service</span>
-            <input
-              aria-label="Choose an Instant Book recommendation"
-              max={instantRecommendations.length - 1}
-              min="0"
-              step="1"
-              type="range"
-              value={instantBookIndex}
-              onChange={(event) => moveInstantBook(Number(event.target.value))}
-            />
-          </div>
         </section>
       )}
 

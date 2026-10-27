@@ -2294,57 +2294,6 @@ textarea:focus {
   }
 }
 
-.instant-book-slider-bar {
-  display: grid;
-  grid-template-columns: auto minmax(100px, 1fr);
-  align-items: center;
-  gap: 0.85rem;
-  margin-top: 0.65rem;
-  padding: 0.75rem 0.85rem;
-  border: 1px solid rgba(229, 200, 121, 0.22);
-  border-radius: var(--radius);
-  background: rgba(0, 0, 0, 0.25);
-}
-
-.instant-book-slider-bar span {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 900;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.instant-book-slider-bar input[type="range"] {
-  width: 100%;
-  height: 0.45rem;
-  padding: 0;
-  appearance: none;
-  border: 0;
-  border-radius: 999px;
-  outline: none;
-  background: linear-gradient(90deg, rgba(229, 200, 121, 0.95), rgba(201, 164, 92, 0.3));
-  cursor: grab;
-}
-
-.instant-book-slider-bar input[type="range"]::-webkit-slider-thumb {
-  width: 1.35rem;
-  height: 1.35rem;
-  appearance: none;
-  border: 2px solid #111;
-  border-radius: 50%;
-  background: var(--gold-bright);
-  box-shadow: 0 0 0 2px rgba(229, 200, 121, 0.25);
-}
-
-.instant-book-slider-bar input[type="range"]::-moz-range-thumb {
-  width: 1.2rem;
-  height: 1.2rem;
-  border: 2px solid #111;
-  border-radius: 50%;
-  background: var(--gold-bright);
-  box-shadow: 0 0 0 2px rgba(229, 200, 121, 0.25);
-}
-
 .instant-book-icon {
   display: grid;
   width: 3.25rem;
@@ -8401,11 +8350,6 @@ textarea:focus {
   .instant-book-card {
     min-height: 0;
     padding: 0.85rem;
-  }
-
-  .instant-book-slider-bar {
-    grid-template-columns: 1fr;
-    gap: 0.65rem;
   }
 
   .schedule-service-grid {
