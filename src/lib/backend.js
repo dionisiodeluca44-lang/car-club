@@ -835,8 +835,9 @@ export async function updateFeedPostRecord(userId, postId, updates) {
 
   if (loadError || !existing) throw new Error("Could not find a feed post owned by this account.");
 
-  let nextImageUrl = existing.image_url || "";
-  if (updates.image && updates.image !== existing.image_url) {
+  const removeImage = updates.removeImage === true;
+  let nextImageUrl = removeImage ? "" : existing.image_url || "";
+  if (!removeImage && updates.image && updates.image !== existing.image_url) {
     try {
       nextImageUrl = String(updates.image).startsWith("data:")
         ? await uploadStorageImage("vehicle-photos", `${userId}/feed`, updates.image)
@@ -850,7 +851,7 @@ export async function updateFeedPostRecord(userId, postId, updates) {
     .from("feed_posts")
     .update({
       caption: updates.caption ?? existing.caption ?? "",
-      image_url: nextImageUrl || existing.image_url,
+      image_url: nextImageUrl,
       vehicle_label: updates.vehicle ?? existing.vehicle_label ?? "",
       updated_at: new Date().toISOString(),
     })
@@ -861,7 +862,7 @@ export async function updateFeedPostRecord(userId, postId, updates) {
 
   if (error) throw new Error(`Could not update feed post: ${error.message}`);
 
-  if (nextImageUrl && nextImageUrl !== existing.image_url) {
+  if (existing.image_url && nextImageUrl !== existing.image_url) {
     await removeOwnedStorageImage(userId, existing.image_url);
   }
 
