@@ -3629,7 +3629,6 @@ textarea:focus {
 
 .feed-post-actions {
   display: flex !important;
-  flex-wrap: wrap;
   grid-template-columns: none !important;
   gap: 0.5rem !important;
   padding: 0.35rem 0 0 !important;

@@ -3554,7 +3554,7 @@ function App() {
     const savedPost = {
       ...existing,
       ...updates,
-      image: updates.removeImage ? "" : updates.image ?? existing.image,
+      image: updates.image || existing.image,
       updatedAt: new Date().toISOString(),
     };
     const nextPosts = feedPosts.map((post) => (post.id === postId ? savedPost : post));
@@ -7855,7 +7855,6 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onDelete
   const event = parseFeedEvent(post);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [removingPhoto, setRemovingPhoto] = useState(false);
   const [savingReaction, setSavingReaction] = useState("");
   const [savingComment, setSavingComment] = useState(false);
   const [commentsExpanded, setCommentsExpanded] = useState(false);
@@ -7935,25 +7934,6 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onDelete
     }
   }
 
-  async function removePostPhoto() {
-    const confirmed = window.confirm("Remove this photo? The caption and comments will stay in the feed.");
-    if (!confirmed) return;
-    setPostError("");
-    try {
-      setRemovingPhoto(true);
-      await onUpdate?.(post.id, {
-        caption: post.caption || "",
-        image: "",
-        removeImage: true,
-        vehicle: post.vehicle || "",
-      });
-    } catch (error) {
-      setPostError(error.message || "Could not remove this photo.");
-    } finally {
-      setRemovingPhoto(false);
-    }
-  }
-
   async function toggleReaction(emoji) {
     setPostError("");
     setSavingReaction(emoji);
@@ -7986,15 +7966,10 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onDelete
 
   const actions = canManage && (
     <div className="feed-post-actions">
-      <button type="button" onClick={() => { setEditing((open) => !open); setPostError(""); }} disabled={saving || removingPhoto}>
+      <button type="button" onClick={() => { setEditing((open) => !open); setPostError(""); }} disabled={saving}>
         {editing ? "Cancel" : "Edit"}
       </button>
-      {!event && post.image && (
-        <button type="button" onClick={removePostPhoto} disabled={saving || removingPhoto}>
-          {removingPhoto ? "Removing..." : "Remove Photo"}
-        </button>
-      )}
-      <button className="danger-action" type="button" onClick={removePost} disabled={saving || removingPhoto}>
+      <button className="danger-action" type="button" onClick={removePost} disabled={saving}>
         {saving && !editing ? "Deleting..." : event ? "Delete Event" : "Delete Post"}
       </button>
     </div>
@@ -8072,11 +8047,9 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onDelete
         </div>
         <time>{formatPostDate(post.createdAt)}</time>
       </header>
-      {post.image && (
-        <div className="feed-photo-frame">
-          <img alt={post.caption || "Vehicle feed post"} src={post.image} />
-        </div>
-      )}
+      <div className="feed-photo-frame">
+        <img alt={post.caption || "Vehicle feed post"} src={post.image || eventFallbackImage} />
+      </div>
       <div className="feed-post-body">
         <div className="feed-reaction-bar" aria-label="React to this post">
           {feedReactionOptions.map((option) => {
