@@ -225,6 +225,35 @@ export async function getCurrentAccessToken() {
   return data.session?.access_token || "";
 }
 
+export async function deleteMemberAccount() {
+  if (!supabase) return;
+
+  const accessToken = await getCurrentAccessToken();
+  if (!accessToken) {
+    throw new Error("Your sign-in expired. Sign in again before deleting your account.");
+  }
+
+  const response = await fetch(`${productionSiteUrl}/.netlify/functions/delete-account`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ confirmation: "DELETE" }),
+  });
+  const responseText = await response.text();
+  let payload = {};
+  try {
+    payload = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    payload = { error: responseText };
+  }
+
+  if (!response.ok) {
+    throw new Error(payload.error || "Could not delete your account. Please try again.");
+  }
+}
+
 export async function upsertProfile({ addresses, avatarUrl, email, id, name, notifications, phone, plan, username }) {
   if (!supabase || !id) return;
 

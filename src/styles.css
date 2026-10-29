@@ -6039,6 +6039,79 @@ textarea:focus {
   font-weight: 900;
 }
 
+.account-danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-color: rgba(224, 97, 97, 0.28);
+  background: linear-gradient(135deg, rgba(224, 97, 97, 0.07), rgba(255, 255, 255, 0.025));
+}
+
+.account-danger-zone h2,
+.account-danger-zone p {
+  margin: 0;
+}
+
+.account-danger-zone > div {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.account-danger-zone > div > p:last-child {
+  max-width: 62rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.account-danger-zone .button {
+  flex: 0 0 auto;
+}
+
+.delete-account-card {
+  width: min(100%, 620px);
+  border-color: rgba(224, 97, 97, 0.38);
+  background:
+    linear-gradient(180deg, rgba(224, 97, 97, 0.11), rgba(255, 255, 255, 0.035)),
+    #101010;
+}
+
+.delete-account-warning {
+  color: #f4cccc !important;
+}
+
+.delete-account-form,
+.delete-account-form label {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.delete-account-form label {
+  color: var(--soft);
+  font-weight: 800;
+}
+
+.delete-account-confirm {
+  border-color: #d64f4f !important;
+  background: #b83333 !important;
+  color: #fff !important;
+}
+
+.delete-account-confirm:hover:not(:disabled) {
+  background: #cd4141 !important;
+}
+
+@media (max-width: 680px) {
+  .account-danger-zone {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .delete-account-card .member-access-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
 .next-list {
   margin: 0;
   padding-left: 1.2rem;

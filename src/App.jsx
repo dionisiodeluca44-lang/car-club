@@ -42,6 +42,7 @@ import {
   createFeedPost,
   createServiceRequest,
   createVehicle,
+  deleteMemberAccount,
   deleteFeedPostRecord,
   deleteVehicleRecord,
   getCurrentAccessToken,
@@ -3223,6 +3224,35 @@ function App() {
     setMode("site");
   }
 
+  async function handleDeleteAccount() {
+    await deleteMemberAccount();
+    await signOut().catch(() => {});
+
+    [
+      "carClubMember",
+      "carClubGarage",
+      "carClubAppointments",
+      "carClubServiceDocuments",
+      "carClubFeedPosts",
+      "carClubBenefitUsage",
+      "carClubMembershipRevenue",
+      "carClubVehicleValuations",
+      "whiteGlovePendingSignupEmail",
+    ].forEach((key) => localStorage.removeItem(key));
+
+    setMember(null);
+    setGarage([]);
+    setAppointments([]);
+    setServiceDocuments([]);
+    setFeedPosts([]);
+    setBenefitUsage([]);
+    setMembershipRevenueEvents([]);
+    setVehicleValuations([]);
+    setCheckoutCompletion(null);
+    setAppError("Your White Glove account and membership have been permanently deleted.");
+    setMode("login");
+  }
+
   async function finishPasswordRecovery(message = "") {
     await signOut();
     window.history.replaceState({}, "", window.location.pathname);
@@ -3694,13 +3724,14 @@ function App() {
           member={member}
           membershipPricing={membershipPricing}
           onBack={() => setMode("site")}
+          onDeleteAccount={handleDeleteAccount}
           onLogout={handleLogout}
           onRefreshMember={refreshCurrentMember}
         />
       );
     }
 
-    return <MemberApp appointments={appointments} benefitUsage={benefitUsage} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} membershipRevenueEvents={membershipRevenueEvents} onAddAppointment={addAppointment} onAddFeedComment={addFeedPostComment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteFeedPost={deleteFeedPost} onDeleteVehicle={deleteVehicle} onEditFeedPost={editFeedPost} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onRefreshMemberAppData={refreshMemberAppData} onToggleFeedReaction={toggleFeedPostReaction} onUpdateAppointment={updateAppointment} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} serviceDocuments={serviceDocuments} servicePricing={servicePricing} vehicleValuations={vehicleValuations} />;
+    return <MemberApp appointments={appointments} benefitUsage={benefitUsage} feedPosts={feedPosts} garage={garage} initialCompletion={checkoutCompletion} member={member} membershipRevenueEvents={membershipRevenueEvents} onAddAppointment={addAppointment} onAddFeedComment={addFeedPostComment} onAddFeedPost={addFeedPost} onAddVehicle={addVehicle} onDeleteAccount={handleDeleteAccount} onDeleteFeedPost={deleteFeedPost} onDeleteVehicle={deleteVehicle} onEditFeedPost={editFeedPost} onLogout={handleLogout} onRefreshFeedPosts={refreshFeedPosts} onRefreshMemberAppData={refreshMemberAppData} onToggleFeedReaction={toggleFeedPostReaction} onUpdateAppointment={updateAppointment} onUpdateMember={handleUpdateMember} onUpdateVehicle={updateVehicle} serviceDocuments={serviceDocuments} servicePricing={servicePricing} vehicleValuations={vehicleValuations} />;
   }
 
   if (mode === "app") {
@@ -3966,7 +3997,7 @@ function PrivacyPolicy({ onBack }) {
         <button className="text-button" type="button" onClick={onBack}>Back to site</button>
         <p className="eyebrow">Privacy Policy</p>
         <h1>White Glove Concierge Privacy Policy</h1>
-        <p>Last updated: September 23, 2026</p>
+        <p>Last updated: October 29, 2026</p>
 
         <h2>Information We Collect</h2>
         <p>
@@ -3990,7 +4021,7 @@ function PrivacyPolicy({ onBack }) {
 
         <h2>Member Choices</h2>
         <p>
-          Members may contact White Glove Concierge to request updates, corrections, or deletion of account and vehicle information.
+          Members can update their profile information from Account settings. Members can also permanently delete their account from Account settings by choosing Delete Account and confirming the request. Account deletion cancels an active membership and removes the member profile, garage, photos, documents, bookings, and community activity. Completed transaction records may be retained by payment providers where required for financial, legal, security, or fraud-prevention purposes.
         </p>
 
         <h2>Contact</h2>
@@ -6024,12 +6055,13 @@ function ConsultationConfirmationScreen({ consultation, member, onDone }) {
   );
 }
 
-function SubscriptionActivationScreen({ appError, member, membershipPricing, onBack, onLogout, onRefreshMember }) {
+function SubscriptionActivationScreen({ appError, member, membershipPricing, onBack, onDeleteAccount, onLogout, onRefreshMember }) {
   const [selectedPlan, setSelectedPlan] = useState(member?.plan || "Club Drive");
   const [activationError, setActivationError] = useState("");
   const [activationNotice, setActivationNotice] = useState("");
   const [loading, setLoading] = useState(false);
   const [consultationOpen, setConsultationOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const lifecycleContent = membershipLifecycleContent(member?.subscriptionStatus);
   const selectedPricing = membershipPricingForPlan(selectedPlan, membershipPricing);
   const hasCheckoutPrice = selectedPricing.amountCents !== null && selectedPricing.amountCents !== undefined && selectedPricing.amountCents > 0;
@@ -6174,6 +6206,9 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
           <button className="button ghost submit" type="button" onClick={onLogout} disabled={loading}>
             Log Out
           </button>
+          <button className="button ghost submit danger-button" type="button" onClick={() => setDeleteDialogOpen(true)} disabled={loading}>
+            Delete Account
+          </button>
         </div>
       </section>
       {consultationOpen && (
@@ -6186,11 +6221,12 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
           />
         </div>
       )}
+      {deleteDialogOpen && <DeleteAccountDialog onClose={() => setDeleteDialogOpen(false)} onDeleteAccount={onDeleteAccount} />}
     </main>
   );
 }
 
-function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompletion, member, membershipRevenueEvents, onAddAppointment, onAddFeedComment, onAddFeedPost, onAddVehicle, onDeleteFeedPost, onDeleteVehicle, onEditFeedPost, onLogout, onRefreshFeedPosts, onRefreshMemberAppData, onToggleFeedReaction, onUpdateAppointment, onUpdateMember, onUpdateVehicle, serviceDocuments, servicePricing, vehicleValuations }) {
+function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompletion, member, membershipRevenueEvents, onAddAppointment, onAddFeedComment, onAddFeedPost, onAddVehicle, onDeleteAccount, onDeleteFeedPost, onDeleteVehicle, onEditFeedPost, onLogout, onRefreshFeedPosts, onRefreshMemberAppData, onToggleFeedReaction, onUpdateAppointment, onUpdateMember, onUpdateVehicle, serviceDocuments, servicePricing, vehicleValuations }) {
   const [activeTab, setActiveTab] = useState("home");
   const [completion, setCompletion] = useState(null);
   const [instantBooking, setInstantBooking] = useState(null);
@@ -6383,7 +6419,7 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
         </div>
         <div className="member-tab-panel" hidden={Boolean(completion) || activeTab !== "account"}>
           <MemberPanelErrorBoundary resetKey={`account-${tabRefreshKeys.account}`} onRecover={() => navigateToTab("home")}>
-            <AccountScreen key={`account-${tabRefreshKeys.account}`} garageCount={garageList.length} member={member} onLogout={onLogout} onUpdateMember={onUpdateMember} />
+            <AccountScreen key={`account-${tabRefreshKeys.account}`} garageCount={garageList.length} member={member} onDeleteAccount={onDeleteAccount} onLogout={onLogout} onUpdateMember={onUpdateMember} />
           </MemberPanelErrorBoundary>
         </div>
       </main>
@@ -8102,7 +8138,54 @@ function ProfileAvatar({ member, size = 32 }) {
   );
 }
 
-function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
+function DeleteAccountDialog({ onClose, onDeleteAccount }) {
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
+
+  async function permanentlyDeleteAccount(event) {
+    event.preventDefault();
+    if (deleteConfirmation !== "DELETE") return;
+
+    setDeleteError("");
+    setDeletingAccount(true);
+    try {
+      await onDeleteAccount();
+    } catch (error) {
+      setDeleteError(error.message || "Could not delete your account. Please try again.");
+      setDeletingAccount(false);
+    }
+  }
+
+  return (
+    <div className="member-access-modal" role="dialog" aria-modal="true" aria-labelledby="delete-account-title" onMouseDown={() => !deletingAccount && onClose()}>
+      <section className="member-access-card delete-account-card" onMouseDown={(event) => event.stopPropagation()}>
+        <button className="icon-button modal-close-button" type="button" onClick={onClose} aria-label="Close account deletion" disabled={deletingAccount}>
+          <X size={20} />
+        </button>
+        <p className="eyebrow">Permanent Action</p>
+        <h2 id="delete-account-title">Delete your White Glove account?</h2>
+        <p className="delete-account-warning">This cannot be undone. Your membership will be cancelled immediately, and your profile, vehicles, photos, documents, bookings, and community activity will be removed.</p>
+        <p>Completed payment records may remain with our payment provider where required for financial, legal, or fraud-prevention purposes.</p>
+        <form className="delete-account-form" onSubmit={permanentlyDeleteAccount}>
+          {deleteError && <div className="form-alert">{deleteError}</div>}
+          <label>
+            Type <strong>DELETE</strong> to confirm
+            <input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} autoCapitalize="characters" autoComplete="off" spellCheck="false" disabled={deletingAccount} />
+          </label>
+          <div className="member-access-actions">
+            <button className="button secondary" type="button" onClick={onClose} disabled={deletingAccount}>Keep My Account</button>
+            <button className="button primary delete-account-confirm" type="submit" disabled={deleteConfirmation !== "DELETE" || deletingAccount}>
+              {deletingAccount ? "Deleting..." : "Delete Permanently"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function AccountScreen({ garageCount, member, onDeleteAccount, onLogout, onUpdateMember }) {
   const includedServices = getAvailableServices(member.plan);
   const initialAddresses = ensureList(member.addresses).map((entry, index) => ({
     id: `account-address-${index}`,
@@ -8114,6 +8197,7 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
   const [settingsError, setSettingsError] = useState("");
   const [settingsNotice, setSettingsNotice] = useState("");
   const [savingSettings, setSavingSettings] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const notifications = {
     ...defaultNotificationSettings,
     ...(member.notifications || {}),
@@ -8324,6 +8408,18 @@ function AccountScreen({ garageCount, member, onLogout, onUpdateMember }) {
           <li>Service and offer requests saved for concierge review</li>
         </ul>
       </section>
+      <section className="app-section account-danger-zone">
+        <div>
+          <p className="eyebrow">Account Control</p>
+          <h2>Delete Your Account</h2>
+          <p>Permanently remove your White Glove profile, garage, bookings, documents, community activity, and membership access.</p>
+        </div>
+        <button className="button secondary danger-button" type="button" onClick={() => setDeleteDialogOpen(true)}>
+          <Trash2 size={18} /> Delete Account
+        </button>
+      </section>
+
+      {deleteDialogOpen && <DeleteAccountDialog onClose={() => setDeleteDialogOpen(false)} onDeleteAccount={onDeleteAccount} />}
     </div>
   );
 }

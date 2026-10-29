@@ -120,10 +120,10 @@ async function syncMembershipSubscription(subscription, stripeEvent, sessionMeta
   const profile = await profileForSubscription(subscription, metadata);
 
   if (!profile) {
-    if (requireProfile || metadata.checkoutType === "membership_subscription") {
+    if (requireProfile) {
       throw new Error(`No White Glove member matches Stripe subscription ${subscriptionId || "unknown"}.`);
     }
-    console.info(`Ignored unrelated Stripe subscription ${subscriptionId || "unknown"}.`);
+    console.info(`Ignored Stripe subscription ${subscriptionId || "unknown"} because its White Glove account no longer exists.`);
     return null;
   }
 
