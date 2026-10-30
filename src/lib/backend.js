@@ -771,6 +771,7 @@ export async function createFeedComment(userId, postId, body, authorName = "Memb
   const commentBody = String(body || "").trim();
   if (!commentBody) throw new Error("Write a comment before posting.");
   if (commentBody.length > 500) throw new Error("Comments can be up to 500 characters.");
+  validateCommunityText(commentBody);
   if (!supabase || !userId || !postId) {
     return {
       id: crypto.randomUUID(),
@@ -800,11 +801,12 @@ export async function createFeedComment(userId, postId, body, authorName = "Memb
 }
 
 export async function createFeedPost(userId, post, authorName = "Member") {
+  validateCommunityText(post.caption);
   if (!supabase || !userId) return post;
 
-  const imageUrl = await safeUploadFeedImage(userId, post.image);
+  const imageUrl = await safeUploadFeedMedia(userId, post.mediaFile || post.image);
   if (!imageUrl && !reusableImageUrl(post.image)) {
-    throw new Error("Could not upload the photo. Please try again before posting to the feed.");
+    throw new Error("Could not upload the photo or video. Please try again before posting to the feed.");
   }
 
   const { data, error } = await supabase
@@ -835,14 +837,16 @@ export async function updateFeedPostRecord(userId, postId, updates) {
 
   if (loadError || !existing) throw new Error("Could not find a feed post owned by this account.");
 
+  validateCommunityText(updates.caption);
   let nextImageUrl = existing.image_url || "";
-  if (updates.image && updates.image !== existing.image_url) {
+  const replacementMedia = updates.mediaFile || updates.image;
+  if (replacementMedia && replacementMedia !== existing.image_url) {
     try {
-      nextImageUrl = String(updates.image).startsWith("data:")
-        ? await uploadStorageImage("vehicle-photos", `${userId}/feed`, updates.image)
-        : reusableImageUrl(updates.image);
+      nextImageUrl = typeof replacementMedia === "string" && !replacementMedia.startsWith("data:")
+        ? reusableImageUrl(replacementMedia)
+        : await uploadFeedMedia(userId, replacementMedia);
     } catch (error) {
-      throw new Error(`Could not upload the replacement feed photo: ${error.message}`);
+      throw new Error(`Could not upload the replacement feed media: ${error.message}`);
     }
   }
 
@@ -950,6 +954,109 @@ async function safeUploadFeedImage(userId, image) {
     console.warn("Feed photo upload failed.", error);
     return "";
   }
+}
+
+async function uploadFeedMedia(userId, media) {
+  if (!supabase || !media) return "";
+  const blob = media instanceof Blob
+    ? media
+    : String(media).startsWith("data:")
+      ? await (await fetch(media)).blob()
+      : null;
+  if (!blob) return "";
+
+  const contentType = blob.type || "application/octet-stream";
+  if (!contentType.startsWith("image/") && !contentType.startsWith("video/")) {
+    throw new Error("Choose an image or video file.");
+  }
+  if (contentType.startsWith("video/") && blob.size > 50 * 1024 * 1024) {
+    throw new Error("Videos must be smaller than 50 MB.");
+  }
+
+  const suppliedExtension = media instanceof File ? media.name.split(".").pop()?.toLowerCase() : "";
+  const mimeExtension = contentType === "video/quicktime" ? "mov" : contentType.split("/")[1]?.replace("jpeg", "jpg") || "bin";
+  const extension = /^[a-z0-9]+$/.test(suppliedExtension || "") ? suppliedExtension : mimeExtension;
+  const path = `${userId}/feed/${crypto.randomUUID()}.${extension}`;
+  const { error } = await supabase.storage.from("vehicle-photos").upload(path, blob, {
+    cacheControl: "3600",
+    contentType,
+    upsert: false,
+  });
+  if (error) throw error;
+  return supabase.storage.from("vehicle-photos").getPublicUrl(path).data.publicUrl;
+}
+
+async function safeUploadFeedMedia(userId, media) {
+  try {
+    return await uploadFeedMedia(userId, media);
+  } catch (error) {
+    console.warn("Feed media upload failed.", error);
+    throw error;
+  }
+}
+
+export function validateCommunityText(value) {
+  const text = String(value || "").trim();
+  if (!text) return;
+  const normalized = text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ");
+  const blockedPatterns = [
+    /\bkill yourself\b/,
+    /\bkys\b/,
+    /\bnazi\b/,
+    /\bwhite power\b/,
+    /\bchild porn/,
+    /\brape\b/,
+    /\bbomb threat\b/,
+  ];
+  if (blockedPatterns.some((pattern) => pattern.test(normalized))) {
+    throw new Error("This text cannot be posted because it may violate the community guidelines.");
+  }
+}
+
+export async function loadBlockedFeedUsers(userId) {
+  if (!supabase || !userId) return [];
+  const { data, error } = await supabase
+    .from("feed_blocks")
+    .select("blocked_user_id, blocked_name, created_at")
+    .eq("blocker_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.warn("Could not load blocked members. Run the feed safety SQL migration.", error);
+    return [];
+  }
+  return (data || []).map((row) => ({ id: row.blocked_user_id, name: row.blocked_name || "Member", createdAt: row.created_at }));
+}
+
+export async function blockFeedUser(userId, blockedUserId, blockedName = "Member") {
+  if (!userId || !blockedUserId || userId === blockedUserId) throw new Error("This member cannot be blocked.");
+  if (!supabase) return { id: blockedUserId, name: blockedName };
+  const { error } = await supabase.from("feed_blocks").upsert({
+    blocker_id: userId,
+    blocked_user_id: blockedUserId,
+    blocked_name: blockedName || "Member",
+  }, { onConflict: "blocker_id,blocked_user_id" });
+  if (error) throw new Error(`Could not block this member: ${error.message}. Run the feed safety SQL migration.`);
+  return { id: blockedUserId, name: blockedName || "Member" };
+}
+
+export async function unblockFeedUser(userId, blockedUserId) {
+  if (!supabase || !userId || !blockedUserId) return;
+  const { error } = await supabase.from("feed_blocks").delete().eq("blocker_id", userId).eq("blocked_user_id", blockedUserId);
+  if (error) throw new Error(`Could not unblock this member: ${error.message}`);
+}
+
+export async function reportFeedPost(userId, post, reason, details = "") {
+  if (!userId || !post?.id || !post?.userId) throw new Error("This post cannot be reported.");
+  if (!reason) throw new Error("Choose a reason for the report.");
+  if (!supabase) return;
+  const { error } = await supabase.from("feed_reports").insert({
+    reporter_id: userId,
+    post_id: post.id,
+    reported_user_id: post.userId,
+    reason,
+    details: String(details || "").trim().slice(0, 1000),
+  });
+  if (error) throw new Error(`Could not submit this report: ${error.message}. Run the feed safety SQL migration.`);
 }
 
 function ownedStorageImagePath(userId, imageUrl) {
@@ -1197,6 +1304,7 @@ function fromServiceDocumentRow(row) {
 }
 
 function fromFeedPostRow(row) {
+  const mediaUrl = row.image_url || "";
   return {
     id: row.id,
     userId: row.user_id,
@@ -1204,7 +1312,8 @@ function fromFeedPostRow(row) {
     caption: row.caption || "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    image: row.image_url || "",
+    image: mediaUrl,
+    mediaType: /\.(mp4|mov|m4v|webm)(?:$|\?)/i.test(mediaUrl) ? "video" : "image",
     comments: ensureList(row.feed_comments)
       .map(fromFeedCommentRow)
       .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()),

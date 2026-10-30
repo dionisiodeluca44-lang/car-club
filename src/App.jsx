@@ -37,6 +37,7 @@ import Wrench from "lucide-react/dist/esm/icons/wrench.js";
 import X from "lucide-react/dist/esm/icons/x.js";
 import {
   createAccount,
+  blockFeedUser,
   createFeedComment,
   createServiceDocumentDownloadUrl,
   createFeedPost,
@@ -49,6 +50,7 @@ import {
   getCurrentMember,
   isBackendConfigured,
   loadFeedPosts,
+  loadBlockedFeedUsers,
   loadMembershipPricing,
   loadMembershipBenefitUsage,
   loadMembershipRevenueEvents,
@@ -58,11 +60,13 @@ import {
   loadVehicleValuations,
   loadVehicles,
   requestPasswordReset,
+  reportFeedPost,
   resendConfirmationEmail,
   signIn,
   signOut,
   subscribeToFeedPosts,
   toggleFeedReactionRecord,
+  unblockFeedUser,
   updateFeedPostRecord,
   updateServiceRequestRecord,
   uploadServiceDocumentToSignedUrl,
@@ -7572,14 +7576,53 @@ function FeedScreen({ feedPosts, member, onAddFeedComment, onAddFeedPost, onComp
   const [feedNotice, setFeedNotice] = useState("");
   const [refreshingFeed, setRefreshingFeed] = useState(false);
   const [showComposer, setShowComposer] = useState(false);
+  const [blockedMembers, setBlockedMembers] = useState([]);
+  const [showBlockedMembers, setShowBlockedMembers] = useState(false);
   const eventPosts = feedEventPosts(feedPosts, eventClockMs);
-  const photoPosts = feedPosts.filter((post) => !parseFeedEvent(post));
-  const visiblePosts = activeFeed === "events" ? eventPosts : photoPosts;
+  const blockedUserIds = new Set(blockedMembers.map((blockedMember) => blockedMember.id));
+  const allowedPosts = feedPosts.filter((post) => !blockedUserIds.has(post.userId));
+  const photoPosts = allowedPosts.filter((post) => !parseFeedEvent(post));
+  const allowedEventPosts = eventPosts.filter((post) => !blockedUserIds.has(post.userId));
+  const visiblePosts = activeFeed === "events" ? allowedEventPosts : photoPosts;
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setEventClockMs(Date.now()), 30_000);
     return () => window.clearInterval(intervalId);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    loadBlockedFeedUsers(member?.id).then((members) => {
+      if (active) setBlockedMembers(members);
+    });
+    return () => { active = false; };
+  }, [member?.id]);
+
+  async function blockMember(post) {
+    if (!post?.userId) return;
+    if (!window.confirm(`Block ${post.author || "this member"}? Their posts will be hidden from your Feed.`)) return;
+    try {
+      const blocked = await blockFeedUser(member?.id, post.userId, post.author);
+      setBlockedMembers((current) => current.some((entry) => entry.id === blocked.id) ? current : [...current, blocked]);
+      setFeedNotice(`${post.author || "Member"} has been blocked. Their posts are now hidden.`);
+    } catch (error) {
+      setFeedNotice(error.message || "Could not block this member.");
+    }
+  }
+
+  async function unblockMember(blockedUserId) {
+    try {
+      await unblockFeedUser(member?.id, blockedUserId);
+      setBlockedMembers((current) => current.filter((entry) => entry.id !== blockedUserId));
+    } catch (error) {
+      setFeedNotice(error.message || "Could not unblock this member.");
+    }
+  }
+
+  async function reportPost(post, reason, details) {
+    await reportFeedPost(member?.id, post, reason, details);
+    setFeedNotice("Report received. White Glove will review it and take action when needed.");
+  }
 
   async function refreshFeed() {
     setFeedNotice("");
@@ -7618,7 +7661,7 @@ function FeedScreen({ feedPosts, member, onAddFeedComment, onAddFeedPost, onComp
         <div className="feed-view-tabs" role="tablist" aria-label="Feed type">
           <button aria-selected={activeFeed === "photos"} className={activeFeed === "photos" ? "active" : ""} onClick={() => setActiveFeed("photos")} role="tab" type="button">
             <ImageIcon size={18} />
-            <span>Photos</span>
+            <span>Photos & Videos</span>
             <strong>{photoPosts.length}</strong>
           </button>
           <button aria-selected={activeFeed === "events"} className={activeFeed === "events" ? "active" : ""} onClick={() => setActiveFeed("events")} role="tab" type="button">
@@ -7632,6 +7675,10 @@ function FeedScreen({ feedPosts, member, onAddFeedComment, onAddFeedPost, onComp
             {feedNotice}
           </div>
         )}
+        <div className="feed-safety-links">
+          <a href="/community-guidelines.html" target="_blank" rel="noreferrer">Community Guidelines</a>
+          {blockedMembers.length > 0 && <button type="button" onClick={() => setShowBlockedMembers(true)}>Blocked members ({blockedMembers.length})</button>}
+        </div>
         {showComposer && (
           <div className="feed-composer-backdrop" role="presentation" onMouseDown={(event) => {
             if (event.target === event.currentTarget) setShowComposer(false);
@@ -7665,15 +7712,25 @@ function FeedScreen({ feedPosts, member, onAddFeedComment, onAddFeedPost, onComp
           onEditFeedPost={onEditFeedPost}
           onAddFeedComment={onAddFeedComment}
           onToggleFeedReaction={onToggleFeedReaction}
+          onBlockMember={blockMember}
+          onReportPost={reportPost}
           posts={visiblePosts}
           vehicleOptions={vehicleOptions}
         />
+        {showBlockedMembers && (
+          <div className="feed-composer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setShowBlockedMembers(false)}>
+            <section className="feed-composer blocked-members-dialog" role="dialog" aria-modal="true" aria-label="Blocked members">
+              <header><div><span>Community safety</span><h3>Blocked members</h3></div><button className="icon-button" type="button" aria-label="Close" onClick={() => setShowBlockedMembers(false)}><X size={20} /></button></header>
+              {blockedMembers.map((blockedMember) => <div className="blocked-member-row" key={blockedMember.id}><strong>{blockedMember.name}</strong><button className="button secondary compact-button" type="button" onClick={() => unblockMember(blockedMember.id)}>Unblock</button></div>)}
+            </section>
+          </div>
+        )}
       </section>
     </div>
   );
 }
 
-function FeedContentSection({ emptyText, feedType, member, onAddFeedComment, onDeleteFeedPost, onEditFeedPost, onToggleFeedReaction, posts, vehicleOptions }) {
+function FeedContentSection({ emptyText, feedType, member, onAddFeedComment, onBlockMember, onDeleteFeedPost, onEditFeedPost, onReportPost, onToggleFeedReaction, posts, vehicleOptions }) {
   return (
     <section className={`feed-content-section ${feedType === "events" ? "event-feed" : "photo-feed"}`} aria-label={feedType === "events" ? "Events" : "Photos"}>
       {posts.length === 0 ? (
@@ -7691,6 +7748,8 @@ function FeedContentSection({ emptyText, feedType, member, onAddFeedComment, onD
               key={post.id}
               onAddComment={onAddFeedComment}
               onDelete={onDeleteFeedPost}
+              onBlock={onBlockMember}
+              onReport={onReportPost}
               onToggleReaction={onToggleFeedReaction}
               onUpdate={onEditFeedPost}
               post={post}
@@ -7706,14 +7765,26 @@ function FeedContentSection({ emptyText, feedType, member, onAddFeedComment, onD
 function FeedUploadForm({ initialType = "vehicle", onAddFeedPost, onComplete, onPosted, vehicleOptions }) {
   const [postType, setPostType] = useState(initialType);
   const [imagePreview, setImagePreview] = useState("");
+  const [mediaFile, setMediaFile] = useState(null);
+  const [mediaType, setMediaType] = useState("image");
   const [feedError, setFeedError] = useState("");
 
   function handleImage(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setImagePreview(reader.result);
-    reader.readAsDataURL(file);
+    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
+      setFeedError("Choose a photo or video file.");
+      return;
+    }
+    if (file.type.startsWith("video/") && file.size > 50 * 1024 * 1024) {
+      setFeedError("Videos must be smaller than 50 MB.");
+      return;
+    }
+    if (imagePreview?.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
+    setMediaFile(file);
+    setMediaType(file.type.startsWith("video/") ? "video" : "image");
+    setImagePreview(URL.createObjectURL(file));
+    setFeedError("");
   }
 
   async function submitFeedPost(event) {
@@ -7721,7 +7792,7 @@ function FeedUploadForm({ initialType = "vehicle", onAddFeedPost, onComplete, on
     setFeedError("");
 
     if (postType === "vehicle" && !imagePreview) {
-      setFeedError("Upload a photo before posting to the feed.");
+      setFeedError("Upload a photo or video before posting to the feed.");
       return;
     }
 
@@ -7752,23 +7823,27 @@ function FeedUploadForm({ initialType = "vehicle", onAddFeedPost, onComplete, on
     try {
       const savedPost = await onAddFeedPost({
         caption,
+        mediaFile: postType === "event" ? null : mediaFile,
+        mediaType: postType === "event" ? "image" : mediaType,
         image: postType === "event" ? eventFallbackImage : imagePreview,
         vehicle: formData.get("vehicle"),
       });
 
       form.reset();
       setImagePreview("");
+      setMediaFile(null);
+      setMediaType("image");
       onPosted?.();
       onComplete?.({
         actionLabel: "View Feed",
         actionTab: "feed",
         details: [
-          ["Type", postType === "event" ? "Event" : "Vehicle post"],
+          ["Type", postType === "event" ? "Event" : mediaType === "video" ? "Video post" : "Photo post"],
           ["Vehicle", savedPost.vehicle || (postType === "event" ? "Member event" : "Garage update")],
           ["Post", postType === "event" ? eventTitle || "Event posted" : savedPost.caption || "Photo uploaded"],
           ["Status", "Posted"],
         ],
-        message: postType === "event" ? "Your event has been added to the member feed." : "Your photo has been added to the member feed.",
+        message: postType === "event" ? "Your event has been added to the member feed." : `Your ${mediaType} has been added to the member feed.`,
         secondaryLabel: "Back Home",
         secondaryTab: "home",
         title: postType === "event" ? "Event successfully posted." : "Feed post successfully updated.",
@@ -7787,7 +7862,7 @@ function FeedUploadForm({ initialType = "vehicle", onAddFeedPost, onComplete, on
       )}
       <div className="feed-type-toggle">
         <button className={postType === "vehicle" ? "active" : ""} type="button" onClick={() => setPostType("vehicle")}>
-          <ImageIcon size={18} /> Photo
+          <ImageIcon size={18} /> Photo or Video
         </button>
         <button className={postType === "event" ? "active" : ""} type="button" onClick={() => setPostType("event")}>
           <CalendarCheck size={18} /> Event
@@ -7795,8 +7870,8 @@ function FeedUploadForm({ initialType = "vehicle", onAddFeedPost, onComplete, on
       </div>
       {postType === "vehicle" && (
         <label className="upload-tile feed-upload-tile">
-          {imagePreview ? <img alt="Feed preview" src={imagePreview} /> : <><Upload size={24} /><span>Upload feed photo</span></>}
-          <input accept="image/*" name="photo" onChange={handleImage} type="file" />
+          {imagePreview ? (mediaType === "video" ? <video aria-label="Video preview" controls playsInline src={imagePreview} /> : <img alt="Feed preview" src={imagePreview} />) : <><Upload size={24} /><span>Upload a photo or video</span><small>Videos up to 50 MB</small></>}
+          <input accept="image/*,video/mp4,video/quicktime,video/webm" name="media" onChange={handleImage} type="file" />
         </label>
       )}
       <div className="app-form-grid">
@@ -7840,6 +7915,7 @@ function FeedUploadForm({ initialType = "vehicle", onAddFeedPost, onComplete, on
         )}
       </div>
       <button className="button primary submit" type="submit">{postType === "event" ? "Post Event" : "Post to Feed"}</button>
+      <small className="feed-community-note">By posting, you agree to the <a href="/community-guidelines.html" target="_blank" rel="noreferrer">Community Guidelines</a>. Offensive content is filtered and may be removed.</small>
     </form>
   );
 }
@@ -7851,7 +7927,7 @@ const feedReactionOptions = [
   { emoji: "wow", label: "Wow", symbol: "😍" },
 ];
 
-function FeedPostCard({ canManage = false, currentMember, onAddComment, onDelete, onToggleReaction, onUpdate, post, vehicleOptions = [] }) {
+function FeedPostCard({ canManage = false, currentMember, onAddComment, onBlock, onDelete, onReport, onToggleReaction, onUpdate, post, vehicleOptions = [] }) {
   const event = parseFeedEvent(post);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -7860,6 +7936,7 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onDelete
   const [commentsExpanded, setCommentsExpanded] = useState(false);
   const [postError, setPostError] = useState("");
   const [replacementImage, setReplacementImage] = useState("");
+  const [showReport, setShowReport] = useState(false);
   const commentInputRef = useRef(null);
   const authorName = post.author || "Member";
   const reactions = ensureList(post.reactions);
@@ -7974,6 +8051,12 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onDelete
       </button>
     </div>
   );
+  const safetyActions = !canManage && post.userId && (
+    <div className="feed-post-actions feed-safety-actions">
+      <button type="button" onClick={() => setShowReport(true)}>Report</button>
+      <button className="danger-action" type="button" onClick={() => onBlock?.(post)}>Block member</button>
+    </div>
+  );
 
   const editor = editing && (
     <form className="feed-post-editor" onSubmit={savePost}>
@@ -8012,7 +8095,7 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onDelete
 
   if (event) {
     return (
-      <article className="feed-event-card">
+      <><article className="feed-event-card">
         <div className="feed-event-date">
           <CalendarCheck size={22} />
           <span>{event.time ? new Date(event.time).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "Event"}</span>
@@ -8030,10 +8113,11 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onDelete
             <span>{authorName} · {formatPostDate(post.createdAt)}</span>
           </div>
           {actions}
+          {safetyActions}
           {editor}
           {!editing && postError && <div className="error-message" role="alert">{postError}</div>}
         </div>
-      </article>
+      </article>{showReport && <ReportPostDialog onClose={() => setShowReport(false)} onSubmit={async (reason, details) => { await onReport?.(post, reason, details); setShowReport(false); }} />}</>
     );
   }
 
@@ -8048,7 +8132,7 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onDelete
         <time>{formatPostDate(post.createdAt)}</time>
       </header>
       <div className="feed-photo-frame">
-        <img alt={post.caption || "Vehicle feed post"} src={post.image || eventFallbackImage} />
+        {post.mediaType === "video" ? <video aria-label={post.caption || "Member video post"} controls playsInline preload="metadata" src={post.image} /> : <img alt={post.caption || "Vehicle feed post"} src={post.image || eventFallbackImage} />}
       </div>
       <div className="feed-post-body">
         <div className="feed-reaction-bar" aria-label="React to this post">
@@ -8120,11 +8204,30 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onDelete
           </form>
         </section>
         {actions}
+        {safetyActions}
         {editor}
         {!editing && postError && <div className="error-message" role="alert">{postError}</div>}
       </div>
+      {showReport && <ReportPostDialog onClose={() => setShowReport(false)} onSubmit={async (reason, details) => { await onReport?.(post, reason, details); setShowReport(false); }} />}
     </article>
   );
+}
+
+function ReportPostDialog({ onClose, onSubmit }) {
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  async function submit(event) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    try {
+      setSubmitting(true);
+      await onSubmit(data.get("reason"), data.get("details"));
+    } catch (submitError) {
+      setError(submitError.message || "Could not submit this report.");
+      setSubmitting(false);
+    }
+  }
+  return <div className="feed-composer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="feed-composer report-post-dialog" role="dialog" aria-modal="true" aria-label="Report post"><header><div><span>Community safety</span><h3>Report this post</h3></div><button className="icon-button" type="button" aria-label="Close" onClick={onClose}><X size={20} /></button></header><form className="app-form" onSubmit={submit}>{error && <div className="error-message" role="alert">{error}</div>}<label>Reason<select name="reason" required defaultValue=""><option value="" disabled>Choose a reason</option><option>Spam or scam</option><option>Harassment or bullying</option><option>Hate or abusive content</option><option>Sexual or inappropriate content</option><option>Dangerous or illegal activity</option><option>Intellectual property</option><option>Other</option></select></label><label>Details (optional)<textarea name="details" maxLength="1000" rows="4" placeholder="Tell us what happened." /></label><button className="button primary" disabled={submitting} type="submit">{submitting ? "Sending..." : "Submit Report"}</button></form></section></div>;
 }
 
 function ProfileAvatar({ member, size = 32 }) {
