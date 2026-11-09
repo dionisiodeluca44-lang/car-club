@@ -3482,13 +3482,22 @@ function App() {
     setVehicleValuations(nextValuations);
   }
 
-  async function addAppointment(appointment) {
+  async function addAppointment(appointment, persistedRequest = null) {
     if (!canBookService(member?.plan, appointment.service)) {
       throw new Error(`${appointment.service} is not included in the ${member?.plan || "current"} package.`);
     }
 
     if (hasOpenMatchingServiceRequest(appointments, appointment)) {
       throw new Error(`You already have an active ${appointment.service} booking for ${appointment.vehicle}. Reschedule or cancel it before creating another one.`);
+    }
+
+    if (persistedRequest?.id) {
+      const savedRequest = { ...appointment, ...persistedRequest };
+      setAppointments((currentAppointments) => [
+        savedRequest,
+        ...currentAppointments.filter((request) => request.id !== savedRequest.id),
+      ]);
+      return savedRequest;
     }
 
     if (isBackendConfigured && member?.id) {
@@ -9262,6 +9271,41 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
           checkout = responseText ? JSON.parse(responseText) : {};
         } catch {
           checkout = { error: responseText };
+        }
+        if (response.ok && checkout.complimentary && checkout.request) {
+          const complimentaryAppointment = {
+            ...appointment,
+            notes: checkout.request.notes || appointment.notes,
+            paymentAmount: "No payment required",
+            paymentMethod: checkout.paymentMethod || "Complimentary account",
+            paymentMode: "free",
+            paymentTitle: "Complimentary service",
+          };
+          const savedRequest = await onAddAppointment(complimentaryAppointment, checkout.request);
+          setBookingStep("details");
+          setPendingBooking(null);
+          onComplete?.({
+            actionLabel: "View Requests",
+            actionTab: "schedule",
+            details: [
+              ["Service", savedRequest?.service || complimentaryAppointment.service],
+              ["Option", complimentaryAppointment.serviceOption],
+              ["Vehicle", savedRequest?.vehicle || complimentaryAppointment.vehicle],
+              complimentaryAppointment.currentLocation && ["Collection address", complimentaryAppointment.currentLocation],
+              [serviceDateRange ? "Start" : "Preferred date", [savedRequest?.date || complimentaryAppointment.date || "Date pending", serviceDateRange && pendingBooking.formData[serviceDateRange.startTime]].filter(Boolean).join(" at ")],
+              serviceDateRange && ["End", [pendingBooking.formData[serviceDateRange.endDate] || "Date pending", serviceDateRange.endTime && pendingBooking.formData[serviceDateRange.endTime]].filter(Boolean).join(" at ")],
+              ["Payment", "Complimentary service"],
+              pendingBooking.formData.transportChoice && ["Transport", pendingBooking.formData.transportAmount],
+              pendingBooking.formData.warrantyLabel && ["Warranty", pendingBooking.formData.warrantyLabel],
+              ["Payment method", complimentaryAppointment.paymentMethod],
+              ["Email", member.email],
+            ].filter(Boolean),
+            message: "Your complimentary booking is confirmed. No payment was charged.",
+            secondaryLabel: "Back Home",
+            secondaryTab: "home",
+            title: "Booking confirmed.",
+          });
+          return;
         }
         if (!response.ok || !checkout.url) {
           throw new Error(readableError(checkout.error || checkout, "Could not start secure payment checkout."));

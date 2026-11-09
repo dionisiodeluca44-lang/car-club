@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
+import { createHash } from "node:crypto";
 
 const adminPassword = process.env.ADMIN_PORTAL_PASSWORD;
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
@@ -9,6 +10,13 @@ const siteUrl = process.env.URL || process.env.DEPLOY_PRIME_URL || "http://local
 
 const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
 const supabase = supabaseUrl && supabaseServiceRoleKey ? createClient(supabaseUrl, supabaseServiceRoleKey) : null;
+const permanentComplimentaryServiceEmailHashes = new Set([
+  "ecf6c1345e7c2faeb9f39fc7797e731d78c61831461b6310f22dfa938ec37089",
+  ...String(process.env.COMPLIMENTARY_SERVICE_EMAIL_SHA256 || "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean),
+]);
 
 function json(statusCode, body) {
   return {
@@ -20,6 +28,11 @@ function json(statusCode, body) {
 
 function clean(value, fallback = "") {
   return String(value || fallback).trim().slice(0, 480);
+}
+
+function hasPermanentComplimentaryServiceAccess(email) {
+  const hash = createHash("sha256").update(String(email || "").trim().toLowerCase()).digest("hex");
+  return permanentComplimentaryServiceEmailHashes.has(hash);
 }
 
 export async function handler(event) {
@@ -47,6 +60,24 @@ export async function handler(event) {
       .select("email, full_name")
       .eq("id", request.user_id)
       .maybeSingle();
+
+    if (hasPermanentComplimentaryServiceAccess(member?.email)) {
+      await supabase
+        .from("service_requests")
+        .update({
+          payment_link_amount_cents: null,
+          payment_link_created_at: null,
+          payment_link_label: null,
+          payment_link_url: null,
+          payment_mode: "free",
+          payment_status: "paid",
+          quoted_total_cents: 0,
+          status: "Paid / Confirmed",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", request.id);
+      return json(409, { error: "This member has permanent complimentary service access and must not receive a payment link." });
+    }
 
     const label = clean(payload.label, `${paymentType === "deposit" ? "Deposit" : paymentType === "balance" ? "Balance" : "Service payment"} for ${request.service_type}`);
     const metadata = {

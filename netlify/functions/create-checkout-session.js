@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
+import { createHash } from "node:crypto";
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
@@ -11,6 +12,13 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
 
 const siteUrl = process.env.URL || process.env.DEPLOY_PRIME_URL || "http://localhost:5173";
 const paymentSource = "white_glove_concierge";
+const permanentComplimentaryServiceEmailHashes = new Set([
+  "ecf6c1345e7c2faeb9f39fc7797e731d78c61831461b6310f22dfa938ec37089",
+  ...String(process.env.COMPLIMENTARY_SERVICE_EMAIL_SHA256 || "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean),
+]);
 
 function json(statusCode, body) {
   return {
@@ -27,6 +35,78 @@ function json(statusCode, body) {
 
 function clean(value, fallback = "") {
   return String(value || fallback).slice(0, 480);
+}
+
+function normalizedEmailHash(value) {
+  return createHash("sha256").update(String(value || "").trim().toLowerCase()).digest("hex");
+}
+
+function hasPermanentComplimentaryServiceAccess(...emails) {
+  return emails.some((email) => permanentComplimentaryServiceEmailHashes.has(normalizedEmailHash(email)));
+}
+
+function clientServiceRequest(row) {
+  return {
+    id: row.id,
+    vehicle: row.vehicle_label,
+    service: row.service_type,
+    date: row.preferred_date || "",
+    time: row.preferred_time || "",
+    notes: row.notes || "",
+    paymentStatus: row.payment_status || "paid",
+    status: row.status || "Paid / Confirmed",
+  };
+}
+
+async function createComplimentaryServiceRequest(user, profile, payload) {
+  const vehicle = clean(payload.vehicle, "No saved vehicle needed");
+  const service = clean(payload.service || payload.serviceLabel, "Concierge service");
+  const activeStatuses = ["Requested", "In Review", "Booked", "Paid / Confirmed"];
+  const { data: existingRequest, error: existingError } = await supabase
+    .from("service_requests")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("vehicle_label", vehicle)
+    .eq("service_type", service)
+    .in("status", activeStatuses)
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    throw Object.assign(new Error("We could not verify your existing service requests."), { statusCode: 500 });
+  }
+  if (existingRequest) {
+    throw Object.assign(new Error(`You already have an active ${service} request for ${vehicle}.`), { statusCode: 409 });
+  }
+
+  const complimentaryNote = "Payment: Permanent complimentary service access - No charge.\n\nPayment method: Complimentary account";
+  const { data: request, error: requestError } = await supabase
+    .from("service_requests")
+    .insert({
+      user_id: user.id,
+      vehicle_label: vehicle,
+      service_type: service,
+      preferred_date: clean(payload.date) || null,
+      preferred_time: clean(payload.time) || null,
+      notes: [clean(payload.notes), complimentaryNote].filter(Boolean).join("\n\n"),
+      payment_mode: "free",
+      payment_status: "paid",
+      quoted_total_cents: 0,
+      status: "Paid / Confirmed",
+    })
+    .select("*")
+    .single();
+
+  if (requestError || !request) {
+    console.error("Could not create complimentary service request", requestError);
+    throw Object.assign(new Error("We could not confirm this complimentary service request."), { statusCode: 500 });
+  }
+
+  return json(200, {
+    complimentary: true,
+    paymentMethod: "Complimentary account",
+    request: clientServiceRequest(request),
+  });
 }
 
 async function verifiedMember(event, requestedUserId) {
@@ -73,13 +153,19 @@ export async function handler(event) {
     return json(405, { error: "Method not allowed" });
   }
 
-  if (!stripe || !supabase) {
-    return json(503, { error: "Secure payment checkout is not configured" });
+  if (!supabase) {
+    return json(503, { error: "Secure booking is not configured" });
   }
 
   try {
     const payload = JSON.parse(event.body || "{}");
     const { profile, user } = await verifiedMember(event, payload.userId);
+    if (hasPermanentComplimentaryServiceAccess(user.email, profile.email)) {
+      return await createComplimentaryServiceRequest(user, profile, payload);
+    }
+    if (!stripe) {
+      return json(503, { error: "Secure payment checkout is not configured" });
+    }
     const amountCents = Number(payload.amountCents || 0);
     const paymentDescription = clean(
       `White Glove Concierge - ${payload.serviceLabel || payload.service || "Booking"} - ${payload.memberName || payload.memberEmail || "Member"}`,

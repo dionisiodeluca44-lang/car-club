@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { createHash } from "node:crypto";
 import {
   benefitAllowancesForPlan,
   membershipBenefitPeriod,
@@ -11,6 +12,13 @@ const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const supabase = supabaseUrl && supabaseServiceRoleKey ? createClient(supabaseUrl, supabaseServiceRoleKey) : null;
 const activeMembershipStatuses = new Set(["active", "trialing"]);
+const permanentComplimentaryServiceEmailHashes = new Set([
+  "ecf6c1345e7c2faeb9f39fc7797e731d78c61831461b6310f22dfa938ec37089",
+  ...String(process.env.COMPLIMENTARY_SERVICE_EMAIL_SHA256 || "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean),
+]);
 
 function json(statusCode, body) {
   return {
@@ -23,6 +31,27 @@ function json(statusCode, body) {
 function authorized(event) {
   const headerToken = event.headers["x-admin-token"];
   return adminPassword && headerToken && headerToken === adminPassword;
+}
+
+function hasPermanentComplimentaryServiceAccess(email) {
+  const hash = createHash("sha256").update(String(email || "").trim().toLowerCase()).digest("hex");
+  return permanentComplimentaryServiceEmailHashes.has(hash);
+}
+
+async function requestHasPermanentComplimentaryServiceAccess(requestId) {
+  const { data: request } = await supabase
+    .from("service_requests")
+    .select("user_id")
+    .eq("id", requestId)
+    .maybeSingle();
+  if (!request?.user_id) return false;
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("email")
+    .eq("id", request.user_id)
+    .maybeSingle();
+  return hasPermanentComplimentaryServiceAccess(profile?.email);
 }
 
 function dateOnly(value) {
@@ -511,6 +540,26 @@ export async function handler(event) {
 
     if (!id || (!status && !["set-payment-total", "record-payment", "schedule", "cancel-request"].includes(action))) {
       return json(400, { error: "Request id and update details are required" });
+    }
+
+    if (["set-payment-total", "record-payment"].includes(action) && await requestHasPermanentComplimentaryServiceAccess(id)) {
+      if (action === "record-payment") {
+        return json(409, { error: "This member has permanent complimentary service access and must not be charged." });
+      }
+      const { data, error } = await supabase
+        .from("service_requests")
+        .update({
+          payment_mode: "free",
+          payment_status: "paid",
+          quoted_total_cents: 0,
+          status: "Paid / Confirmed",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .select("id, payment_mode, payment_status, quoted_total_cents, status")
+        .single();
+      if (error) return json(500, { error: "Could not preserve this member's complimentary service access." });
+      return json(200, { request: data });
     }
 
     if (action === "schedule") {
