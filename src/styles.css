@@ -10074,6 +10074,97 @@ textarea:focus {
   font-size: 0.7rem;
 }
 
+.service-requests-box {
+  padding: 0.45rem;
+  overflow: hidden;
+}
+
+.service-requests-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  min-height: 58px;
+  padding: 0.55rem 0.65rem;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.service-requests-toggle:hover,
+.service-requests-toggle:focus-visible {
+  background: rgba(201, 164, 92, 0.08);
+  outline: none;
+}
+
+.service-requests-toggle-icon {
+  display: grid;
+  width: 2.3rem;
+  height: 2.3rem;
+  place-items: center;
+  border: 1px solid rgba(229, 200, 121, 0.3);
+  border-radius: 10px;
+  background: rgba(201, 164, 92, 0.1);
+  color: var(--gold-bright);
+}
+
+.service-requests-toggle-copy {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.service-requests-toggle-copy strong {
+  font-size: 0.88rem;
+}
+
+.service-requests-toggle-copy small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-requests-toggle-chevron {
+  color: var(--gold-bright);
+  transition: transform 180ms ease;
+}
+
+.service-requests-box.expanded .service-requests-toggle-chevron {
+  transform: rotate(90deg);
+}
+
+.service-requests-expanded {
+  margin: 0 0.65rem 0.35rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.service-requests-scroll {
+  display: grid;
+  gap: 0.65rem;
+  max-height: min(62vh, 620px);
+  padding-right: 0.2rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(229, 200, 121, 0.45) transparent;
+  scrollbar-width: thin;
+}
+
+.service-requests-scroll .request-card {
+  margin-bottom: 0;
+}
+
+.service-requests-empty {
+  min-height: 140px;
+}
+
 @media (max-width: 1000px) {
   .schedule-service-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));

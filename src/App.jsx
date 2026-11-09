@@ -7284,6 +7284,7 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
   const [benefitsExpanded, setBenefitsExpanded] = useState(false);
   const [recommendedExpanded, setRecommendedExpanded] = useState(false);
   const [autoExploreExpanded, setAutoExploreExpanded] = useState(false);
+  const [serviceRequestsExpanded, setServiceRequestsExpanded] = useState(false);
   const [expandedBenefitKey, setExpandedBenefitKey] = useState("");
   const [selectedBenefitKey, setSelectedBenefitKey] = useState("");
   const [bookingPage, setBookingPage] = useState(instantBooking ? "details" : "services");
@@ -7651,6 +7652,41 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
             );
           })}
         </div>
+      </section>
+
+      <section className={`app-section service-requests-box ${serviceRequestsExpanded ? "expanded" : ""}`}>
+        <button
+          aria-controls="member-service-requests"
+          aria-expanded={serviceRequestsExpanded}
+          className="service-requests-toggle"
+          type="button"
+          onClick={() => setServiceRequestsExpanded((expanded) => !expanded)}
+        >
+          <span className="service-requests-toggle-icon"><CalendarCheck aria-hidden="true" size={19} /></span>
+          <span className="service-requests-toggle-copy">
+            <strong>Your Service Requests</strong>
+            <small>{appointments.length > 0 ? `${appointments.length} previous and current ${appointments.length === 1 ? "request" : "requests"}` : "No service requests yet"}</small>
+          </span>
+          <ChevronRight aria-hidden="true" className="service-requests-toggle-chevron" size={19} />
+        </button>
+
+        {serviceRequestsExpanded && (
+          <div className="service-requests-expanded" id="member-service-requests">
+            {appointments.length > 0 ? (
+              <div className="service-requests-scroll">
+                {appointments.map((appointment) => (
+                  <ServiceRequestCard appointment={appointment} key={appointment.id} onUpdateAppointment={onUpdateAppointment} />
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state compact-empty service-requests-empty">
+                <CalendarCheck size={24} />
+                <h3>No service requests yet.</h3>
+                <p>Previous and current requests will appear here after you book a service.</p>
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
     </div>
