@@ -6895,12 +6895,14 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
   const vehicleLimitText = garageLimitLabel(member.plan, member.extraVehicleSlots);
   const [showForm, setShowForm] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  const [editingVehicleId, setEditingVehicleId] = useState("");
   const [chartVehicleId, setChartVehicleId] = useState(activeVehicleId || garageList[0]?.id || "");
   const [requestError, setRequestError] = useState("");
   const garageListRef = useRef(null);
   const valueHistoryRef = useRef(null);
   const garageValueRef = useRef(null);
   const selectedVehicle = garageList.find((vehicle) => vehicle.id === selectedVehicleId);
+  const editingVehicle = garageList.find((vehicle) => vehicle.id === editingVehicleId);
   const chartVehicle = garageList.find((vehicle) => vehicle.id === chartVehicleId) || garageList[0] || null;
   const showHomeVehicleSelection = garageList.length > 1;
 
@@ -6977,6 +6979,14 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
 
   return (
     <div className="app-stack">
+      {editingVehicle && (
+        <VehicleQuickEditDialog
+          key={editingVehicle.id}
+          onClose={() => setEditingVehicleId("")}
+          onUpdateVehicle={onUpdateVehicle}
+          vehicle={editingVehicle}
+        />
+      )}
       <nav className="garage-feature-dock" aria-label="Garage features">
         <button type="button" onClick={() => garageListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}><Car size={18} /><span>Your Garage</span></button>
         <button type="button" disabled={!chartVehicle} onClick={() => valueHistoryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}><Gauge size={18} /><span>Canadian Value History</span></button>
@@ -7024,6 +7034,7 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
             return (
               <VehicleCard
                 key={vehicle.id || `${vehicle.make}-${vehicle.model}-${index}`}
+                onEdit={() => setEditingVehicleId(vehicle.id)}
                 onSelect={() => selectChartVehicle(vehicle.id)}
                 selected={chartVehicle?.id === vehicle.id}
                 showSelectionState={showHomeVehicleSelection}
@@ -7150,6 +7161,7 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
   const [selectedServiceOption, setSelectedServiceOption] = useState(instantBooking?.serviceOption || serviceOptionsForBooking(initialService)[0] || "Not Sure");
   const [selectedVehicleId, setSelectedVehicleId] = useState(instantBooking?.vehicleId || activeVehicleId || garage[0]?.id || "");
   const [benefitsExpanded, setBenefitsExpanded] = useState(false);
+  const [expandedBenefitKey, setExpandedBenefitKey] = useState("");
   const [selectedBenefitKey, setSelectedBenefitKey] = useState("");
   const [reminderError, setReminderError] = useState("");
   const selectedVehicle = garage.find((vehicle) => vehicle.id === selectedVehicleId) || garage[0] || null;
@@ -7159,6 +7171,14 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
   const compatibleBenefitKeys = suggestedBenefitKeysForRequest({ service: selectedService, notes: selectedServiceOption });
   const compatibleBenefits = benefitSummary.filter((benefit) => benefit.remaining > 0 && compatibleBenefitKeys.includes(benefit.key));
   const selectedBenefit = compatibleBenefits.find((benefit) => benefit.key === selectedBenefitKey) || null;
+  const bookingSmartCards = useMemo(() => {
+    const relevantGarage = selectedVehicle ? [selectedVehicle] : garage;
+    return homeSmartCards({
+      garage: relevantGarage,
+      insights: garageInsightItems(relevantGarage),
+      reminders: buildServiceReminders(relevantGarage, member.plan),
+    });
+  }, [garage, member.plan, selectedVehicle]);
   const formSectionRef = useRef(null);
   const vehicleSectionRef = useRef(null);
   const serviceSectionRef = useRef(null);
@@ -7290,19 +7310,11 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
 
   return (
     <div className="app-stack">
-      <nav className="booking-feature-dock" aria-label="Booking shortcuts">
-        <button className={benefitsExpanded ? "active" : ""} type="button" onClick={() => setBenefitsExpanded((expanded) => !expanded)}><Gift size={18} /><span>Benefits</span><strong>{availableBenefitCount}</strong></button>
-        <button type="button" onClick={() => serviceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}><Sparkles size={18} /><span>Recommended</span></button>
-        <button type="button" disabled={!canBookService(member.plan, "Tuning / modifications")} onClick={() => chooseService("Tuning / modifications")}><Gauge size={18} /><span>Tuning</span></button>
-        <a href="https://news.google.com/search?q=automotive%20news%20Canada" target="_blank" rel="noreferrer"><FileText size={18} /><span>Car News</span></a>
-      </nav>
-      <section className="app-section" ref={vehicleSectionRef}>
-        <div className="app-section-title">
+      <section className="app-section compact-booking-section" ref={vehicleSectionRef}>
+        <div className="compact-booking-heading">
           <div>
-            <h2>{selectedServiceNeedsVehicle ? "Select Your Vehicle" : "No Garage Vehicle Required"}</h2>
-            <p>{selectedServiceNeedsVehicle
-              ? "Choose one saved Garage vehicle. We use its saved information for pricing, service history, VIN, mileage, and concierge coordination."
-              : `${selectedService} is coordinated from the request details, so it does not need to be tied to a saved vehicle.`}</p>
+            <span>{selectedServiceNeedsVehicle ? "Select vehicle" : "Vehicle optional"}</span>
+            <strong>{selectedServiceNeedsVehicle ? "Choose from your Garage" : `${selectedService} does not require a saved vehicle`}</strong>
           </div>
           {selectedServiceNeedsVehicle && <button type="button" onClick={() => setActiveTab("garage")}>Add Vehicle</button>}
         </div>
@@ -7313,13 +7325,50 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
             onVehicleSelect={chooseVehicle}
           />
         ) : (
-          <div className="empty-state compact-empty">
-            <CalendarCheck size={24} />
-            <h3>Continue with the service details</h3>
-            <p>Add the dates, locations, preferences, and other information requested below.</p>
-          </div>
+          <div className="compact-no-vehicle"><CalendarCheck size={17} /><span>Continue with the service details below.</span></div>
         )}
       </section>
+      <nav className="booking-feature-dock" aria-label="Booking shortcuts">
+        <button className={benefitsExpanded ? "active" : ""} type="button" onClick={() => setBenefitsExpanded((expanded) => !expanded)}><Gift size={18} /><span>Benefits</span><strong>{availableBenefitCount}</strong></button>
+        <a href={bookingSmartCards[0]?.href} target="_blank" rel="noreferrer"><Sparkles size={18} /><span>Recommended</span></a>
+        <a href={bookingSmartCards[1]?.href} target="_blank" rel="noreferrer"><Gauge size={18} /><span>Tuning</span></a>
+        <a href={bookingSmartCards[2]?.href} target="_blank" rel="noreferrer"><FileText size={18} /><span>Car News</span></a>
+      </nav>
+      {benefitsExpanded && (
+        <div className="booking-benefit-popover-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setBenefitsExpanded(false);
+        }}>
+          <section aria-labelledby="booking-benefits-title" aria-modal="true" className="booking-benefit-popover" role="dialog">
+            <header>
+              <div><span>{member.plan} membership</span><h2 id="booking-benefits-title">Available Benefits</h2></div>
+              <button aria-label="Close benefits" type="button" onClick={() => setBenefitsExpanded(false)}><X size={19} /></button>
+            </header>
+            <p>{availableBenefitCount} ready to use · {waitingBenefitCount} waiting to unlock</p>
+            <div className="booking-benefit-popover-list">
+              {benefitSummary.map((benefit) => {
+                const compatible = compatibleBenefits.some((item) => item.key === benefit.key);
+                const expanded = expandedBenefitKey === benefit.key;
+                return (
+                  <article className={`${benefit.remaining > 0 ? "" : benefit.locked > 0 ? "benefit-locked" : "benefit-exhausted"} ${selectedBenefitKey === benefit.key ? "selected" : ""}`.trim()} key={benefit.key}>
+                    <button className="booking-benefit-detail-toggle" type="button" onClick={() => setExpandedBenefitKey(expanded ? "" : benefit.key)}>
+                      <Gift size={17} />
+                      <span><strong>{benefit.shortLabel}</strong><small>{benefit.remaining > 0 ? `${benefit.remaining} available` : benefit.locked > 0 ? `${benefit.locked} waiting` : "Used"}</small></span>
+                      <ChevronRight className={expanded ? "expanded" : ""} size={17} />
+                    </button>
+                    {expanded && <p>{benefit.label}. Availability is verified when your booking is submitted.</p>}
+                    {compatible && (
+                      <button className="booking-benefit-use" type="button" onClick={() => setSelectedBenefitKey((current) => current === benefit.key ? "" : benefit.key)}>
+                        {selectedBenefitKey === benefit.key ? "Remove from booking" : "Use Available Benefit"}
+                      </button>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+            {selectedBenefit && <div className="benefit-payment-waiver"><Check size={16} /> {selectedBenefit.label} applied to this booking.</div>}
+          </section>
+        </div>
+      )}
 
       <section className="app-section" ref={serviceSectionRef}>
         <div className="app-section-title">
@@ -7332,47 +7381,6 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
             <strong>{serviceOptions.length}</strong>
             <span className="section-count-label">services</span>
           </span>
-        </div>
-        <div className={benefitsExpanded ? "booking-benefit-box expanded" : "booking-benefit-box"}>
-          <button
-            aria-expanded={benefitsExpanded}
-            className="booking-benefit-toggle"
-            onClick={() => setBenefitsExpanded((expanded) => !expanded)}
-            type="button"
-          >
-            <span className="booking-benefit-toggle-icon"><Gift size={18} /></span>
-            <span>
-              <small>{member.plan} benefits</small>
-              <strong>{availableBenefitCount} available · {waitingBenefitCount} waiting</strong>
-            </span>
-            <ChevronRight className={benefitsExpanded ? "expanded" : ""} size={20} />
-          </button>
-          {benefitsExpanded && (
-            <div className="booking-benefit-list">
-              <p>Choose an available eligible benefit to book without a payment today. Waiting benefits unlock gradually after successful membership payments.</p>
-              <div>
-                {benefitSummary.map((benefit) => (
-                  <article className={`${benefit.remaining > 0 ? "" : benefit.locked > 0 ? "benefit-locked" : "benefit-exhausted"} ${selectedBenefitKey === benefit.key ? "selected" : ""}`.trim()} key={benefit.key}>
-                    <Gift size={18} />
-                    <span>{benefit.shortLabel}</span>
-                    <strong>{benefit.remaining > 0
-                      ? `${benefit.remaining} available`
-                      : benefit.waitingForRevenue
-                        ? "Awaiting paid balance"
-                        : benefit.locked > 0
-                          ? `Earliest ${formatBenefitUnlockDate(benefit.nextUnlockAt)}`
-                          : "Used"}</strong>
-                    {compatibleBenefits.some((item) => item.key === benefit.key) && (
-                      <button type="button" onClick={() => setSelectedBenefitKey((current) => current === benefit.key ? "" : benefit.key)}>
-                        {selectedBenefitKey === benefit.key ? "Remove" : "Use"}
-                      </button>
-                    )}
-                  </article>
-                ))}
-              </div>
-              {selectedBenefit && <div className="benefit-payment-waiver"><Check size={16} /> {selectedBenefit.label} selected — no payment required today.</div>}
-            </div>
-          )}
         </div>
         {serviceReminders.length > 0 && (
           <div className="booking-reminder-strip">
@@ -9625,31 +9633,116 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
   );
 }
 
-function VehicleCard({ onSelect, selected = false, showSelectionState = false, vehicle, valuations }) {
+function VehicleCard({ onEdit, onSelect, selected = false, showSelectionState = false, vehicle, valuations }) {
   const label = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle";
   const mileage = formatVehicleMileage(vehicle.mileage);
   const latestValuation = latestVehicleValuation(vehicle, valuations);
   const marketValue = latestValuation ? formatCadCents(latestValuation.valueCents) : vehicleMarketValue(vehicle);
   const vehicleImages = vehicleImageGallery(vehicle);
 
+  const menuRef = useRef(null);
+
   return (
-    <button className={selected && showSelectionState ? "vehicle-card selected-home-vehicle" : "vehicle-card"} type="button" onClick={onSelect} disabled={!vehicle.id}>
-      <div className="vehicle-card-photo">
-        <img alt={label} onError={handleVehicleImageError} src={vehicleImages[0] || fallbackVehicleImage} />
-        {vehicleImages.length > 1 && <small>{vehicleImages.length} photos</small>}
-      </div>
-      <div>
-        <span>{vehicle.use || "Collection"}</span>
-        <h3>{label}</h3>
-        <p>{mileage}</p>
-        <strong className="vehicle-value">{marketValue}</strong>
-        <small className="vehicle-value-source">{latestValuation ? `${latestValuation.source} · CAD` : "Modeled Canadian estimate"}</small>
-      </div>
-      <div className="vehicle-card-status">
-        {selected && showSelectionState && <small>Home vehicle</small>}
-        <strong>{vehicle.status || "Active"}</strong>
-      </div>
-    </button>
+    <article className={selected && showSelectionState ? "vehicle-card-shell selected-home-vehicle" : "vehicle-card-shell"}>
+      <button className="vehicle-card" type="button" onClick={onSelect} disabled={!vehicle.id}>
+        <div className="vehicle-card-photo">
+          <img alt={label} onError={handleVehicleImageError} src={vehicleImages[0] || fallbackVehicleImage} />
+          {vehicleImages.length > 1 && <small>{vehicleImages.length} photos</small>}
+        </div>
+        <div>
+          <span>{vehicle.use || "Collection"}</span>
+          <h3>{label}</h3>
+          <p>{mileage}</p>
+          <strong className="vehicle-value">{marketValue}</strong>
+          <small className="vehicle-value-source">{latestValuation ? `${latestValuation.source} · CAD` : "Modeled Canadian estimate"}</small>
+        </div>
+        <div className="vehicle-card-status">
+          {selected && showSelectionState && <small>Selected</small>}
+          <strong>{vehicle.status || "Active"}</strong>
+        </div>
+      </button>
+      <details className="vehicle-card-menu" ref={menuRef}>
+        <summary aria-label={`Vehicle options for ${label}`}><MoreVertical size={18} /></summary>
+        <div>
+          <button type="button" onClick={() => {
+            if (menuRef.current) menuRef.current.open = false;
+            onEdit?.();
+          }}>Edit Vehicle</button>
+        </div>
+      </details>
+    </article>
+  );
+}
+
+function VehicleQuickEditDialog({ onClose, onUpdateVehicle, vehicle }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const label = vehicleLabel(vehicle);
+
+  async function saveVehicle(event) {
+    event.preventDefault();
+    if (saving) return;
+    const formData = new FormData(event.currentTarget);
+    setError("");
+    setSaving(true);
+
+    try {
+      await onUpdateVehicle(vehicle.id, {
+        year: String(formData.get("year") || "").trim(),
+        make: String(formData.get("make") || "").trim(),
+        model: String(formData.get("model") || "").trim(),
+        trim: String(formData.get("trim") || "").trim(),
+        mileage: String(formData.get("mileage") || "").trim(),
+        color: String(formData.get("color") || "").trim(),
+        transmission: String(formData.get("transmission") || "").trim(),
+        drivetrain: String(formData.get("drivetrain") || "").trim(),
+        bodyStyle: String(formData.get("bodyStyle") || "").trim(),
+        fuelType: String(formData.get("fuelType") || "").trim(),
+        condition: String(formData.get("condition") || "").trim(),
+        status: String(formData.get("status") || "").trim(),
+      });
+      onClose();
+    } catch (saveError) {
+      setError(saveError.message || "Could not save this vehicle.");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="vehicle-quick-edit-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section aria-labelledby="vehicle-quick-edit-title" aria-modal="true" className="vehicle-quick-edit-dialog" role="dialog">
+        <header>
+          <div>
+            <span>Edit vehicle</span>
+            <h2 id="vehicle-quick-edit-title">{label}</h2>
+          </div>
+          <button aria-label="Close vehicle editor" type="button" onClick={onClose}><X size={20} /></button>
+        </header>
+        <form onSubmit={saveVehicle}>
+          {error && <div className="error-message" role="alert">{error}</div>}
+          <div className="vehicle-quick-edit-grid">
+            <label>Year<input defaultValue={vehicle.year || ""} name="year" inputMode="numeric" type="number" /></label>
+            <label>Make<input defaultValue={vehicle.make || ""} name="make" type="text" /></label>
+            <label>Model<input defaultValue={vehicle.model || ""} name="model" type="text" /></label>
+            <label>Trim<input defaultValue={vehicle.trim || ""} name="trim" type="text" /></label>
+            <label>Odometer (km)<input defaultValue={String(vehicle.mileage || "").replace(/\D/g, "")} min="0" name="mileage" inputMode="numeric" type="number" /></label>
+            <label>Exterior colour<input defaultValue={vehicle.color || ""} name="color" type="text" /></label>
+            <label>Transmission<select defaultValue={vehicle.transmission || ""} name="transmission"><option value="">Not specified</option><option>Automatic</option><option>Manual</option><option>Dual-clutch</option><option>CVT</option><option>Other</option></select></label>
+            <label>Drivetrain<select defaultValue={vehicle.drivetrain || ""} name="drivetrain"><option value="">Not specified</option><option>FWD</option><option>RWD</option><option>AWD</option><option>4WD</option></select></label>
+            <label>Body style<input defaultValue={vehicle.bodyStyle || ""} name="bodyStyle" type="text" /></label>
+            <label>Fuel type<input defaultValue={vehicle.fuelType || ""} name="fuelType" type="text" /></label>
+            <label>Condition<input defaultValue={vehicle.condition || ""} name="condition" type="text" /></label>
+            <label>Status<input defaultValue={vehicle.status || ""} name="status" type="text" /></label>
+          </div>
+          <footer>
+            <button className="button secondary" type="button" onClick={onClose}>Cancel</button>
+            <button className="button primary" disabled={saving} type="submit">{saving ? "Saving…" : "Save Changes"}</button>
+          </footer>
+        </form>
+      </section>
+    </div>
   );
 }
 

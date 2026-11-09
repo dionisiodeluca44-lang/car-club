@@ -421,6 +421,7 @@ export async function updateVehicleRecord(vehicleId, updates) {
 
   const { data: authData } = await supabase.auth.getUser();
   const userId = authData?.user?.id || "";
+  if (!userId) throw new Error("You must be signed in to update this vehicle.");
   const windowStickerPath = updates.windowStickerData
     ? await uploadVehicleDocument(userId, updates.windowStickerData, updates.windowStickerName, updates.windowStickerType)
     : undefined;
@@ -435,7 +436,13 @@ export async function updateVehicleRecord(vehicleId, updates) {
     windowStickerPath,
   });
 
-  const { data, error } = await supabase.from("vehicles").update(payload).eq("id", vehicleId).select("*").single();
+  const { data, error } = await supabase
+    .from("vehicles")
+    .update(payload)
+    .eq("id", vehicleId)
+    .eq("user_id", userId)
+    .select("*")
+    .single();
   if (error) throw new Error(`Could not update vehicle: ${error.message}`);
 
   const valueCents = currencyValueToCents(updates.marketValue);

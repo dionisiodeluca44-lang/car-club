@@ -5891,6 +5891,560 @@ textarea:focus {
   }
 }
 
+/* Compact Garage and Booking refinement */
+.vehicle-card-shell {
+  position: relative;
+  overflow: visible;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.22);
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.vehicle-card-shell:hover {
+  border-color: rgba(229, 200, 121, 0.5);
+  background: rgba(201, 164, 92, 0.08);
+}
+
+.vehicle-card-shell.selected-home-vehicle {
+  border-color: rgba(229, 200, 121, 0.76);
+  background: linear-gradient(90deg, rgba(201, 164, 92, 0.16), rgba(201, 164, 92, 0.05));
+  box-shadow: inset 3px 0 var(--gold-bright);
+}
+
+.vehicle-card-shell .vehicle-card {
+  width: 100%;
+  padding-right: 3.4rem;
+  border: 0;
+  background: transparent;
+}
+
+.vehicle-card-shell .vehicle-card:hover,
+.vehicle-card-shell .vehicle-card:focus-visible {
+  border: 0;
+  background: transparent;
+}
+
+.vehicle-card-menu {
+  position: absolute;
+  z-index: 6;
+  top: 0.65rem;
+  right: 0.65rem;
+}
+
+.vehicle-card-menu > summary {
+  display: grid;
+  width: 2.35rem;
+  height: 2.35rem;
+  place-items: center;
+  border: 1px solid rgba(229, 200, 121, 0.22);
+  border-radius: 50%;
+  background: rgba(5, 5, 5, 0.82);
+  color: var(--soft);
+  cursor: pointer;
+  list-style: none;
+  backdrop-filter: blur(12px);
+}
+
+.vehicle-card-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.vehicle-card-menu[open] > summary,
+.vehicle-card-menu > summary:hover {
+  border-color: rgba(229, 200, 121, 0.56);
+  color: var(--gold-bright);
+}
+
+.vehicle-card-menu > div {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  width: 9rem;
+  padding: 0.35rem;
+  border: 1px solid rgba(229, 200, 121, 0.26);
+  border-radius: 11px;
+  background: rgba(10, 10, 10, 0.98);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.48);
+}
+
+.vehicle-card-menu > div button {
+  width: 100%;
+  padding: 0.62rem 0.7rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 850;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vehicle-card-menu > div button:hover {
+  background: rgba(201, 164, 92, 0.12);
+  color: var(--gold-bright);
+}
+
+.vehicle-quick-edit-backdrop,
+.booking-benefit-popover-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.vehicle-quick-edit-dialog,
+.booking-benefit-popover {
+  width: min(720px, 100%);
+  max-height: min(88dvh, 760px);
+  overflow: auto;
+  border: 1px solid rgba(229, 200, 121, 0.34);
+  border-radius: 20px;
+  background: #10100f;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.72);
+}
+
+.vehicle-quick-edit-dialog > header,
+.booking-benefit-popover > header {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+  background: rgba(16, 16, 15, 0.96);
+  backdrop-filter: blur(16px);
+}
+
+.vehicle-quick-edit-dialog > header span,
+.booking-benefit-popover > header span {
+  color: var(--gold-bright);
+  font-size: 0.67rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.vehicle-quick-edit-dialog > header h2,
+.booking-benefit-popover > header h2 {
+  margin: 0.15rem 0 0;
+  font-size: 1.2rem;
+}
+
+.vehicle-quick-edit-dialog > header button,
+.booking-benefit-popover > header button {
+  display: grid;
+  width: 2.35rem;
+  height: 2.35rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--soft);
+  cursor: pointer;
+}
+
+.vehicle-quick-edit-dialog form {
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.vehicle-quick-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.vehicle-quick-edit-grid label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--soft);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.vehicle-quick-edit-grid input,
+.vehicle-quick-edit-grid select {
+  width: 100%;
+  min-height: 2.65rem;
+  padding: 0.65rem 0.72rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.32);
+  color: var(--ink);
+  font: inherit;
+}
+
+.vehicle-quick-edit-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.compact-booking-section {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.compact-booking-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.compact-booking-heading > div {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.compact-booking-heading span {
+  color: var(--gold-bright);
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.compact-booking-heading strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-booking-heading > button {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.55rem;
+  border: 0;
+  background: transparent;
+  color: var(--gold-bright);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.compact-no-vehicle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.booking-feature-dock {
+  gap: 0.35rem;
+  padding: 0.35rem;
+  border-radius: 14px;
+}
+
+.booking-feature-dock button,
+.booking-feature-dock a {
+  min-height: 42px;
+  gap: 0.32rem;
+  padding: 0.42rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.7rem;
+}
+
+.booking-feature-dock svg {
+  width: 16px;
+  height: 16px;
+}
+
+.booking-feature-dock strong {
+  min-width: 1.1rem;
+  height: 1.1rem;
+  font-size: 0.62rem;
+}
+
+.booking-benefit-popover {
+  width: min(440px, 100%);
+  max-height: min(76dvh, 620px);
+}
+
+.booking-benefit-popover > p {
+  margin: 0;
+  padding: 0.7rem 1rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.booking-benefit-popover-list {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0 0.75rem 0.75rem;
+}
+
+.booking-benefit-popover-list article {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.booking-benefit-popover-list article.selected {
+  border-color: rgba(229, 200, 121, 0.62);
+  background: rgba(201, 164, 92, 0.1);
+}
+
+.booking-benefit-popover-list article.benefit-exhausted,
+.booking-benefit-popover-list article.benefit-locked {
+  opacity: 0.58;
+}
+
+.booking-benefit-detail-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.62rem 0.7rem;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.booking-benefit-detail-toggle > svg:first-child {
+  color: var(--gold-bright);
+}
+
+.booking-benefit-detail-toggle > svg:last-child {
+  color: var(--muted);
+  transition: transform 160ms ease;
+}
+
+.booking-benefit-detail-toggle > svg.expanded {
+  transform: rotate(90deg);
+}
+
+.booking-benefit-detail-toggle span {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.booking-benefit-detail-toggle strong {
+  font-size: 0.8rem;
+}
+
+.booking-benefit-detail-toggle small {
+  color: var(--gold-bright);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.booking-benefit-popover-list article > p {
+  margin: 0;
+  padding: 0 0.7rem 0.55rem 2.9rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.booking-benefit-use {
+  margin: 0 0.7rem 0.65rem 2.9rem;
+  padding: 0.42rem 0.62rem;
+  border: 1px solid rgba(229, 200, 121, 0.38);
+  border-radius: 8px;
+  background: rgba(201, 164, 92, 0.08);
+  color: var(--gold-bright);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.booking-benefit-popover > .benefit-payment-waiver {
+  margin: 0 0.75rem 0.75rem;
+  font-size: 0.74rem;
+}
+
+.schedule-service-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.42rem;
+}
+
+.schedule-service-grid button {
+  grid-template-columns: 1.8rem minmax(0, 1fr);
+  min-height: 58px;
+  gap: 0.48rem;
+  padding: 0.48rem 0.52rem;
+  border-radius: 11px;
+}
+
+.schedule-service-icon {
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 8px;
+}
+
+.schedule-service-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.schedule-service-grid h3 {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.12;
+}
+
+.schedule-service-grid p,
+.schedule-service-cta {
+  display: none;
+}
+
+.booking-reminder-strip {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-bottom: 0.65rem;
+}
+
+.booking-reminder-strip button {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.18rem 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 11px;
+}
+
+.booking-reminder-strip button strong {
+  font-size: 0.76rem;
+}
+
+.booking-reminder-strip button small {
+  grid-column: 2;
+  font-size: 0.68rem;
+}
+
+@media (max-width: 1000px) {
+  .vehicle-quick-edit-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .schedule-service-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .vehicle-card-shell .vehicle-card {
+    grid-template-columns: 82px minmax(0, 1fr);
+    padding: 0.7rem 3.1rem 0.7rem 0.7rem;
+  }
+
+  .vehicle-card-shell .vehicle-card-photo,
+  .vehicle-card-shell .vehicle-card-photo img {
+    width: 82px;
+    height: 66px;
+  }
+
+  .vehicle-card-shell .vehicle-card-status {
+    grid-column: 2;
+    justify-items: start;
+  }
+
+  .vehicle-card-shell .vehicle-card-status strong {
+    grid-column: auto;
+  }
+
+  .vehicle-quick-edit-backdrop,
+  .booking-benefit-popover-backdrop {
+    align-items: end;
+    padding: 0;
+  }
+
+  .vehicle-quick-edit-dialog,
+  .booking-benefit-popover {
+    width: 100%;
+    max-height: calc(92dvh - env(safe-area-inset-top));
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 20px 20px 0 0;
+  }
+
+  .vehicle-quick-edit-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
+  }
+
+  .vehicle-quick-edit-dialog footer {
+    position: sticky;
+    bottom: 0;
+    margin: 0.85rem -1.1rem -1.1rem;
+    padding: 0.8rem 1.1rem calc(0.8rem + env(safe-area-inset-bottom));
+    background: rgba(16, 16, 15, 0.97);
+  }
+
+  .compact-booking-heading strong {
+    max-width: 48vw;
+  }
+
+  .booking-feature-dock {
+    position: static;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .booking-feature-dock button,
+  .booking-feature-dock a {
+    min-height: 44px;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.35rem 0.22rem;
+    font-size: 0.58rem;
+    line-height: 1.05;
+  }
+
+  .booking-feature-dock strong {
+    position: absolute;
+    transform: translate(13px, -10px);
+  }
+
+  .schedule-service-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.4rem;
+  }
+
+  .schedule-service-grid button {
+    aspect-ratio: auto;
+    min-height: 62px;
+    padding: 0.48rem;
+  }
+
+  .schedule-service-grid h3 {
+    margin: 0;
+    font-size: 0.7rem;
+  }
+
+  .booking-reminder-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .saved-vehicle-selector-list {
+    grid-template-columns: 1fr;
+  }
+}
+
 .admin-consultation-workspace {
   display: grid;
   gap: 0.85rem;
@@ -9116,5 +9670,126 @@ textarea:focus {
 
   .schedule-service-grid p {
     display: none;
+  }
+}
+
+/* Final compact layout overrides */
+.vehicle-card-shell {
+  position: relative;
+  overflow: visible;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.vehicle-card-shell.selected-home-vehicle {
+  border-color: rgba(229, 200, 121, 0.76);
+  background: linear-gradient(90deg, rgba(201, 164, 92, 0.16), rgba(201, 164, 92, 0.05));
+  box-shadow: inset 3px 0 var(--gold-bright);
+}
+
+.vehicle-card-shell .vehicle-card {
+  width: 100%;
+  padding-right: 3.4rem;
+  border: 0;
+  background: transparent;
+}
+
+.booking-feature-dock {
+  gap: 0.35rem;
+  padding: 0.35rem;
+  border-radius: 14px;
+}
+
+.booking-feature-dock button,
+.booking-feature-dock a {
+  min-height: 42px;
+  gap: 0.32rem;
+  padding: 0.42rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.7rem;
+}
+
+.schedule-service-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.42rem;
+  max-width: none;
+}
+
+.schedule-service-grid button {
+  grid-template-columns: 1.8rem minmax(0, 1fr);
+  min-height: 58px;
+  aspect-ratio: auto;
+  gap: 0.48rem;
+  padding: 0.48rem 0.52rem;
+  border-radius: 11px;
+}
+
+.schedule-service-grid .schedule-service-icon {
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 8px;
+}
+
+.schedule-service-grid .schedule-service-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.schedule-service-grid h3 {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.12;
+}
+
+.schedule-service-grid p,
+.schedule-service-grid .schedule-service-cta {
+  display: none;
+}
+
+@media (max-width: 1000px) {
+  .schedule-service-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .vehicle-card-shell .vehicle-card {
+    grid-template-columns: 82px minmax(0, 1fr);
+    padding: 0.7rem 3.1rem 0.7rem 0.7rem;
+  }
+
+  .vehicle-card-shell .vehicle-card-status {
+    grid-column: 2;
+    justify-items: start;
+  }
+
+  .booking-feature-dock {
+    position: static;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .booking-feature-dock button,
+  .booking-feature-dock a {
+    min-height: 44px;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.35rem 0.22rem;
+    font-size: 0.58rem;
+    line-height: 1.05;
+  }
+
+  .schedule-service-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.4rem;
+  }
+
+  .schedule-service-grid button {
+    min-height: 62px;
+    padding: 0.48rem;
+  }
+
+  .schedule-service-grid h3 {
+    font-size: 0.7rem;
   }
 }
