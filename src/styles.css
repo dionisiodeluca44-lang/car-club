@@ -804,6 +804,50 @@ textarea:focus {
   color: var(--gold-bright);
 }
 
+.membership-application-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: grid;
+  place-items: center;
+  padding: clamp(0.5rem, 2vw, 1.5rem);
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(16px);
+}
+
+.membership-application-dialog {
+  position: relative;
+  width: min(1120px, 100%);
+  max-height: calc(100dvh - clamp(1rem, 4vw, 3rem));
+  overflow-y: auto;
+  border: 1px solid rgba(229, 200, 121, 0.28);
+  border-radius: calc(var(--radius) + 0.35rem);
+  background: #0b0b0b;
+  box-shadow: 0 32px 120px rgba(0, 0, 0, 0.7);
+  overscroll-behavior: contain;
+}
+
+.membership-application-close {
+  position: sticky;
+  top: 0.75rem;
+  z-index: 3;
+  display: grid;
+  margin: 0.75rem 0.75rem -3.5rem auto;
+  border-color: rgba(229, 200, 121, 0.32);
+  background: rgba(10, 10, 10, 0.92);
+  backdrop-filter: blur(10px);
+}
+
+.membership-application-dialog > .apply-section {
+  padding: clamp(1.25rem, 3vw, 2.5rem);
+  padding-top: 3.75rem;
+  background: transparent;
+}
+
+.membership-application-dialog .apply-copy {
+  top: 1.5rem;
+}
+
 .member-access-modal {
   position: fixed;
   inset: 0;

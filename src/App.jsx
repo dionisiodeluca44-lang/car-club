@@ -1432,6 +1432,10 @@ function normalizeRequestValue(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function isCancelledServiceRequest(appointment) {
+  return ["cancelled", "canceled"].includes(normalizeRequestValue(appointment?.status));
+}
+
 function appointmentMatchesVehicle(appointment, vehicle) {
   if (!appointment || !vehicle) return false;
   const appointmentVehicleId = normalizeRequestValue(appointment.vehicleId);
@@ -2725,6 +2729,7 @@ function App() {
   const [mode, setMode] = useState(() => new URLSearchParams(window.location.search).get("password") === "recovery" ? "password-recovery" : "site");
   const [menuOpen, setMenuOpen] = useState(false);
   const [memberAccessChoiceOpen, setMemberAccessChoiceOpen] = useState(false);
+  const [membershipApplicationOpen, setMembershipApplicationOpen] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [appError, setAppError] = useState("");
@@ -2767,6 +2772,25 @@ function App() {
   const memberAccessLabel = nativeAppRuntime ? "Sign in / Sign up" : "Open Member App";
 
   const closeMenu = () => setMenuOpen(false);
+
+  function openMembershipApplication() {
+    closeMenu();
+    setMembershipApplicationOpen(true);
+  }
+
+  useEffect(() => {
+    if (!membershipApplicationOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setMembershipApplicationOpen(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [membershipApplicationOpen]);
 
   useEffect(() => {
     resetAppScroll();
@@ -3127,6 +3151,7 @@ function App() {
         vehicles,
       });
       form.reset();
+      setMembershipApplicationOpen(false);
       setMode("lead-consultation");
     } catch {
       setSubmitError("Something went wrong. Please try again or contact us directly.");
@@ -3527,6 +3552,9 @@ function App() {
     const currentAppointment = appointments.find((appointment) => appointment.id === appointmentId);
     if (!currentAppointment) throw new Error("Could not find that service request.");
     const cancelling = ["cancelled", "canceled"].includes(normalizeRequestValue(updates.status));
+    if (cancelling && !updates.cancelledAt) {
+      updates = { ...updates, cancelledAt: new Date().toISOString() };
+    }
     if (!cancelling && !isFutureServiceDate(currentAppointment.date)) {
       throw new Error("Same-day service requests are locked. Contact the concierge for urgent changes.");
     }
@@ -3688,7 +3716,8 @@ function App() {
       comments: [],
       reactions: [],
     };
-    return <MemberApp appointments={[previewAppointment]} benefitUsage={[]} feedPosts={[previewPost]} garage={[previewVehicle]} member={previewMember} membershipRevenueEvents={[{ amountPaidCents: 900000, paidAt: new Date().toISOString() }]} onAddAppointment={async (request) => ({ ...request, id: crypto.randomUUID(), status: "Requested" })} onAddFeedComment={async () => {}} onAddFeedPost={async () => {}} onAddVehicle={async () => {}} onDeleteAccount={async () => {}} onDeleteFeedPost={async () => {}} onDeleteVehicle={async () => {}} onEditFeedPost={async () => {}} onLogout={() => {}} onRefreshFeedPosts={async () => {}} onRefreshMemberAppData={async () => {}} onToggleFeedReaction={async () => {}} onUpdateAppointment={async (id, updates) => ({ id, ...previewAppointment, ...updates })} onUpdateMember={async () => {}} onUpdateVehicle={async () => {}} serviceDocuments={[]} servicePricing={{}} vehicleValuations={[]} />;
+    const cancelledPreviewAppointment = { ...previewAppointment, id: "cancelled-preview-request", status: "Cancelled" };
+    return <MemberApp appointments={[previewAppointment, cancelledPreviewAppointment]} benefitUsage={[]} feedPosts={[previewPost]} garage={[previewVehicle]} member={previewMember} membershipRevenueEvents={[{ amountPaidCents: 900000, paidAt: new Date().toISOString() }]} onAddAppointment={async (request) => ({ ...request, id: crypto.randomUUID(), status: "Requested" })} onAddFeedComment={async () => {}} onAddFeedPost={async () => {}} onAddVehicle={async () => {}} onDeleteAccount={async () => {}} onDeleteFeedPost={async () => {}} onDeleteVehicle={async () => {}} onEditFeedPost={async () => {}} onLogout={() => {}} onRefreshFeedPosts={async () => {}} onRefreshMemberAppData={async () => {}} onToggleFeedReaction={async () => {}} onUpdateAppointment={async (id, updates) => ({ id, ...previewAppointment, ...updates })} onUpdateMember={async () => {}} onUpdateVehicle={async () => {}} serviceDocuments={[]} servicePricing={{}} vehicleValuations={[]} />;
   }
 
   if (mode === "login") {
@@ -3724,7 +3753,7 @@ function App() {
         vehicles={leadConsultation.vehicles}
         onBack={() => {
           setMode("site");
-          window.setTimeout(() => document.getElementById("apply")?.scrollIntoView({ behavior: "smooth" }), 50);
+          setMembershipApplicationOpen(true);
         }}
         onBooked={(consultation) => {
           setLeadConsultation((current) => ({ ...current, consultation }));
@@ -3821,7 +3850,7 @@ function App() {
           <button className="nav-button profile-nav-button" type="button" onClick={openMemberAccess}>
             <ProfileAvatar member={member} size={24} /> Member App
           </button>
-          <a href="#apply" onClick={closeMenu}>Apply</a>
+          <button className="nav-button" type="button" onClick={openMembershipApplication}>Apply</button>
         </nav>
       </header>
 
@@ -3839,9 +3868,9 @@ function App() {
               <button className="button primary" type="button" onClick={openMemberAccess}>
                 Sign In <ArrowRight size={18} />
               </button>
-              <a className="button secondary" href="#apply">
+              <button className="button secondary" type="button" onClick={openMembershipApplication}>
                 Become a Member <CalendarCheck size={18} />
-              </a>
+              </button>
             </div>
           </div>
         </section>
@@ -3888,9 +3917,9 @@ function App() {
                     </li>
                   ))}
                 </ul>
-                <a className={plan.name === "Collector" ? "button secondary full" : "button primary full"} href="#apply">
+                <button className={plan.name === "Collector" ? "button secondary full" : "button primary full"} type="button" onClick={openMembershipApplication}>
                   {plan.name === "Collector" ? "Apply for Collector Plan" : "Become a Member"}
-                </a>
+                </button>
               </article>
             ))}
           </div>
@@ -3918,8 +3947,6 @@ function App() {
             </p>
           </div>
         </section>
-
-        <LeadSection handleSubmit={handleSubmit} submitted={submitted} submitError={submitError} />
       </main>
 
       <footer className="footer">
@@ -3932,6 +3959,16 @@ function App() {
           <button type="button" onClick={openMemberAccess}>Open Member App</button>
         </div>
       </footer>
+      {membershipApplicationOpen && (
+        <div className="membership-application-backdrop" role="presentation" onMouseDown={() => setMembershipApplicationOpen(false)}>
+          <section className="membership-application-dialog" role="dialog" aria-modal="true" aria-labelledby="membership-application-title" onMouseDown={(event) => event.stopPropagation()}>
+            <button className="icon-button membership-application-close" type="button" onClick={() => setMembershipApplicationOpen(false)} aria-label="Close membership application">
+              <X size={20} />
+            </button>
+            <LeadSection handleSubmit={handleSubmit} submitted={submitted} submitError={submitError} titleId="membership-application-title" />
+          </section>
+        </div>
+      )}
       {memberAccessChoiceOpen && (
         <div className="member-access-modal" role="dialog" aria-modal="true" aria-labelledby="member-access-title">
           <section className="member-access-card">
@@ -6203,7 +6240,7 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
   const tabScrollPositionsRef = useRef({ account: 0, feed: 0, garage: 0, home: 0, schedule: 0 });
   const lastTabPressRef = useRef({ tab: "", time: 0 });
   const garageList = ensureList(garage).map(normalizeVehicle);
-  const appointmentList = ensureList(appointments);
+  const appointmentList = useMemo(() => ensureList(appointments).filter((appointment) => !isCancelledServiceRequest(appointment)), [appointments]);
   const benefitSummary = useMemo(() => summarizeMembershipBenefits(member.plan, ensureList(benefitUsage), {
     activationDate: member.stripeSubscriptionCreatedAt || member.subscriptionActivatedAt || member.createdAt,
     revenueEvents: ensureList(membershipRevenueEvents),
@@ -7478,12 +7515,18 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
       </section>
       <section className="app-section">
         <div className="app-section-title">
-        <h2>Your Service Requests</h2>
-          <span>{appointments.length} total</span>
+          <h2>Your Service Requests</h2>
+          <span>{appointments.length} active</span>
         </div>
-        {appointments.map((appointment) => (
+        {appointments.length > 0 ? appointments.map((appointment) => (
           <ServiceRequestCard appointment={appointment} key={appointment.id} onUpdateAppointment={onUpdateAppointment} />
-        ))}
+        )) : (
+          <div className="empty-state compact-empty">
+            <CalendarCheck size={24} />
+            <h3>No upcoming service requests.</h3>
+            <p>When you request a service, its latest status and timing will appear here.</p>
+          </div>
+        )}
       </section>
     </div>
   );
@@ -10859,7 +10902,7 @@ function ServiceRequestCard({ appointment, onUpdateAppointment }) {
     if (!canCancel || saving) return;
     const cancellationReason = window.prompt("Optional: tell your concierge why you are cancelling this request.", "") ?? null;
     if (cancellationReason === null) return;
-    if (!window.confirm("Cancel this service request? It will remain in your booking history.")) return;
+    if (!window.confirm("Cancel this service request? It will disappear from your active requests but remain available to the concierge team for administrative history.")) return;
     setEditError("");
     setSaving(true);
     try {
@@ -10948,7 +10991,7 @@ function AppNavButton({ active, icon: Icon, label, onClick }) {
   );
 }
 
-function LeadSection({ handleSubmit, submitted, submitError }) {
+function LeadSection({ handleSubmit, submitted, submitError, titleId }) {
   const [vehicleCount, setVehicleCount] = useState(1);
 
   function updateVehicleCount(value) {
@@ -10956,10 +10999,10 @@ function LeadSection({ handleSubmit, submitted, submitError }) {
   }
 
   return (
-    <section className="apply-section" id="apply">
+    <section className="apply-section">
       <div className="apply-copy">
         <p className="eyebrow">Private membership</p>
-        <h2>Book your membership consultation</h2>
+        <h2 id={titleId}>Book your membership consultation</h2>
         <p>
           Tell us about your vehicles and the support you need, then choose a private consultation time that works for you.
         </p>
