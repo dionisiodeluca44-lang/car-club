@@ -7799,7 +7799,7 @@ function FeedUploadForm({ initialType = "vehicle", onAddFeedPost, onComplete, on
         mediaFile: postType === "event" ? null : mediaFile,
         mediaType: postType === "event" ? "image" : mediaType,
         image: postType === "event" ? eventFallbackImage : imagePreview,
-        vehicle: formData.get("vehicle"),
+        vehicle: postType === "event" ? "" : formData.get("vehicle"),
       });
 
       form.reset();
@@ -7812,7 +7812,7 @@ function FeedUploadForm({ initialType = "vehicle", onAddFeedPost, onComplete, on
         actionTab: "feed",
         details: [
           ["Type", postType === "event" ? "Event" : mediaType === "video" ? "Video post" : "Photo post"],
-          ["Vehicle", savedPost.vehicle || (postType === "event" ? "Member event" : "Garage update")],
+          ...(postType === "event" ? [] : [["Vehicle", savedPost.vehicle || "Garage update"]]),
           ["Post", postType === "event" ? eventTitle || "Event posted" : savedPost.caption || "Photo uploaded"],
           ["Status", "Posted"],
         ],
@@ -7848,20 +7848,22 @@ function FeedUploadForm({ initialType = "vehicle", onAddFeedPost, onComplete, on
         </label>
       )}
       <div className="app-form-grid">
-        <label>
-          Vehicle
-          <select name="vehicle">
-            <option value="">Garage update</option>
-            {vehicleOptions.map((vehicle) => (
-              <option key={vehicle} value={vehicle}>{vehicle}</option>
-            ))}
-          </select>
-        </label>
         {postType === "vehicle" ? (
-          <label>
-            Post caption
-            <input name="caption" type="text" placeholder="Share a detail, delivery, or service update" />
-          </label>
+          <>
+            <label>
+              Vehicle
+              <select name="vehicle">
+                <option value="">Garage update</option>
+                {vehicleOptions.map((vehicle) => (
+                  <option key={vehicle} value={vehicle}>{vehicle}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Post caption
+              <input name="caption" type="text" placeholder="Share a detail, delivery, or service update" />
+            </label>
+          </>
         ) : (
           <>
             <label>
