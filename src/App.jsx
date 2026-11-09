@@ -21,6 +21,7 @@ import LogOut from "lucide-react/dist/esm/icons/log-out.js";
 import MapPin from "lucide-react/dist/esm/icons/map-pin.js";
 import Menu from "lucide-react/dist/esm/icons/menu.js";
 import MessageCircle from "lucide-react/dist/esm/icons/message-circle.js";
+import MoreVertical from "lucide-react/dist/esm/icons/more-vertical.js";
 import Phone from "lucide-react/dist/esm/icons/phone.js";
 import Plus from "lucide-react/dist/esm/icons/plus.js";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw.js";
@@ -1425,7 +1426,7 @@ function garageLimitLabel(plan, extraVehicleSlots = 0) {
   return limit === 1 ? "1 vehicle" : `Up to ${limit} vehicles`;
 }
 
-const approvedOrClosedRequestStatuses = new Set(["approved", "booked", "paid / confirmed", "completed", "cancelled", "canceled"]);
+const approvedOrClosedRequestStatuses = new Set(["completed", "cancelled", "canceled"]);
 
 function normalizeRequestValue(value) {
   return String(value || "").trim().toLowerCase();
@@ -3487,13 +3488,24 @@ function App() {
     }
 
     if (hasOpenMatchingServiceRequest(appointments, appointment)) {
-      throw new Error(`You already have an open ${appointment.service} request for ${appointment.vehicle}. Wait until it is approved before booking that same service again.`);
+      throw new Error(`You already have an active ${appointment.service} booking for ${appointment.vehicle}. Reschedule or cancel it before creating another one.`);
     }
 
     if (isBackendConfigured && member?.id) {
-      const savedRequest = await createServiceRequest(member.id, appointment);
-      setAppointments((currentAppointments) => [savedRequest, ...currentAppointments]);
-      return savedRequest;
+      const optimisticId = `pending-${crypto.randomUUID()}`;
+      const optimisticRequest = { ...appointment, id: optimisticId, status: "Requested", createdAt: new Date().toISOString() };
+      setAppointments((currentAppointments) => [optimisticRequest, ...currentAppointments]);
+
+      try {
+        const savedRequest = await createServiceRequest(member.id, appointment);
+        setAppointments((currentAppointments) => currentAppointments.map((request) => (
+          request.id === optimisticId ? savedRequest : request
+        )));
+        return savedRequest;
+      } catch (error) {
+        setAppointments((currentAppointments) => currentAppointments.filter((request) => request.id !== optimisticId));
+        throw error;
+      }
     }
 
     const nextAppointments = [{ ...appointment, id: crypto.randomUUID(), status: "Requested" }, ...appointments];
@@ -3505,7 +3517,8 @@ function App() {
   async function updateAppointment(appointmentId, updates) {
     const currentAppointment = appointments.find((appointment) => appointment.id === appointmentId);
     if (!currentAppointment) throw new Error("Could not find that service request.");
-    if (!isFutureServiceDate(currentAppointment.date)) {
+    const cancelling = ["cancelled", "canceled"].includes(normalizeRequestValue(updates.status));
+    if (!cancelling && !isFutureServiceDate(currentAppointment.date)) {
       throw new Error("Same-day service requests are locked. Contact the concierge for urgent changes.");
     }
 
@@ -3636,6 +3649,39 @@ function App() {
     );
   }
 
+  if (developmentPreview === "member") {
+    const previewMember = {
+      id: "preview-member",
+      name: "Alex Morgan",
+      email: "alex@example.com",
+      plan: "Platinum",
+      subscriptionStatus: "active",
+      createdAt: new Date(Date.now() - 240 * 86400000).toISOString(),
+    };
+    const previewVehicle = normalizeVehicle(defaultGarage[0]);
+    const previewAppointment = {
+      id: "preview-request",
+      vehicle: vehicleLabel(previewVehicle),
+      vehicleId: previewVehicle.id,
+      service: "Detail my car",
+      date: localIsoDate(new Date(Date.now() + 4 * 86400000)),
+      time: "10:30",
+      status: "Requested",
+    };
+    const previewPost = {
+      id: "preview-post",
+      userId: "preview-community-member",
+      author: "Jordan Lee",
+      vehicle: "2023 Porsche 911",
+      caption: "Ready for the weekend drive.",
+      image: primaryVehicleImage(previewVehicle),
+      createdAt: new Date().toISOString(),
+      comments: [],
+      reactions: [],
+    };
+    return <MemberApp appointments={[previewAppointment]} benefitUsage={[]} feedPosts={[previewPost]} garage={[previewVehicle]} member={previewMember} membershipRevenueEvents={[{ amountPaidCents: 900000, paidAt: new Date().toISOString() }]} onAddAppointment={async (request) => ({ ...request, id: crypto.randomUUID(), status: "Requested" })} onAddFeedComment={async () => {}} onAddFeedPost={async () => {}} onAddVehicle={async () => {}} onDeleteAccount={async () => {}} onDeleteFeedPost={async () => {}} onDeleteVehicle={async () => {}} onEditFeedPost={async () => {}} onLogout={() => {}} onRefreshFeedPosts={async () => {}} onRefreshMemberAppData={async () => {}} onToggleFeedReaction={async () => {}} onUpdateAppointment={async (id, updates) => ({ id, ...previewAppointment, ...updates })} onUpdateMember={async () => {}} onUpdateVehicle={async () => {}} serviceDocuments={[]} servicePricing={{}} vehicleValuations={[]} />;
+  }
+
   if (mode === "login") {
     return <LoginScreen appError={appError} backendEnabled={isBackendConfigured} membershipPricing={membershipPricing} onForgotPassword={requestPasswordReset} onLogin={handleLogin} onBack={() => setMode("site")} />;
   }
@@ -3760,6 +3806,7 @@ function App() {
           {menuOpen ? <X size={22} /> : <Menu size={22} />}
         </button>
         <nav className={menuOpen ? "nav-links open" : "nav-links"} aria-label="Primary navigation">
+          <a href="#about" onClick={closeMenu}>About</a>
           <a href="#services" onClick={closeMenu}>Services</a>
           <a href="#memberships" onClick={closeMenu}>Memberships</a>
           <button className="nav-button profile-nav-button" type="button" onClick={openMemberAccess}>
@@ -3774,77 +3821,19 @@ function App() {
           <div className="hero-media" aria-hidden="true" />
           <div className="hero-overlay" />
           <div className="hero-content">
-            <p className="eyebrow">One membership. One point of contact. Zero hassle.</p>
-            <h1>Vehicle ownership, fully managed.</h1>
+            <p className="eyebrow">Private automotive concierge</p>
+            <h1>Your cars. One trusted point of contact.</h1>
             <p className="hero-copy">
-              White Glove Concierge handles every automotive need through one dedicated concierge. Maintenance, detailing, transportation, storage, buying, selling, repairs, emergencies, collections, and fleet support, all coordinated for you.
+              A premium member experience for booking care, managing your garage, and keeping every vehicle ready.
             </p>
             <div className="hero-actions">
               <button className="button primary" type="button" onClick={openMemberAccess}>
-                {memberAccessLabel} <ArrowRight size={18} />
+                Sign In <ArrowRight size={18} />
               </button>
               <a className="button secondary" href="#apply">
-                Request a Consultation <CalendarCheck size={18} />
+                Become a Member <CalendarCheck size={18} />
               </a>
             </div>
-          </div>
-          <div className="hero-panel" aria-label="Service highlights">
-            <div>
-              <strong>One contact</strong>
-              <span>text your concierge</span>
-            </div>
-            <div>
-              <strong>One app</strong>
-              <span>manage every vehicle</span>
-            </div>
-            <div>
-              <strong>One network</strong>
-              <span>vetted service partners</span>
-            </div>
-          </div>
-        </section>
-
-        <section className="section app-preview-section">
-          <div className="section-heading">
-            <p className="eyebrow">Member app</p>
-            <h2>Open the app, tell us what you need, and your concierge coordinates the rest.</h2>
-          </div>
-          <div className="app-preview-grid">
-            <article>
-              <Upload size={24} />
-              <h3>Build Your Digital Garage</h3>
-              <p>Add vehicles with VIN, mileage, location, warranty, insurance, photos, value, and notes.</p>
-            </article>
-            <article>
-              <CalendarCheck size={24} />
-              <h3>Request Vehicle Services</h3>
-              <p>Maintenance, repairs, detailing, storage, transport, buying, selling, roadside, and insurance help.</p>
-            </article>
-            <article>
-              <ClipboardCheck size={24} />
-              <h3>Track Vehicle Care</h3>
-              <p>See upcoming service, recalls, records, completed work, market value, and concierge updates.</p>
-            </article>
-          </div>
-        </section>
-
-        <section className="section how">
-          <div className="section-heading">
-            <p className="eyebrow">How it works</p>
-            <h2>You own the vehicle. We manage the ownership experience.</h2>
-          </div>
-          <div className="steps">
-            {[
-              ["Join White Glove", "Add your vehicles, VINs, mileage, insurance, warranty, preferred service provider, and vehicle locations."],
-              ["We Track Everything", "Your app monitors service intervals, tires, brakes, recalls, registration, battery age, records, and upcoming needs."],
-              ["Tap Schedule Service", "Your concierge compares vetted providers, pricing, availability, reviews, distance, and transportation options, then books it."],
-            ].map(([title, copy], index) => (
-              <article className="step-card" key={title}>
-                <span>{String(index + 1).padStart(2, "0")}</span>
-                <h3>{title}</h3>
-                <p>{copy}</p>
-              </article>
-            ))}
           </div>
         </section>
 
@@ -3910,7 +3899,7 @@ function App() {
           </details>
         </section>
 
-        <section className="image-band" id="collectors">
+        <section className="image-band" id="about">
           <div className="image-band-media" aria-hidden="true" />
           <div className="image-band-copy">
             <p className="eyebrow">Collection management</p>
@@ -3918,42 +3907,6 @@ function App() {
             <p>
               Keep every vehicle ready, protected, documented, and properly serviced with a dedicated care plan. We coordinate maintenance, transportation, storage, inspections, buying, selling, paperwork, and emergency support through a trusted partner network.
             </p>
-          </div>
-        </section>
-
-        <section className="section value">
-          <div className="section-heading">
-            <p className="eyebrow">Why join</p>
-            <h2>Stop managing shops, schedules, transport, repairs, and paperwork yourself.</h2>
-          </div>
-          <div className="benefit-grid">
-            {benefits.map((benefit) => (
-              <div className="benefit" key={benefit}>
-                <Check size={18} />
-                <span>{benefit}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="section reports">
-          <div>
-            <p className="eyebrow">Vehicle health reports</p>
-            <h2>Every vehicle gets a clearer ownership record.</h2>
-            <p>
-              Members receive digital reports after service, checkups, and concierge requests, making it easier to plan maintenance, understand condition, document history, and preserve resale value.
-            </p>
-          </div>
-          <div className="report-card">
-            <div className="report-card-header">
-              <Car size={28} />
-              <span>Digital Care Report</span>
-            </div>
-            <div className="report-list">
-              {reportItems.map((item) => (
-                <span key={item}>{item}</span>
-              ))}
-            </div>
           </div>
         </section>
 
@@ -6491,15 +6444,14 @@ function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, o
   const focusedAppointments = activeVehicle
     ? ensureList(appointments).filter((appointment) => appointmentMatchesVehicle(appointment, activeVehicle))
     : [];
-  const serviceReminders = buildServiceReminders(focusedGarage, member.plan);
   const upcomingBookings = upcomingAppointmentCountdowns(focusedAppointments, nowMs);
-  const garageInsights = garageInsightItems(focusedGarage);
-  const smartCards = homeSmartCards({ garage: focusedGarage, insights: garageInsights, reminders: serviceReminders });
+  const pendingAppointment = focusedAppointments.find((appointment) => {
+    const status = normalizeRequestValue(appointment.status);
+    return !["completed", "cancelled", "canceled"].includes(status) && !appointmentDateTime(appointment);
+  });
   const instantRecommendations = instantBookRecommendations(focusedGarage, member.plan, servicePricing, focusedAppointments);
   const currentInstantRecommendation = instantRecommendations[instantBookIndex] || instantRecommendations[0] || null;
   const events = feedEventPosts(feedPosts, nowMs);
-  const [servicesExpanded, setServicesExpanded] = useState(false);
-  const visibleServices = servicesExpanded ? services : services.slice(0, 3);
   const filteredRequests = focusedAppointments.filter((appointment) => {
     const status = normalizeRequestValue(appointment.status);
     if (requestFilter === "completed") return status === "completed";
@@ -6549,7 +6501,7 @@ function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, o
 
   return (
     <div className="app-stack">
-      {activeVehicle && garageVehicleLimit(member.plan, member.extraVehicleSlots) > 1 && (
+      {activeVehicle && (
         <section className="home-vehicle-context" aria-label={`Home tailored to ${vehicleLabel(activeVehicle)}`}>
           <img alt={vehicleLabel(activeVehicle)} onError={handleVehicleImageError} src={primaryVehicleImage(activeVehicle)} />
           <div>
@@ -6627,6 +6579,16 @@ function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, o
               </div>
             )}
           </>
+        ) : pendingAppointment ? (
+          <article className="next-appointment-pending" aria-live="polite">
+            <span className="next-appointment-pending-icon"><Clock size={22} /></span>
+            <div>
+              <span>{pendingAppointment.status || "Requested"}</span>
+              <h3>{pendingAppointment.service || "Concierge service"}</h3>
+              <p>{pendingAppointment.vehicle || "Vehicle pending"}</p>
+            </div>
+            <strong>Date being coordinated</strong>
+          </article>
         ) : (
           <div className="empty-state compact-empty">
             <CalendarCheck size={24} />
@@ -6700,30 +6662,6 @@ function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, o
         </section>
       )}
 
-      <section className="home-smart-grid" aria-label="Smart garage overview">
-        {smartCards.map(({ cta, href, icon: Icon, label, text, title }) => (
-          <a
-            aria-label={`${cta}: ${title}`}
-            className="home-smart-card"
-            href={href}
-            key={label}
-            rel="noreferrer"
-            target="_blank"
-          >
-            <div className="home-smart-card-heading">
-              <span className="home-smart-card-icon"><Icon size={20} /></span>
-              <span className="home-smart-card-label">{label}</span>
-            </div>
-            <h3>{title}</h3>
-            <p>{text}</p>
-            <div className="home-smart-card-action">
-              <span>{cta}</span>
-              <ArrowRight size={17} />
-            </div>
-          </a>
-        ))}
-      </section>
-
       <section className="app-section home-events-section">
         <div className="app-section-title">
           <div>
@@ -6745,28 +6683,6 @@ function Dashboard({ activeVehicleId, appointments, feedPosts, garage, member, o
           </div>
         )}
       </section>
-
-      <section className="app-section">
-        <div className="app-section-title">
-          <div>
-            <h2>{activeVehicle ? `Services for ${vehicleLabel(activeVehicle)}` : "Services"}</h2>
-            <p>{activeVehicle ? "Choose a service and the selected car will already be ready in booking." : "Select a service category when you are ready to book."}</p>
-          </div>
-          <button type="button" onClick={() => setServicesExpanded((expanded) => !expanded)}>
-            {servicesExpanded ? "Show less" : "Show all"}
-          </button>
-        </div>
-        <div className="service-category-grid compact-service-grid">
-          {visibleServices.map(({ icon: Icon, title }) => (
-            <button key={title} type="button" onClick={() => setActiveTab("schedule")}>
-              <Icon size={20} />
-              <span>{title}</span>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <DocumentedServices appointments={focusedAppointments} documents={serviceDocuments} />
 
       {requestListOpen && (
         <div className="request-history-backdrop" role="presentation" onMouseDown={() => setRequestListOpen(false)}>
@@ -6972,6 +6888,9 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [chartVehicleId, setChartVehicleId] = useState(activeVehicleId || garageList[0]?.id || "");
   const [requestError, setRequestError] = useState("");
+  const garageListRef = useRef(null);
+  const valueHistoryRef = useRef(null);
+  const garageValueRef = useRef(null);
   const selectedVehicle = garageList.find((vehicle) => vehicle.id === selectedVehicleId);
   const chartVehicle = garageList.find((vehicle) => vehicle.id === chartVehicleId) || garageList[0] || null;
   const showHomeVehicleSelection = garageList.length > 1;
@@ -7049,7 +6968,14 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
 
   return (
     <div className="app-stack">
-      <section className="app-section">
+      <nav className="garage-feature-dock" aria-label="Garage features">
+        <button type="button" onClick={() => garageListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}><Car size={18} /><span>Your Garage</span></button>
+        <button type="button" disabled={!chartVehicle} onClick={() => valueHistoryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}><Gauge size={18} /><span>Canadian Value History</span></button>
+        <button type="button" disabled={!chartVehicle} onClick={() => valueHistoryRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })}><Sparkles size={18} /><span>Ask AI</span></button>
+        <button type="button" disabled={!garageList.length} onClick={() => garageValueRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}><CreditCard size={18} /><span>Garage Value</span></button>
+      </nav>
+
+      <section className="app-section" ref={garageListRef}>
         <div className="app-section-title">
           <div>
             <h2>Your Garage</h2>
@@ -7101,16 +7027,18 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
       </section>
 
       {chartVehicle && (
-        <GarageVehicleValueChart
-          member={member}
-          onSelect={() => openVehicle(chartVehicle.id)}
-          vehicle={chartVehicle}
-          valuations={valuationList.filter((valuation) => valuation.vehicleId === chartVehicle.id)}
-        />
+        <div ref={valueHistoryRef}>
+          <GarageVehicleValueChart
+            member={member}
+            onSelect={() => openVehicle(chartVehicle.id)}
+            vehicle={chartVehicle}
+            valuations={valuationList.filter((valuation) => valuation.vehicleId === chartVehicle.id)}
+          />
+        </div>
       )}
 
       {garageList.length > 0 && (
-        <section className="app-section garage-value-overview">
+        <section className="app-section garage-value-overview" ref={garageValueRef}>
           <div className="app-section-title">
             <div>
               <p className="eyebrow">Canadian market tracking</p>
@@ -7135,7 +7063,9 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
         </section>
       )}
 
-      <section className="app-section garage-intelligence-section">
+      <details className="garage-secondary-details">
+        <summary>Garage recommendations <span>{garageInsights.length}</span></summary>
+        <section className="app-section garage-intelligence-section">
         <div className="app-section-title">
           <div>
             <h2>Recommendations for Your Garage</h2>
@@ -7163,9 +7093,12 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
             <p>Make, model, mileage, service timing, battery age, and tire age improve garage recommendations.</p>
           </div>
         )}
-      </section>
+        </section>
+      </details>
 
-      <section className="app-section">
+      <details className="garage-secondary-details">
+        <summary>Upcoming care <span>{serviceReminders.length}</span></summary>
+        <section className="app-section">
         <div className="app-section-title">
           <div>
             <h2>Upcoming Care</h2>
@@ -7194,7 +7127,8 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
             ))}
           </div>
         )}
-      </section>
+        </section>
+      </details>
     </div>
   );
 }
@@ -7207,13 +7141,18 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
   const [selectedServiceOption, setSelectedServiceOption] = useState(instantBooking?.serviceOption || serviceOptionsForBooking(initialService)[0] || "Not Sure");
   const [selectedVehicleId, setSelectedVehicleId] = useState(instantBooking?.vehicleId || activeVehicleId || garage[0]?.id || "");
   const [benefitsExpanded, setBenefitsExpanded] = useState(false);
+  const [selectedBenefitKey, setSelectedBenefitKey] = useState("");
   const [reminderError, setReminderError] = useState("");
   const selectedVehicle = garage.find((vehicle) => vehicle.id === selectedVehicleId) || garage[0] || null;
   const selectedServiceNeedsVehicle = serviceRequiresSavedVehicle(selectedService);
   const availableBenefitCount = benefitSummary.reduce((total, benefit) => total + benefit.remaining, 0);
   const waitingBenefitCount = benefitSummary.reduce((total, benefit) => total + benefit.locked, 0);
+  const compatibleBenefitKeys = suggestedBenefitKeysForRequest({ service: selectedService, notes: selectedServiceOption });
+  const compatibleBenefits = benefitSummary.filter((benefit) => benefit.remaining > 0 && compatibleBenefitKeys.includes(benefit.key));
+  const selectedBenefit = compatibleBenefits.find((benefit) => benefit.key === selectedBenefitKey) || null;
   const formSectionRef = useRef(null);
   const vehicleSectionRef = useRef(null);
+  const serviceSectionRef = useRef(null);
 
   useEffect(() => {
     if (!includedServices.some((service) => service.label === selectedService)) {
@@ -7248,6 +7187,12 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
       setSelectedServiceOption(options[0] || "Not Sure");
     }
   }, [selectedService, selectedServiceOption]);
+
+  useEffect(() => {
+    if (selectedBenefitKey && !compatibleBenefits.some((benefit) => benefit.key === selectedBenefitKey)) {
+      setSelectedBenefitKey("");
+    }
+  }, [compatibleBenefits, selectedBenefitKey]);
 
   function chooseService(serviceLabel) {
     if (!canBookService(member.plan, serviceLabel)) return;
@@ -7322,6 +7267,7 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
             onComplete={onComplete}
             onChangeVehicle={onCancelInstantBooking}
             servicePricing={servicePricing}
+            selectedBenefit={selectedBenefit}
             selectedService={selectedService}
             selectedServiceOption={selectedServiceOption}
             selectedVehicle={selectedVehicle}
@@ -7335,6 +7281,12 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
 
   return (
     <div className="app-stack">
+      <nav className="booking-feature-dock" aria-label="Booking shortcuts">
+        <button className={benefitsExpanded ? "active" : ""} type="button" onClick={() => setBenefitsExpanded((expanded) => !expanded)}><Gift size={18} /><span>Benefits</span><strong>{availableBenefitCount}</strong></button>
+        <button type="button" onClick={() => serviceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}><Sparkles size={18} /><span>Recommended</span></button>
+        <button type="button" disabled={!canBookService(member.plan, "Tuning / modifications")} onClick={() => chooseService("Tuning / modifications")}><Gauge size={18} /><span>Tuning</span></button>
+        <a href="https://news.google.com/search?q=automotive%20news%20Canada" target="_blank" rel="noreferrer"><FileText size={18} /><span>Car News</span></a>
+      </nav>
       <section className="app-section" ref={vehicleSectionRef}>
         <div className="app-section-title">
           <div>
@@ -7360,7 +7312,7 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
         )}
       </section>
 
-      <section className="app-section">
+      <section className="app-section" ref={serviceSectionRef}>
         <div className="app-section-title">
           <div>
             <h2>Book a Service</h2>
@@ -7388,10 +7340,10 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
           </button>
           {benefitsExpanded && (
             <div className="booking-benefit-list">
-              <p>Available credits can be requested with an eligible service. Waiting benefits unlock gradually after successful membership payments.</p>
+              <p>Choose an available eligible benefit to book without a payment today. Waiting benefits unlock gradually after successful membership payments.</p>
               <div>
                 {benefitSummary.map((benefit) => (
-                  <article className={benefit.remaining > 0 ? "" : benefit.locked > 0 ? "benefit-locked" : "benefit-exhausted"} key={benefit.key}>
+                  <article className={`${benefit.remaining > 0 ? "" : benefit.locked > 0 ? "benefit-locked" : "benefit-exhausted"} ${selectedBenefitKey === benefit.key ? "selected" : ""}`.trim()} key={benefit.key}>
                     <Gift size={18} />
                     <span>{benefit.shortLabel}</span>
                     <strong>{benefit.remaining > 0
@@ -7401,9 +7353,15 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
                         : benefit.locked > 0
                           ? `Earliest ${formatBenefitUnlockDate(benefit.nextUnlockAt)}`
                           : "Used"}</strong>
+                    {compatibleBenefits.some((item) => item.key === benefit.key) && (
+                      <button type="button" onClick={() => setSelectedBenefitKey((current) => current === benefit.key ? "" : benefit.key)}>
+                        {selectedBenefitKey === benefit.key ? "Remove" : "Use"}
+                      </button>
+                    )}
                   </article>
                 ))}
               </div>
+              {selectedBenefit && <div className="benefit-payment-waiver"><Check size={16} /> {selectedBenefit.label} selected — no payment required today.</div>}
             </div>
           )}
         </div>
@@ -7463,6 +7421,7 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
           onComplete={onComplete}
           onChangeVehicle={() => vehicleSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
           servicePricing={servicePricing}
+          selectedBenefit={selectedBenefit}
           selectedService={selectedService}
           selectedServiceOption={selectedServiceOption}
           selectedVehicle={selectedVehicle}
@@ -7534,6 +7493,7 @@ function ServicesScreen({ member, setActiveTab }) {
 }
 
 function SavedVehicleSelector({ onVehicleSelect, selectedVehicleId, vehicles }) {
+  const [expanded, setExpanded] = useState(false);
   if (!vehicles.length) {
     return (
       <div className="empty-state compact-empty">
@@ -7544,9 +7504,18 @@ function SavedVehicleSelector({ onVehicleSelect, selectedVehicleId, vehicles }) 
     );
   }
 
+  const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || vehicles[0];
+  const visibleVehicles = expanded ? vehicles : [];
+
   return (
-    <div className="saved-vehicle-selector">
-      {vehicles.map((vehicle, index) => {
+    <div className={expanded ? "saved-vehicle-selector expanded" : "saved-vehicle-selector compact"}>
+      <button className="saved-vehicle-selector-toggle" type="button" aria-expanded={expanded} onClick={() => setExpanded((open) => !open)}>
+        <img alt="" aria-hidden="true" onError={handleVehicleImageError} src={primaryVehicleImage(selectedVehicle)} />
+        <span><small>{expanded ? "Choose a garage vehicle" : "Selected vehicle"}</small><strong>{vehicleLabel(selectedVehicle)}</strong></span>
+        <ChevronRight className={expanded ? "expanded" : ""} size={20} />
+      </button>
+      {expanded && <div className="saved-vehicle-selector-list">
+      {visibleVehicles.map((vehicle, index) => {
         const selected = selectedVehicleId === vehicle.id;
         const label = vehicleLabel(vehicle);
         return (
@@ -7554,7 +7523,10 @@ function SavedVehicleSelector({ onVehicleSelect, selectedVehicleId, vehicles }) 
             className={selected ? "selected-vehicle-card" : ""}
             key={vehicle.id || `${label}-${index}`}
             type="button"
-            onClick={() => onVehicleSelect(vehicle.id)}
+            onClick={() => {
+              onVehicleSelect(vehicle.id);
+              setExpanded(false);
+            }}
           >
             <img alt={label} onError={handleVehicleImageError} src={primaryVehicleImage(vehicle)} />
             <div>
@@ -7566,6 +7538,7 @@ function SavedVehicleSelector({ onVehicleSelect, selectedVehicleId, vehicles }) 
           </button>
         );
       })}
+      </div>}
     </div>
   );
 }
@@ -7937,6 +7910,8 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onBlock,
   const [postError, setPostError] = useState("");
   const [replacementImage, setReplacementImage] = useState("");
   const [showReport, setShowReport] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
   const commentInputRef = useRef(null);
   const authorName = post.author || "Member";
   const reactions = ensureList(post.reactions);
@@ -7946,6 +7921,20 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onBlock,
   const authorMember = post.userId === currentMember?.id
     ? { avatarUrl: currentMember?.avatarUrl || "", name: authorName }
     : { avatarUrl: "", name: authorName };
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const closeMenu = (event) => {
+      if (!menuRef.current?.contains(event.target)) setMenuOpen(false);
+    };
+    const closeOnEscape = (event) => event.key === "Escape" && setMenuOpen(false);
+    document.addEventListener("pointerdown", closeMenu);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenu);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menuOpen]);
 
   function handleReplacementImage(changeEvent) {
     const file = changeEvent.target.files?.[0];
@@ -8041,20 +8030,26 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onBlock,
     }
   }
 
-  const actions = canManage && (
-    <div className="feed-post-actions">
-      <button type="button" onClick={() => { setEditing((open) => !open); setPostError(""); }} disabled={saving}>
-        {editing ? "Cancel" : "Edit"}
+  const postMenu = (
+    <div className="feed-post-menu" ref={menuRef}>
+      <button className="feed-post-menu-trigger" aria-label="Post options" aria-expanded={menuOpen} type="button" onClick={() => setMenuOpen((open) => !open)}>
+        <MoreVertical size={20} />
       </button>
-      <button className="danger-action" type="button" onClick={removePost} disabled={saving}>
-        {saving && !editing ? "Deleting..." : event ? "Delete Event" : "Delete Post"}
-      </button>
-    </div>
-  );
-  const safetyActions = !canManage && post.userId && (
-    <div className="feed-post-actions feed-safety-actions">
-      <button type="button" onClick={() => setShowReport(true)}>Report</button>
-      <button className="danger-action" type="button" onClick={() => onBlock?.(post)}>Block member</button>
+      {menuOpen && (
+        <div className="feed-post-menu-popover" role="menu">
+          {canManage ? (
+            <>
+              <button role="menuitem" type="button" onClick={() => { setEditing((open) => !open); setPostError(""); setMenuOpen(false); }} disabled={saving}>{editing ? "Close editor" : "Edit post"}</button>
+              <button className="danger-action" role="menuitem" type="button" onClick={() => { setMenuOpen(false); removePost(); }} disabled={saving}>{event ? "Delete event" : "Delete post"}</button>
+            </>
+          ) : post.userId ? (
+            <>
+              <button role="menuitem" type="button" onClick={() => { setMenuOpen(false); setShowReport(true); }}>Report post</button>
+              <button className="danger-action" role="menuitem" type="button" onClick={() => { setMenuOpen(false); onBlock?.(post); }}>Block member</button>
+            </>
+          ) : <span>No actions available</span>}
+        </div>
+      )}
     </div>
   );
 
@@ -8096,6 +8091,7 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onBlock,
   if (event) {
     return (
       <><article className="feed-event-card">
+        {postMenu}
         <div className="feed-event-date">
           <CalendarCheck size={22} />
           <span>{event.time ? new Date(event.time).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "Event"}</span>
@@ -8112,8 +8108,6 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onBlock,
             <ProfileAvatar member={authorMember} size={30} />
             <span>{authorName} · {formatPostDate(post.createdAt)}</span>
           </div>
-          {actions}
-          {safetyActions}
           {editor}
           {!editing && postError && <div className="error-message" role="alert">{postError}</div>}
         </div>
@@ -8130,6 +8124,7 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onBlock,
           <span>{post.vehicle || "Garage update"}</span>
         </div>
         <time>{formatPostDate(post.createdAt)}</time>
+        {postMenu}
       </header>
       <div className="feed-photo-frame">
         {post.mediaType === "video" ? <video aria-label={post.caption || "Member video post"} controls playsInline preload="metadata" src={post.image} /> : <img alt={post.caption || "Vehicle feed post"} src={post.image || eventFallbackImage} />}
@@ -8203,8 +8198,6 @@ function FeedPostCard({ canManage = false, currentMember, onAddComment, onBlock,
             </button>
           </form>
         </section>
-        {actions}
-        {safetyActions}
         {editor}
         {!editing && postError && <div className="error-message" role="alert">{postError}</div>}
       </div>
@@ -9037,7 +9030,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
   );
 }
 
-function ScheduleForm({ appointments, garage, instantMode = false, member, onAddAppointment, onChangeVehicle, onComplete, servicePricing, selectedService, selectedServiceOption, selectedVehicle, setSelectedService, setSelectedServiceOption }) {
+function ScheduleForm({ appointments, garage, instantMode = false, member, onAddAppointment, onChangeVehicle, onComplete, servicePricing, selectedBenefit = null, selectedService, selectedServiceOption, selectedVehicle, setSelectedService, setSelectedServiceOption }) {
   const savedMemberAddresses = ensureList(member?.addresses);
   const savedAddressEntries = savedMemberAddresses
     .map((entry, index) => ({
@@ -9071,7 +9064,15 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
   const showWarrantyQuestion = serviceSupportsWarranty(selectedService);
   const effectiveTransportChoice = showVehicleLogistics ? selectedTransportChoice : transportChoices[0];
   const effectiveWarrantyCoverage = showWarrantyQuestion ? warrantyCoverage : "not-warranty";
-  const selectedPaymentTerms = bookingPaymentTerms(basePaymentTerms, effectiveTransportChoice, effectiveWarrantyCoverage);
+  const calculatedPaymentTerms = bookingPaymentTerms(basePaymentTerms, effectiveTransportChoice, effectiveWarrantyCoverage);
+  const selectedPaymentTerms = selectedBenefit ? {
+    ...calculatedPaymentTerms,
+    amount: "No payment required",
+    amountCents: 0,
+    mode: "benefit",
+    note: `${selectedBenefit.label} benefit requested. Final eligibility will be confirmed by White Glove.`,
+    title: `${selectedBenefit.label} benefit`,
+  } : calculatedPaymentTerms;
   const selectedVehicleClass = vehicleClassFromVehicle(selectedVehicle);
 
   useEffect(() => {
@@ -9131,6 +9132,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
         showVehicleLogistics && `Transportation direction: ${selectedPaymentTerms.transportDirection}`,
         showVehicleLogistics && `Transportation charge: ${selectedPaymentTerms.transportAmount}`,
         showWarrantyQuestion && `Warranty: ${selectedPaymentTerms.warrantyLabel}`,
+        selectedBenefit && `Membership benefit requested: ${selectedBenefit.label} (${selectedBenefit.key})`,
         ...serviceDetailNotes,
         formData.get("notes"),
         `Payment: ${selectedPaymentTerms.title} - ${selectedPaymentTerms.amount}. ${selectedPaymentTerms.note}`,
@@ -9160,7 +9162,7 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
       }
 
       if (hasOpenMatchingServiceRequest(appointments, appointment)) {
-        throw new Error(`You already have an open ${appointment.service} request for ${appointment.vehicle}. Wait until it is approved before booking that same service again.`);
+        throw new Error(`You already have an active ${appointment.service} booking for ${appointment.vehicle}. Reschedule or cancel it before creating another one.`);
       }
 
       setPendingBooking({
@@ -10651,6 +10653,7 @@ function ServiceRequestCard({ appointment, onUpdateAppointment }) {
   const transportTarget = transportDateTime(appointment);
   const activeStatus = !["completed", "cancelled", "canceled"].includes(normalizeRequestValue(appointment.status));
   const canEdit = Boolean(onUpdateAppointment) && activeStatus && isFutureServiceDate(appointment.date);
+  const canCancel = Boolean(onUpdateAppointment) && activeStatus;
   const countdown = activeStatus && target && target.getTime() > nowMs ? countdownLabel(target, nowMs) : null;
   const transportCountdown = activeStatus && transportTarget && transportTarget.getTime() > nowMs ? countdownLabel(transportTarget, nowMs) : null;
 
@@ -10683,6 +10686,26 @@ function ServiceRequestCard({ appointment, onUpdateAppointment }) {
     }
   }
 
+  async function cancelRequest() {
+    if (!canCancel || saving) return;
+    const cancellationReason = window.prompt("Optional: tell your concierge why you are cancelling this request.", "") ?? null;
+    if (cancellationReason === null) return;
+    if (!window.confirm("Cancel this service request? It will remain in your booking history.")) return;
+    setEditError("");
+    setSaving(true);
+    try {
+      await onUpdateAppointment(appointment.id, {
+        status: "Cancelled",
+        cancellationReason: cancellationReason.trim(),
+      });
+      setEditing(false);
+    } catch (error) {
+      setEditError(error.message || "Could not cancel this service request.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <article className="request-card">
       <div className="request-icon">
@@ -10701,13 +10724,14 @@ function ServiceRequestCard({ appointment, onUpdateAppointment }) {
         {transportCountdown && <span className="request-live-countdown transport"><Car size={14} /> Transport: {transportCountdown.primary} {transportCountdown.secondary}</span>}
         {appointment.status === "Cancelled" && appointment.cancellationReason && <small className="request-cancellation-note">{appointment.cancellationReason}</small>}
         {appointment.paymentLinkUrl && appointment.paymentStatus !== "paid" && activeStatus && <a className="request-payment-link" href={appointment.paymentLinkUrl} rel="noreferrer" target="_blank"><CreditCard size={14} /> Pay securely</a>}
-        {canEdit ? (
-          <button type="button" onClick={() => setEditing((open) => !open)}>
-            {editing ? "Close" : "Edit"}
-          </button>
-        ) : (
-          <small>Locked today</small>
-        )}
+        <div className="request-member-actions">
+          {canEdit ? (
+            <button type="button" onClick={() => setEditing((open) => !open)}>
+              {editing ? "Close" : "Reschedule"}
+            </button>
+          ) : activeStatus ? <small>{appointment.date ? "Locked today" : "Date pending"}</small> : null}
+          {canCancel && <button className="danger-action" type="button" onClick={cancelRequest} disabled={saving}>Cancel request</button>}
+        </div>
       </div>
       {editing && (
         <form className="request-edit-form" onSubmit={saveRequestEdits}>

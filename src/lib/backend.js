@@ -550,6 +550,8 @@ export async function updateServiceRequestRecord(requestId, updates) {
   if (updates.date !== undefined) payload.preferred_date = updates.date || null;
   if (updates.time !== undefined) payload.preferred_time = updates.time || null;
   if (updates.notes !== undefined) payload.notes = updates.notes || "";
+  if (updates.status !== undefined) payload.status = updates.status || "Requested";
+  if (updates.cancellationReason !== undefined) payload.cancellation_reason = updates.cancellationReason || null;
   payload.updated_at = new Date().toISOString();
 
   const { data, error } = await supabase
