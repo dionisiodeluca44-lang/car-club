@@ -6329,7 +6329,7 @@ textarea:focus {
 }
 
 .schedule-service-grid button {
-  grid-template-columns: 1.8rem minmax(0, 1fr);
+  grid-template-columns: 1.8rem minmax(0, 1fr) auto;
   min-height: 58px;
   gap: 0.48rem;
   padding: 0.48rem 0.52rem;
@@ -9762,7 +9762,7 @@ textarea:focus {
 }
 
 .schedule-service-grid button {
-  grid-template-columns: 1.8rem minmax(0, 1fr);
+  grid-template-columns: 1.8rem minmax(0, 1fr) auto;
   min-height: 58px;
   aspect-ratio: auto;
   gap: 0.48rem;
@@ -9787,9 +9787,177 @@ textarea:focus {
   line-height: 1.12;
 }
 
-.schedule-service-grid p,
-.schedule-service-grid .schedule-service-cta {
+.schedule-service-grid p {
   display: none;
+}
+
+.schedule-service-grid .schedule-service-cta {
+  display: inline-grid;
+  min-height: 1.7rem;
+  place-items: center;
+  padding: 0 0.48rem;
+  border: 1px solid rgba(229, 200, 121, 0.3);
+  border-radius: 999px;
+  color: var(--gold-bright);
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.booking-flow-page {
+  width: min(100%, 940px);
+  margin: 0 auto;
+}
+
+.booking-flow-header {
+  display: grid;
+  gap: 1rem;
+}
+
+.booking-flow-back {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 0.35rem;
+}
+
+.booking-flow-title {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.booking-flow-title h2,
+.booking-flow-title p,
+.booking-flow-benefits h3,
+.booking-flow-benefits p {
+  margin: 0;
+}
+
+.booking-flow-title > p:last-child {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.booking-flow-progress {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.booking-flow-progress li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.booking-flow-progress li > span {
+  display: grid;
+  width: 1.55rem;
+  height: 1.55rem;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 0.66rem;
+  font-weight: 900;
+}
+
+.booking-flow-progress strong {
+  overflow: hidden;
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.booking-flow-progress li.active,
+.booking-flow-progress li.complete {
+  border-color: rgba(229, 200, 121, 0.42);
+  color: var(--gold-bright);
+  background: rgba(201, 164, 92, 0.08);
+}
+
+.booking-flow-benefits {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.booking-flow-benefit-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.booking-flow-benefit-list > button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  min-height: 54px;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.02);
+  text-align: left;
+  cursor: pointer;
+}
+
+.booking-flow-benefit-list > button.selected {
+  border-color: rgba(229, 200, 121, 0.64);
+  color: var(--gold-bright);
+  background: rgba(201, 164, 92, 0.1);
+}
+
+.booking-flow-benefit-list span {
+  display: grid;
+  gap: 0.08rem;
+}
+
+.booking-flow-benefit-list strong {
+  color: var(--ink);
+  font-size: 0.74rem;
+}
+
+.booking-flow-benefit-list small {
+  color: var(--muted);
+  font-size: 0.64rem;
+}
+
+.booking-flow-form-section {
+  min-width: 0;
+}
+
+.booking-payment-page {
+  display: grid;
+  justify-items: stretch;
+  width: 100%;
+}
+
+.booking-payment-form {
+  width: 100%;
+  max-width: none;
+  box-shadow: none;
+}
+
+.booking-details-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.booking-details-actions .submit {
+  margin-left: auto;
 }
 
 .booking-recommendation-popover,
@@ -9950,5 +10118,44 @@ textarea:focus {
 
   .schedule-service-grid h3 {
     font-size: 0.7rem;
+  }
+
+  .schedule-service-grid .schedule-service-cta {
+    min-height: 1.5rem;
+    padding: 0 0.38rem;
+    font-size: 0.52rem;
+  }
+
+  .booking-flow-progress {
+    gap: 0.35rem;
+  }
+
+  .booking-flow-progress li {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 0.25rem;
+    padding: 0.45rem 0.2rem;
+    text-align: center;
+  }
+
+  .booking-flow-progress li > span {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+
+  .booking-flow-progress strong {
+    font-size: 0.56rem;
+  }
+
+  .booking-flow-benefit-list {
+    grid-template-columns: 1fr;
+  }
+
+  .booking-details-actions {
+    display: grid;
+  }
+
+  .booking-details-actions .submit {
+    margin-left: 0;
   }
 }

@@ -316,6 +316,21 @@ async function createPaidServiceRequest(session) {
     throw new Error(`Stripe checkout session ${session.id} is missing a Supabase user id.`);
   }
 
+  const { data: existingPayment, error: existingPaymentError } = await supabase
+    .from("service_request_payments")
+    .select("service_request_id")
+    .eq("stripe_checkout_session_id", session.id)
+    .maybeSingle();
+  if (!existingPaymentError && existingPayment?.service_request_id) return;
+
+  const { data: existingSessionRequest, error: existingSessionRequestError } = await supabase
+    .from("service_requests")
+    .select("id")
+    .eq("user_id", userId)
+    .ilike("notes", `%Stripe session: ${session.id}%`)
+    .maybeSingle();
+  if (!existingSessionRequestError && existingSessionRequest?.id) return;
+
   await saveBookingCustomer(userId, stripeId(session.customer));
   const paymentMethod = await checkoutPaymentMethod(session);
   const amountPaidCents = Math.max(0, Number(session.amount_total || metadata.amountCents) || 0);
@@ -421,14 +436,14 @@ async function createPaidServiceRequest(session) {
 
   if (error) throw error;
 
-  const { error: paymentError } = await supabase.from("service_request_payments").insert({
+  const { error: paymentError } = await supabase.from("service_request_payments").upsert({
     amount_cents: amountPaidCents,
     payment_method: paymentMethod,
     payment_type: paymentMode === "full" ? "full" : "deposit",
     service_request_id: request.id,
     stripe_checkout_session_id: session.id,
     user_id: userId,
-  });
+  }, { onConflict: "stripe_checkout_session_id", ignoreDuplicates: true });
 
   if (paymentError) {
     console.warn("Service request was created, but its structured payment record was not saved. Run the service payment migration.", paymentError);

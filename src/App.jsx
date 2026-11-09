@@ -1468,6 +1468,17 @@ function hasOpenMatchingServiceRequest(appointments, appointment) {
   });
 }
 
+function serviceRequestMatchesBooking(request, booking) {
+  if (!request || !booking) return false;
+  const sameService = normalizeRequestValue(request.service) === normalizeRequestValue(booking.service);
+  const sameVehicle = booking.vehicleId
+    ? normalizeRequestValue(request.vehicleId) === normalizeRequestValue(booking.vehicleId)
+      || normalizeRequestValue(request.vehicle) === normalizeRequestValue(booking.vehicle)
+    : normalizeRequestValue(request.vehicle) === normalizeRequestValue(booking.vehicle);
+  const sameDate = !booking.date || !request.date || normalizeRequestValue(request.date) === normalizeRequestValue(booking.date);
+  return sameService && sameVehicle && sameDate;
+}
+
 const defaultNotificationSettings = {
   bookingUpdates: true,
   feedActivity: true,
@@ -2932,6 +2943,18 @@ function App() {
     }
 
     if (bookingStatus === "success") {
+      sessionStorage.setItem("whiteGloveBookingPaymentSucceeded", "true");
+      const pendingPaidBooking = readStoredJson("whiteGlovePendingPaidBooking", null);
+      if (pendingPaidBooking) {
+        const optimisticPaidBooking = {
+          ...pendingPaidBooking,
+          id: pendingPaidBooking.id || `pending-paid-${Date.now()}`,
+          status: "Paid / Confirmed",
+        };
+        setAppointments((currentAppointments) => currentAppointments.some((request) => serviceRequestMatchesBooking(request, optimisticPaidBooking))
+          ? currentAppointments
+          : [optimisticPaidBooking, ...currentAppointments]);
+      }
       setCheckoutCompletion({
         actionLabel: "View Requests",
         actionTab: "schedule",
@@ -2949,6 +2972,8 @@ function App() {
     }
 
     if (bookingStatus === "cancelled") {
+      sessionStorage.removeItem("whiteGloveBookingPaymentSucceeded");
+      localStorage.removeItem("whiteGlovePendingPaidBooking");
       setAppError("Payment was cancelled. Your booking was not confirmed.");
       setMode("app");
       window.history.replaceState({}, "", window.location.pathname);
@@ -3028,7 +3053,17 @@ function App() {
         if (!active) return;
         setMember(currentMember);
         setGarage(ensureList(savedGarage));
-        setAppointments(ensureList(savedAppointments));
+        const pendingPaidBooking = sessionStorage.getItem("whiteGloveBookingPaymentSucceeded") === "true"
+          ? readStoredJson("whiteGlovePendingPaidBooking", null)
+          : null;
+        const nextAppointments = ensureList(savedAppointments);
+        if (pendingPaidBooking && nextAppointments.some((request) => serviceRequestMatchesBooking(request, pendingPaidBooking))) {
+          localStorage.removeItem("whiteGlovePendingPaidBooking");
+          sessionStorage.removeItem("whiteGloveBookingPaymentSucceeded");
+        }
+        setAppointments(pendingPaidBooking && !nextAppointments.some((request) => serviceRequestMatchesBooking(request, pendingPaidBooking))
+          ? [{ ...pendingPaidBooking, id: pendingPaidBooking.id || `pending-paid-${Date.now()}`, status: "Paid / Confirmed" }, ...nextAppointments]
+          : nextAppointments);
         setServiceDocuments(ensureList(savedServiceDocuments));
         setFeedPosts(ensureList(savedFeedPosts));
         setBenefitUsage(ensureList(savedBenefitUsage));
@@ -3048,6 +3083,40 @@ function App() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const pendingPaidBooking = readStoredJson("whiteGlovePendingPaidBooking", null);
+    if (!isBackendConfigured || !member?.id || !checkoutCompletion || !pendingPaidBooking) return undefined;
+
+    let active = true;
+    let timerId;
+    let attempt = 0;
+
+    async function syncPaidBooking() {
+      attempt += 1;
+      try {
+        const savedAppointments = ensureList(await loadServiceRequests(member.id));
+        if (!active) return;
+        const savedBooking = savedAppointments.find((request) => serviceRequestMatchesBooking(request, pendingPaidBooking));
+        if (savedBooking) {
+          setAppointments(savedAppointments);
+          localStorage.removeItem("whiteGlovePendingPaidBooking");
+          sessionStorage.removeItem("whiteGloveBookingPaymentSucceeded");
+          return;
+        }
+      } catch (error) {
+        console.warn("Could not refresh the paid booking yet.", error);
+      }
+
+      if (active && attempt < 6) timerId = window.setTimeout(syncPaidBooking, attempt * 1000);
+    }
+
+    syncPaidBooking();
+    return () => {
+      active = false;
+      if (timerId) window.clearTimeout(timerId);
+    };
+  }, [checkoutCompletion, member?.id]);
 
   useEffect(() => {
     if (!isBackendConfigured || !member?.id || mode !== "app") return undefined;
@@ -7190,6 +7259,22 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
   );
 }
 
+function BookingFlowProgress({ activeStep }) {
+  return (
+    <ol className="booking-flow-progress" aria-label={`Booking step ${activeStep} of 3`}>
+      {["Select Service", "Booking Details", "Payment"].map((label, index) => {
+        const step = index + 1;
+        return (
+          <li className={step === activeStep ? "active" : step < activeStep ? "complete" : ""} key={label}>
+            <span>{step < activeStep ? <Check size={14} /> : step}</span>
+            <strong>{label}</strong>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage, instantBooking, member, onAddAppointment, onCancelInstantBooking, onComplete, onSelectVehicle, onUpdateAppointment, servicePricing, setActiveTab, vehicleOptions }) {
   const includedServices = useMemo(() => getAvailableServices(member.plan), [member.plan]);
   const initialService = instantBooking?.service || includedServices[0]?.label || "";
@@ -7201,6 +7286,8 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
   const [autoExploreExpanded, setAutoExploreExpanded] = useState(false);
   const [expandedBenefitKey, setExpandedBenefitKey] = useState("");
   const [selectedBenefitKey, setSelectedBenefitKey] = useState("");
+  const [bookingPage, setBookingPage] = useState(instantBooking ? "details" : "services");
+  const [bookingFormStep, setBookingFormStep] = useState("details");
   const selectedVehicle = garage.find((vehicle) => vehicle.id === selectedVehicleId) || garage[0] || null;
   const serviceReminders = useMemo(() => buildServiceReminders(selectedVehicle ? [selectedVehicle] : garage, member.plan), [garage, member.plan, selectedVehicle]);
   const selectedServiceNeedsVehicle = serviceRequiresSavedVehicle(selectedService);
@@ -7217,7 +7304,6 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
       reminders: buildServiceReminders(relevantGarage, member.plan),
     });
   }, [garage, member.plan, selectedVehicle]);
-  const formSectionRef = useRef(null);
   const vehicleSectionRef = useRef(null);
   const serviceSectionRef = useRef(null);
 
@@ -7232,6 +7318,7 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
     setSelectedService(instantBooking.service);
     setSelectedServiceOption(instantBooking.serviceOption);
     setSelectedVehicleId(instantBooking.vehicleId || garage[0]?.id || "");
+    setBookingPage("details");
   }, [garage, instantBooking]);
 
   useEffect(() => {
@@ -7265,9 +7352,12 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
     if (!canBookService(member.plan, serviceLabel)) return;
     setSelectedService(serviceLabel);
     setSelectedServiceOption(serviceOptionsForBooking(serviceLabel)[0] || "Not Sure");
-    window.requestAnimationFrame(() => {
-      formSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+    setBookingFormStep("details");
+    setBookingPage("details");
+    setBenefitsExpanded(false);
+    setRecommendedExpanded(false);
+    setAutoExploreExpanded(false);
+    setAppScrollPosition(0);
   }
 
   function chooseVehicle(vehicleId) {
@@ -7275,11 +7365,19 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
     onSelectVehicle?.(vehicleId);
   }
 
+  function returnToServices() {
+    setBookingFormStep("details");
+    setBookingPage("services");
+    onCancelInstantBooking?.();
+    setAppScrollPosition(0);
+  }
+
   if (instantBooking) {
     return (
       <div className="app-stack instant-book-flow">
         <section className="app-section instant-book-flow-header">
-          <button className="text-button" type="button" onClick={onCancelInstantBooking}>Back to all services</button>
+          <button className="text-button" type="button" onClick={returnToServices}>Back to all services</button>
+          <BookingFlowProgress activeStep={bookingFormStep === "payment" ? 3 : 2} />
           <div className="instant-book-flow-heading">
             <span className="instant-book-icon"><Sparkles size={24} /></span>
             <div>
@@ -7301,8 +7399,74 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
             instantMode
             member={member}
             onAddAppointment={onAddAppointment}
+            onBackToServices={returnToServices}
             onComplete={onComplete}
-            onChangeVehicle={onCancelInstantBooking}
+            onChangeVehicle={returnToServices}
+            onStepChange={setBookingFormStep}
+            servicePricing={servicePricing}
+            selectedBenefit={selectedBenefit}
+            selectedService={selectedService}
+            selectedServiceOption={selectedServiceOption}
+            selectedVehicle={selectedVehicle}
+            setSelectedService={setSelectedService}
+            setSelectedServiceOption={setSelectedServiceOption}
+          />
+        </section>
+      </div>
+    );
+  }
+
+  if (bookingPage === "details") {
+    return (
+      <div className="app-stack booking-flow-page">
+        <section className="app-section booking-flow-header">
+          <button className="text-button booking-flow-back" type="button" onClick={returnToServices}>
+            <ChevronLeft size={17} /> Back to services
+          </button>
+          <BookingFlowProgress activeStep={bookingFormStep === "payment" ? 3 : 2} />
+          <div className="booking-flow-title">
+            <p className="eyebrow">{bookingFormStep === "payment" ? "Step 3 of 3" : "Step 2 of 3"}</p>
+            <h2>{bookingFormStep === "payment" ? "Payment" : "Booking Details"}</h2>
+            <p>{bookingFormStep === "payment"
+              ? "Review your booking and complete payment securely."
+              : `${selectedService}${selectedVehicle ? ` for ${vehicleLabel(selectedVehicle)}` : ""}. Add your preferred timing and service details.`}</p>
+          </div>
+        </section>
+
+        {bookingFormStep === "details" && compatibleBenefits.length > 0 && (
+          <section className="app-section booking-flow-benefits">
+            <div>
+              <p className="eyebrow">Available benefits</p>
+              <h3>Apply a benefit to this booking</h3>
+            </div>
+            <div className="booking-flow-benefit-list">
+              {compatibleBenefits.map((benefit) => (
+                <button
+                  className={selectedBenefitKey === benefit.key ? "selected" : ""}
+                  key={benefit.key}
+                  type="button"
+                  onClick={() => setSelectedBenefitKey((current) => current === benefit.key ? "" : benefit.key)}
+                >
+                  <Gift size={17} />
+                  <span><strong>{benefit.shortLabel}</strong><small>{benefit.remaining} available</small></span>
+                  {selectedBenefitKey === benefit.key ? <Check size={17} /> : <Plus size={17} />}
+                </button>
+              ))}
+            </div>
+            {selectedBenefit && <div className="benefit-payment-waiver"><Check size={16} /> {selectedBenefit.label} will cover the eligible service amount.</div>}
+          </section>
+        )}
+
+        <section className="app-section booking-flow-form-section">
+          <ScheduleForm
+            appointments={appointments}
+            garage={garage}
+            member={member}
+            onAddAppointment={onAddAppointment}
+            onBackToServices={returnToServices}
+            onComplete={onComplete}
+            onChangeVehicle={returnToServices}
+            onStepChange={setBookingFormStep}
             servicePricing={servicePricing}
             selectedBenefit={selectedBenefit}
             selectedService={selectedService}
@@ -7452,8 +7616,9 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
       <section className="app-section" ref={serviceSectionRef}>
         <div className="app-section-title">
           <div>
-            <h2>Book a Service</h2>
-            <p>Choose a service available with your membership. Services outside your current package show the required level.</p>
+            <p className="eyebrow">Step 1 of 3</p>
+            <h2>Our Services</h2>
+            <p>Choose a service to continue to its separate booking details page.</p>
           </div>
           <span className="section-count" aria-label={`${serviceOptions.length} services available`}>
             <Wrench aria-hidden="true" size={16} />
@@ -7472,7 +7637,7 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
                 key={service.label}
                 type="button"
                 onClick={() => chooseService(service.label)}
-                aria-label={included ? `Schedule ${service.label}` : `${service.label} requires ${service.allowedPlans[0]} package`}
+                aria-label={included ? `Book ${service.label}` : `${service.label} requires ${service.allowedPlans[0]} package`}
               >
                 <span className="schedule-service-icon">
                   {included ? selected ? <Check size={24} /> : <CalendarCheck size={24} /> : <ShieldCheck size={24} />}
@@ -7481,53 +7646,13 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
                   <h3>{service.label}</h3>
                   <p>{included ? "Included in your package. Tap to book." : `Requires ${service.allowedPlans[0]} or higher.`}</p>
                 </div>
-                <span className="schedule-service-cta">{included ? selected ? "Selected" : "Book" : "Locked"}</span>
+                <span className="schedule-service-cta">{included ? "Book" : "Locked"}</span>
               </button>
             );
           })}
         </div>
       </section>
 
-      <section className="app-section" ref={formSectionRef}>
-        <div className="app-section-title">
-          <div>
-            <h2>Booking Details</h2>
-            <p>{selectedServiceNeedsVehicle
-              ? selectedVehicle ? `${vehicleLabel(selectedVehicle)} is selected. Choose the service option, timing, and notes.` : "Add a vehicle in your Garage before booking."
-              : `Answer the questions for ${selectedService.toLowerCase()} and choose your timing.`}</p>
-          </div>
-        </div>
-        <ScheduleForm
-          appointments={appointments}
-          garage={garage}
-          member={member}
-          onAddAppointment={onAddAppointment}
-          onComplete={onComplete}
-          onChangeVehicle={() => vehicleSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-          servicePricing={servicePricing}
-          selectedBenefit={selectedBenefit}
-          selectedService={selectedService}
-          selectedServiceOption={selectedServiceOption}
-          selectedVehicle={selectedVehicle}
-          setSelectedService={setSelectedService}
-          setSelectedServiceOption={setSelectedServiceOption}
-        />
-      </section>
-      <section className="app-section">
-        <div className="app-section-title">
-          <h2>Your Service Requests</h2>
-          <span>{appointments.length} active</span>
-        </div>
-        {appointments.length > 0 ? appointments.map((appointment) => (
-          <ServiceRequestCard appointment={appointment} key={appointment.id} onUpdateAppointment={onUpdateAppointment} />
-        )) : (
-          <div className="empty-state compact-empty">
-            <CalendarCheck size={24} />
-            <h3>No upcoming service requests.</h3>
-            <p>When you request a service, its latest status and timing will appear here.</p>
-          </div>
-        )}
-      </section>
     </div>
   );
 }
@@ -9122,7 +9247,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
   );
 }
 
-function ScheduleForm({ appointments, garage, instantMode = false, member, onAddAppointment, onChangeVehicle, onComplete, servicePricing, selectedBenefit = null, selectedService, selectedServiceOption, selectedVehicle, setSelectedService, setSelectedServiceOption }) {
+function ScheduleForm({ appointments, garage, instantMode = false, member, onAddAppointment, onBackToServices, onChangeVehicle, onComplete, onStepChange, servicePricing, selectedBenefit = null, selectedService, selectedServiceOption, selectedVehicle, setSelectedService, setSelectedServiceOption }) {
   const savedMemberAddresses = ensureList(member?.addresses);
   const savedAddressEntries = savedMemberAddresses
     .map((entry, index) => ({
@@ -9191,6 +9316,11 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
     });
     return () => window.cancelAnimationFrame(frame);
   }, [bookingStep]);
+
+  useEffect(() => {
+    onStepChange?.(bookingStep);
+    setAppScrollPosition(0);
+  }, [bookingStep, onStepChange]);
 
   async function submitAppointment(event) {
     event.preventDefault();
@@ -9392,6 +9522,11 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
           throw new Error(readableError(checkout.error || checkout, "Could not start secure payment checkout."));
         }
 
+        localStorage.setItem("whiteGlovePendingPaidBooking", JSON.stringify({
+          ...appointment,
+          createdAt: new Date().toISOString(),
+          status: "Paid / Confirmed",
+        }));
         window.location.assign(checkout.url);
         return;
       }
@@ -9445,14 +9580,12 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
     const requiresPayment = amountCents > 0;
 
     return (
-      <div className="payment-checkout-backdrop">
+      <div className="booking-payment-page">
         <form
           aria-label="Confirm your booking and continue to secure payment"
-          aria-modal="true"
-          className="app-form inline-form payment-checkout"
+          className="app-form inline-form payment-checkout booking-payment-form"
           onSubmit={confirmPayment}
           ref={paymentFormRef}
-          role="dialog"
           tabIndex="-1"
         >
           {requestError && (
@@ -9699,9 +9832,12 @@ function ScheduleForm({ appointments, garage, instantMode = false, member, onAdd
         Additional instructions <span>Optional</span>
         <textarea name="notes" rows="3" placeholder="Add access details, concerns, or anything your concierge should know." />
       </label>
-      <button className="button primary submit" type="submit" disabled={!hasVehicles}>
-        {instantMode ? "Review and Pay" : selectedPaymentTerms.mode === "free" ? "Review Request" : "Review and Continue to Payment"}
-      </button>
+      <div className="booking-details-actions">
+        <button className="button secondary" type="button" onClick={onBackToServices}>Back to Services</button>
+        <button className="button primary submit" type="submit" disabled={!hasVehicles}>
+          {instantMode ? "Continue to Payment" : selectedPaymentTerms.mode === "free" ? "Review Request" : "Continue to Payment"}
+        </button>
+      </div>
     </form>
   );
 }
