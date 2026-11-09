@@ -228,14 +228,14 @@ const plans = [
     price: "$99",
     cadence: "/month",
     intro: "For owners who want the essentials managed with priority support.",
-    features: ["Up to 1 × $70 earned maintenance-wash credit yearly", "Service reminders", "Priority booking", "Basic vehicle health report", "Digital vehicle records"],
+    features: ["Up to 1 concierge-arranged maintenance wash per membership year", "Service reminders", "Priority booking", "Basic vehicle health report", "Digital vehicle records"],
   },
   {
     name: "Club Drive",
     price: "$149",
     cadence: "/month",
     intro: "For owners who want pickup, delivery, and regular care coordination handled.",
-    features: ["Up to 2 × $70 earned wash credits yearly", "Up to 1 × $175 earned Montreal transport credit yearly", "Pickup and delivery coordination", "Monthly vehicle check-in", "Priority service updates"],
+    features: ["Up to 2 concierge-arranged maintenance washes per membership year", "Up to 1 Montreal concierge vehicle transport per membership year", "Pickup and delivery coordination", "Monthly vehicle check-in", "Priority service updates"],
   },
   {
     name: "Gold",
@@ -243,21 +243,21 @@ const plans = [
     cadence: "/month",
     intro: "For daily drivers and seasonal vehicles that need consistent care.",
     featured: true,
-    features: ["Up to 4 × $70 earned wash credits yearly", "Up to 1 × $150 earned full-detail credit yearly", "Up to 1 × $175 earned Montreal transport credit yearly", "Seasonal tire coordination", "Maintenance concierge"],
+    features: ["Up to 4 concierge-arranged maintenance washes per membership year", "Up to 1 complete detailing session per membership year", "Up to 1 Montreal concierge vehicle transport per membership year", "Seasonal tire coordination", "Maintenance concierge"],
   },
   {
     name: "Platinum",
     price: "$399",
     cadence: "/month",
     intro: "For owners who want complete white-glove vehicle management.",
-    features: ["Up to 6 × $70 earned wash credits yearly", "Up to 2 × $150 earned full-detail credits yearly", "Up to 3 × $175 earned Montreal transport credits yearly", "Up to $300 earned protection credit yearly", "Complete maintenance concierge"],
+    features: ["Up to 6 concierge-arranged maintenance washes per membership year", "Up to 2 complete detailing sessions per membership year", "Up to 3 Montreal concierge vehicle transports per membership year", "1 annual vehicle-protection benefit for ceramic coating, PPF, wrap, or tint", "Complete maintenance concierge"],
   },
   {
     name: "Collector",
     price: "$699",
     cadence: "/month",
     intro: "For collections of up to 10 vehicles, with additional vehicle spots available through your concierge.",
-    features: ["Up to 10 garage vehicles", "Up to 12 × $70 earned wash credits yearly", "Up to 4 × $150 earned full-detail credits yearly", "Up to 6 × $175 earned Montreal transport credits yearly", "Up to $500 earned protection credit yearly", "Dedicated collection manager"],
+    features: ["Up to 10 garage vehicles", "Up to 12 concierge-arranged maintenance washes per membership year", "Up to 4 complete detailing sessions per membership year", "Up to 6 Montreal concierge vehicle transports per membership year", "1 enhanced annual vehicle-protection benefit for ceramic coating, PPF, wrap, or tint", "Dedicated collection manager"],
   },
 ];
 
@@ -3895,16 +3895,16 @@ function App() {
             ))}
           </div>
           <p className="membership-benefit-disclosure">
-            Listed credits are earned benefits, not an immediate sign-up bonus. They unlock gradually during an active membership only after successful, non-refunded membership payments fund the benefit reserve. Credits have no cash value, do not roll over, and remain subject to service eligibility.
+            Listed service allowances are earned membership benefits, not an immediate sign-up bonus. They become available gradually during an active membership after successful, non-refunded membership payments support the benefit program. Benefits are non-transferable, do not roll over, and remain subject to vehicle and service eligibility.
           </p>
           <details className="membership-unlock-details">
-            <summary>See the earliest credit unlock schedule</summary>
+            <summary>See the earliest benefit availability schedule</summary>
             <div>
               {plans.map((plan) => (
                 <p key={plan.name}><strong>{plan.name}:</strong> {membershipUnlockSchedule[plan.name]}</p>
               ))}
             </div>
-            <small>Days are measured from membership activation. Reaching a date does not unlock a credit unless the paid-revenue reserve can also cover it.</small>
+            <small>Days are measured from membership activation. Reaching a date does not make a benefit available unless the active membership has also supported its release.</small>
           </details>
         </section>
 
@@ -4212,7 +4212,7 @@ function AdminBenefitControls({ onUpdate, request }) {
       <div>
         <Gift size={18} />
         <strong>Earned benefits</strong>
-        <span>Only funded and unlocked credits can be applied.</span>
+        <span>Only funded and available benefits can be applied.</span>
       </div>
       <div className="admin-benefit-actions">
         {benefitKeys.map((benefitKey) => {
@@ -5628,7 +5628,7 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
                 </select>
               </label>
               <p className="membership-benefit-disclosure compact-disclosure">
-                Package credits are earned gradually after successful membership payments; they are not all available when you sign up.
+                Package benefits become available gradually after successful membership payments; they are not all available when you sign up.
               </p>
             </>
           )}
@@ -6155,7 +6155,7 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
               </div>
             </div>
             <p className="membership-benefit-disclosure compact-disclosure">
-              Included credits unlock in stages while your membership remains active and only when successful, non-refunded payments have funded the benefit reserve. Earliest {selectedPlan} schedule: {membershipUnlockSchedule[selectedPlan]} They are not all available today.
+              Included benefits become available in stages while your membership remains active and successful, non-refunded payments support the benefit program. Earliest {selectedPlan} schedule: {membershipUnlockSchedule[selectedPlan]} They are not all available today.
             </p>
           </>
         )}

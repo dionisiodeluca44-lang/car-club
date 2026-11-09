@@ -2,17 +2,17 @@ export const membershipBenefitCatalog = {
   "maintenance-wash": {
     label: "Maintenance wash",
     shortLabel: "Wash",
-    note: "$70 credit. SUVs, trucks, and vans pay the difference.",
+    note: "Covers one standard maintenance wash for an eligible car. Larger vehicles may require a service upgrade.",
   },
   "full-detail": {
     label: "Full detail",
     shortLabel: "Detail",
-    note: "$150 credit. SUVs, trucks, and vans pay the difference.",
+    note: "Covers one complete detailing session for an eligible car. Larger vehicles may require a service upgrade.",
   },
   transport: {
     label: "Montreal transport",
     shortLabel: "Transport",
-    note: "$175 Montreal credit. Off-island surcharges, tolls, and waiting time are extra.",
+    note: "Covers one concierge vehicle transport within Montreal. Off-island travel, tolls, and waiting time are additional.",
   },
   protection: {
     label: "Vehicle protection",
