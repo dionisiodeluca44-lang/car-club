@@ -2558,7 +2558,7 @@ function homeSmartCards({ garage, insights, reminders }) {
   const hasVehicle = Boolean(vehicle.make || vehicle.model);
   const maintenance = insights.find((item) => item.type === "Maintenance" || item.type === "Common watch item") || reminders[0];
   const tuning = insights.find((item) => item.type === "Recommended mod") || insights.find((item) => item.type === "Maintenance");
-  const vehicleQuery = hasVehicle ? label : "cars";
+  const vehicleQuery = hasVehicle ? [label, String(vehicle.trim || "").trim()].filter(Boolean).join(" ") : "cars";
 
   return [
     {
@@ -7155,16 +7155,17 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
 
 function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage, instantBooking, member, onAddAppointment, onCancelInstantBooking, onComplete, onSelectVehicle, onUpdateAppointment, servicePricing, setActiveTab, vehicleOptions }) {
   const includedServices = useMemo(() => getAvailableServices(member.plan), [member.plan]);
-  const serviceReminders = useMemo(() => buildServiceReminders(garage, member.plan), [garage, member.plan]);
   const initialService = instantBooking?.service || includedServices[0]?.label || "";
   const [selectedService, setSelectedService] = useState(initialService);
   const [selectedServiceOption, setSelectedServiceOption] = useState(instantBooking?.serviceOption || serviceOptionsForBooking(initialService)[0] || "Not Sure");
   const [selectedVehicleId, setSelectedVehicleId] = useState(instantBooking?.vehicleId || activeVehicleId || garage[0]?.id || "");
   const [benefitsExpanded, setBenefitsExpanded] = useState(false);
+  const [recommendedExpanded, setRecommendedExpanded] = useState(false);
+  const [autoExploreExpanded, setAutoExploreExpanded] = useState(false);
   const [expandedBenefitKey, setExpandedBenefitKey] = useState("");
   const [selectedBenefitKey, setSelectedBenefitKey] = useState("");
-  const [reminderError, setReminderError] = useState("");
   const selectedVehicle = garage.find((vehicle) => vehicle.id === selectedVehicleId) || garage[0] || null;
+  const serviceReminders = useMemo(() => buildServiceReminders(selectedVehicle ? [selectedVehicle] : garage, member.plan), [garage, member.plan, selectedVehicle]);
   const selectedServiceNeedsVehicle = serviceRequiresSavedVehicle(selectedService);
   const availableBenefitCount = benefitSummary.reduce((total, benefit) => total + benefit.remaining, 0);
   const waitingBenefitCount = benefitSummary.reduce((total, benefit) => total + benefit.locked, 0);
@@ -7237,36 +7238,6 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
     onSelectVehicle?.(vehicleId);
   }
 
-  async function sendReminderRequest(reminder) {
-    setReminderError("");
-
-    try {
-      const savedRequest = await onAddAppointment({
-        vehicle: reminder.vehicle,
-        service: reminder.service,
-        date: "",
-        time: "",
-        notes: `${reminder.title}. ${reminder.message}`,
-      });
-
-      onComplete?.({
-        actionLabel: "View Requests",
-        actionTab: "schedule",
-        details: [
-          ["Service", savedRequest?.service || reminder.service],
-          ["Vehicle", savedRequest?.vehicle || reminder.vehicle],
-          ["Status", savedRequest?.status || "Requested"],
-        ],
-        message: "The reminder was turned into a concierge request. White Glove will follow up with timing and next steps.",
-        secondaryLabel: "Back Home",
-        secondaryTab: "home",
-        title: "Service reminder request sent.",
-      });
-    } catch (error) {
-      setReminderError(error.message || "Could not send that service request.");
-    }
-  }
-
   if (instantBooking) {
     return (
       <div className="app-stack instant-book-flow">
@@ -7329,10 +7300,21 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
         )}
       </section>
       <nav className="booking-feature-dock" aria-label="Booking shortcuts">
-        <button className={benefitsExpanded ? "active" : ""} type="button" onClick={() => setBenefitsExpanded((expanded) => !expanded)}><Gift size={18} /><span>Benefits</span><strong>{availableBenefitCount}</strong></button>
-        <a href={bookingSmartCards[0]?.href} target="_blank" rel="noreferrer"><Sparkles size={18} /><span>Recommended</span></a>
-        <a href={bookingSmartCards[1]?.href} target="_blank" rel="noreferrer"><Gauge size={18} /><span>Tuning</span></a>
-        <a href={bookingSmartCards[2]?.href} target="_blank" rel="noreferrer"><FileText size={18} /><span>Car News</span></a>
+        <button className={benefitsExpanded ? "active" : ""} type="button" onClick={() => {
+          setBenefitsExpanded((expanded) => !expanded);
+          setRecommendedExpanded(false);
+          setAutoExploreExpanded(false);
+        }}><Gift size={18} /><span>Benefits</span><strong>{availableBenefitCount}</strong></button>
+        <button className={recommendedExpanded ? "active" : ""} type="button" onClick={() => {
+          setRecommendedExpanded((expanded) => !expanded);
+          setBenefitsExpanded(false);
+          setAutoExploreExpanded(false);
+        }}><Sparkles size={18} /><span>Recommended</span>{serviceReminders.length > 0 && <strong>{serviceReminders.length}</strong>}</button>
+        <button className={autoExploreExpanded ? "active" : ""} type="button" onClick={() => {
+          setAutoExploreExpanded((expanded) => !expanded);
+          setBenefitsExpanded(false);
+          setRecommendedExpanded(false);
+        }}><Search size={18} /><span>Auto Explore</span></button>
       </nav>
       {benefitsExpanded && (
         <div className="booking-benefit-popover-backdrop" role="presentation" onMouseDown={(event) => {
@@ -7370,6 +7352,66 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
         </div>
       )}
 
+      {recommendedExpanded && (
+        <div className="booking-benefit-popover-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setRecommendedExpanded(false);
+        }}>
+          <section aria-labelledby="booking-recommended-title" aria-modal="true" className="booking-benefit-popover booking-recommendation-popover" role="dialog">
+            <header>
+              <div><span>{selectedVehicle ? vehicleLabel(selectedVehicle) : "Your garage"}</span><h2 id="booking-recommended-title">Recommended Services</h2></div>
+              <button aria-label="Close recommendations" type="button" onClick={() => setRecommendedExpanded(false)}><X size={19} /></button>
+            </header>
+            <p>Suggestions use only the vehicle details and service timing saved in your Garage.</p>
+            {serviceReminders.length > 0 ? (
+              <div className="booking-recommendation-list">
+                {serviceReminders.map((reminder) => (
+                  <button key={reminder.id} type="button" onClick={() => {
+                    chooseService(reminder.service);
+                    setRecommendedExpanded(false);
+                  }}>
+                    <span className="booking-popup-icon"><Wrench size={17} /></span>
+                    <span><small>{reminder.urgency}</small><strong>{reminder.title}</strong><em>{reminder.message}</em></span>
+                    <span className="booking-popup-action">Book</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="booking-popup-empty">
+                <Check size={18} />
+                <div><strong>No service is due from the information saved.</strong><span>You can still choose any available service below.</span></div>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {autoExploreExpanded && (
+        <div className="booking-benefit-popover-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setAutoExploreExpanded(false);
+        }}>
+          <section aria-labelledby="booking-explore-title" aria-modal="true" className="booking-benefit-popover auto-explore-popover" role="dialog">
+            <header>
+              <div><span>{selectedVehicle ? vehicleLabel(selectedVehicle) : "Automotive research"}</span><h2 id="booking-explore-title">Auto Explore</h2></div>
+              <button aria-label="Close Auto Explore" type="button" onClick={() => setAutoExploreExpanded(false)}><X size={19} /></button>
+            </header>
+            <p>Open vehicle-aware research in your browser.</p>
+            <div className="auto-explore-list">
+              {[
+                { card: bookingSmartCards[0], Icon: Wrench, title: "Recommended Services" },
+                { card: bookingSmartCards[1], Icon: Gauge, title: "Recommended Tuning" },
+                { card: bookingSmartCards[2], Icon: FileText, title: "Recommended Car News" },
+              ].map(({ card, Icon, title }) => (
+                <a href={card?.href} key={title} onClick={() => setAutoExploreExpanded(false)} rel="noreferrer" target="_blank">
+                  <span className="booking-popup-icon"><Icon size={18} /></span>
+                  <span><strong>{title}</strong><small>{card?.text}</small></span>
+                  <ArrowRight size={17} />
+                </a>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
+
       <section className="app-section" ref={serviceSectionRef}>
         <div className="app-section-title">
           <div>
@@ -7382,18 +7424,6 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
             <span className="section-count-label">services</span>
           </span>
         </div>
-        {serviceReminders.length > 0 && (
-          <div className="booking-reminder-strip">
-            {reminderError && <div className="error-message" role="alert">{reminderError}</div>}
-            {serviceReminders.slice(0, 2).map((reminder) => (
-              <button key={reminder.id} type="button" onClick={() => chooseService(reminder.service)}>
-                <span>{reminder.urgency}</span>
-                <strong>{reminder.title}</strong>
-                <small>{reminder.vehicle}</small>
-              </button>
-            ))}
-          </div>
-        )}
         <div className="schedule-service-grid">
           {serviceOptions.map((service) => {
             const selected = selectedService === service.label;
