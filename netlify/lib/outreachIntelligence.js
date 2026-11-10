@@ -146,7 +146,7 @@ export async function runOutreachIntelligence(supabase, options = {}) {
       resultData(supabase.from("profiles").select("id, full_name, email, phone").in("id", customerIds)),
       resultData(supabase.from("vehicle_maintenance_forecasts").select("*").in("vehicle_id", vehicleIds).is("archived_at", null)),
       resultData(supabase.from("vehicle_maintenance_rules").select("*").eq("approval_status", "approved").eq("active", true).is("archived_at", null)),
-      resultData(supabase.from("service_requests").select("*").in("vehicle_id", vehicleIds)),
+      resultData(supabase.from("service_requests").select("*").in("vehicle_id", vehicleIds).neq("status", "Archived")),
       resultData(supabase.from("service_pricing").select("service_label, payment_mode, amount_cents")),
       resultData(supabase.from("communication_preferences").select("*").in("customer_id", customerIds)),
       resultData(supabase.from("outreach_messages").select("*").in("customer_id", customerIds)),

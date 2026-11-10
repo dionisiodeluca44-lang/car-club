@@ -9130,6 +9130,33 @@ textarea:focus {
   white-space: pre-wrap;
 }
 
+.admin-booking-danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(224, 97, 97, 0.28);
+  border-radius: 7px;
+  background: rgba(224, 97, 97, 0.055);
+}
+
+.admin-booking-danger-zone strong,
+.admin-booking-danger-zone p {
+  margin: 0;
+}
+
+.admin-booking-danger-zone p {
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.admin-booking-danger-zone .button {
+  flex: 0 0 auto;
+}
+
 .admin-list-empty {
   padding: 1.2rem;
   color: var(--muted);
@@ -10828,6 +10855,14 @@ textarea:focus {
 
   .admin-booking-detail-header {
     display: grid;
+  }
+
+  .admin-booking-danger-zone {
+    display: grid;
+  }
+
+  .admin-booking-danger-zone .button {
+    width: 100%;
   }
 
   .admin-booking-detail-header label {

@@ -26,7 +26,7 @@ function customerLabel(vehicle = {}) {
 }
 
 function activeStatus(value) {
-  return !["cancelled", "canceled", "completed", "dismissed"].includes(text(value).toLowerCase());
+  return !["archived", "cancelled", "canceled", "completed", "dismissed"].includes(text(value).toLowerCase());
 }
 
 export function buildAdminCalendarEvents({ vehicles = [], rules = [], forecasts = [], tasks = [] } = {}) {

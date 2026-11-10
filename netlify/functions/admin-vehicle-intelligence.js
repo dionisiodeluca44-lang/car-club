@@ -62,7 +62,7 @@ async function getVehicleIntelligence() {
     supabase.from("vehicles").select("*").order("updated_at", { ascending: false }),
     supabase.from("vehicle_mileage_readings").select("*").order("recorded_at", { ascending: false }),
     supabase.from("vehicle_service_history").select("*").order("service_date", { ascending: false }),
-    supabase.from("service_requests").select("*").order("created_at", { ascending: false }),
+    supabase.from("service_requests").select("*").neq("status", "Archived").order("created_at", { ascending: false }),
   ]);
 
   const migrationError = [vehiclesResult, mileageResult, historyResult, requestsResult].find((result) => result.error)?.error;

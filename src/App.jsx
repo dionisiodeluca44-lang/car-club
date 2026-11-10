@@ -86,6 +86,7 @@ import {
 } from "../shared/membershipBenefits";
 import { automationStatusForRule, unresolvedAutomaticRule, vehicleRuleSignature } from "../shared/maintenanceRuleAutomation";
 import { buildAdminCalendarEvents } from "../shared/adminCalendar";
+import { canArchivePastBooking } from "../shared/adminBooking";
 
 const services = [
   {
@@ -4590,10 +4591,11 @@ function adminPaymentLabel(summary) {
   return "Unpaid";
 }
 
-function AdminBookingDetail({ onCancel, onCreatePaymentLink, onDeleteDocument, onRecordPayment, onSaveSchedule, onSaveTotal, onStatus, onUpdateBenefit, onUploadDocument, request }) {
+function AdminBookingDetail({ onArchivePastBooking, onCancel, onCreatePaymentLink, onDeleteDocument, onRecordPayment, onSaveSchedule, onSaveTotal, onStatus, onUpdateBenefit, onUploadDocument, request }) {
   const summary = adminPayment(request);
   const [savingPayment, setSavingPayment] = useState(false);
   const [savingSchedule, setSavingSchedule] = useState(false);
+  const [deletingBooking, setDeletingBooking] = useState(false);
   const [creatingPaymentLink, setCreatingPaymentLink] = useState(false);
   const [paymentLink, setPaymentLink] = useState(request.payment_link_url || "");
   const [paymentLinkLabel, setPaymentLinkLabel] = useState(request.payment_link_label || "");
@@ -4649,6 +4651,16 @@ function AdminBookingDetail({ onCancel, onCreatePaymentLink, onDeleteDocument, o
     if (!paymentLink) return;
     await navigator.clipboard.writeText(paymentLink);
     setLinkCopied(true);
+  }
+
+  async function archivePastBooking() {
+    if (!window.confirm("Delete this past booking from the admin and member booking lists? Its payment, document, benefit, and service history will remain stored securely.")) return;
+    setDeletingBooking(true);
+    try {
+      await onArchivePastBooking(request.id);
+    } finally {
+      setDeletingBooking(false);
+    }
   }
 
   async function saveTotal(event) {
@@ -4778,11 +4790,17 @@ function AdminBookingDetail({ onCancel, onCreatePaymentLink, onDeleteDocument, o
       {request.notes && <details className="admin-booking-notes"><summary>Booking notes</summary><pre>{request.notes}</pre></details>}
       <AdminServiceDocuments onDelete={onDeleteDocument} onUpload={onUploadDocument} request={request} />
       <AdminBenefitControls onUpdate={onUpdateBenefit} request={request} />
+      {canArchivePastBooking(request) && (
+        <section className="admin-booking-danger-zone">
+          <div><strong>Remove this past booking</strong><p>It will disappear from booking lists, while its financial and service records remain stored.</p></div>
+          <button className="button secondary compact-button danger-button" disabled={deletingBooking} onClick={archivePastBooking} type="button"><Trash2 size={17} /> {deletingBooking ? "Deleting..." : "Delete Past Booking"}</button>
+        </section>
+      )}
     </section>
   );
 }
 
-function AdminBookingWorkspace({ onCancel, onCreatePaymentLink, onDeleteDocument, onRecordPayment, onSaveSchedule, onSaveTotal, onStatus, onUpdateBenefit, onUploadDocument, requests, selectedId, setSelectedId }) {
+function AdminBookingWorkspace({ onArchivePastBooking, onCancel, onCreatePaymentLink, onDeleteDocument, onRecordPayment, onSaveSchedule, onSaveTotal, onStatus, onUpdateBenefit, onUploadDocument, requests, selectedId, setSelectedId }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [paymentFilter, setPaymentFilter] = useState("all");
@@ -4852,7 +4870,7 @@ function AdminBookingWorkspace({ onCancel, onCreatePaymentLink, onDeleteDocument
             );
           }) : <div className="admin-list-empty">No bookings match these filters.</div>}
         </div>
-        {selectedRequest ? <AdminBookingDetail key={`${selectedRequest.id}-${selectedRequest.preferred_date || "pending"}-${selectedRequest.preferred_time || "pending"}-${selectedRequest.transport_date || "none"}-${selectedRequest.transport_time || "none"}-${selectedRequest.status || "Requested"}`} onCancel={onCancel} onCreatePaymentLink={onCreatePaymentLink} onDeleteDocument={onDeleteDocument} onRecordPayment={onRecordPayment} onSaveSchedule={onSaveSchedule} onSaveTotal={onSaveTotal} onStatus={onStatus} onUpdateBenefit={onUpdateBenefit} onUploadDocument={onUploadDocument} request={selectedRequest} /> : <div className="admin-list-empty">Select a booking to review it.</div>}
+        {selectedRequest ? <AdminBookingDetail key={`${selectedRequest.id}-${selectedRequest.preferred_date || "pending"}-${selectedRequest.preferred_time || "pending"}-${selectedRequest.transport_date || "none"}-${selectedRequest.transport_time || "none"}-${selectedRequest.status || "Requested"}`} onArchivePastBooking={onArchivePastBooking} onCancel={onCancel} onCreatePaymentLink={onCreatePaymentLink} onDeleteDocument={onDeleteDocument} onRecordPayment={onRecordPayment} onSaveSchedule={onSaveSchedule} onSaveTotal={onSaveTotal} onStatus={onStatus} onUpdateBenefit={onUpdateBenefit} onUploadDocument={onUploadDocument} request={selectedRequest} /> : <div className="admin-list-empty">Select a booking to review it.</div>}
       </div>
     </section>
   );
@@ -5811,6 +5829,27 @@ function AdminPortal({ onBack }) {
     }
   }
 
+  async function archivePastDemand(id) {
+    setAdminError("");
+    setAdminNotice("");
+    try {
+      const response = await fetch("/.netlify/functions/admin-service-requests", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+        body: JSON.stringify({ action: "archive-past-booking", id }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Could not delete this past booking.");
+      setServiceRequests((requests) => requests.filter((request) => request.id !== id));
+      setSelectedAdminRequestId((current) => current === id ? "" : current);
+      setAdminNotice("The past booking was removed from the admin and member booking lists. Its linked records remain stored.");
+      loadVehicleIntelligence(adminToken, { keepNotice: true });
+    } catch (error) {
+      setAdminError(error.message || "Could not delete this past booking.");
+      throw error;
+    }
+  }
+
   async function createDemandPaymentLink(requestId, update) {
     setAdminError("");
     setAdminNotice("");
@@ -6183,6 +6222,7 @@ function AdminPortal({ onBack }) {
             <article className="admin-empty-card"><h2>No service requests yet</h2><p>New bookings and service requests will appear here.</p></article>
           ) : (
             <AdminBookingWorkspace
+              onArchivePastBooking={archivePastDemand}
               onCancel={cancelDemand}
               onCreatePaymentLink={createDemandPaymentLink}
               onDeleteDocument={deleteDemandDocument}

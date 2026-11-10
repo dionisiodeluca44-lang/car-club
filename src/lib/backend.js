@@ -659,6 +659,7 @@ export async function loadServiceRequests(userId) {
     .from("service_requests")
     .select("*")
     .eq("user_id", userId)
+    .neq("status", "Archived")
     .order("created_at", { ascending: false });
 
   if (error) throw error;

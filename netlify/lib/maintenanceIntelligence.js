@@ -246,7 +246,7 @@ export async function runMaintenanceRecalculation(supabase, options = {}) {
         const vehicleReadings = readings.filter((item) => item.vehicle_id === vehicle.id);
         const vehicleHistory = history.filter((item) => item.vehicle_id === vehicle.id);
         const vehicleAppointments = appointments
-          .filter((item) => item.vehicle_id === vehicle.id)
+          .filter((item) => item.vehicle_id === vehicle.id && item.status !== "Archived")
           .map((item) => ({ ...item, lifecycle_status: mapAppointmentLifecycleStatus(item.status) }));
         const { data: existingForecasts, error: existingError } = await supabase
           .from("vehicle_maintenance_forecasts")

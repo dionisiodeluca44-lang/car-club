@@ -5,6 +5,7 @@ import {
   membershipBenefitPeriod,
   summarizeMembershipBenefits,
 } from "../../shared/membershipBenefits.js";
+import { canArchivePastBooking } from "../../shared/adminBooking.js";
 
 const adminPassword = process.env.ADMIN_PORTAL_PASSWORD;
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -269,6 +270,7 @@ export async function handler(event) {
     let { data, error } = await supabase
       .from("service_requests")
       .select("id, user_id, vehicle_id, vehicle_label, service_type, preferred_date, preferred_time, transport_date, transport_time, cancelled_at, cancellation_reason, payment_link_url, payment_link_amount_cents, payment_link_label, payment_link_created_at, notes, status, quoted_total_cents, payment_mode, payment_status, created_at")
+      .neq("status", "Archived")
       .order("created_at", { ascending: false })
       .limit(100);
 
@@ -276,6 +278,7 @@ export async function handler(event) {
       const legacyResult = await supabase
         .from("service_requests")
         .select("id, user_id, vehicle_label, service_type, preferred_date, preferred_time, notes, status, created_at")
+        .neq("status", "Archived")
         .order("created_at", { ascending: false })
         .limit(100);
       data = legacyResult.data;
@@ -538,8 +541,28 @@ export async function handler(event) {
       return json(result.statusCode, result.body);
     }
 
-    if (!id || (!status && !["set-payment-total", "record-payment", "schedule", "cancel-request"].includes(action))) {
+    if (!id || (!status && !["set-payment-total", "record-payment", "schedule", "cancel-request", "archive-past-booking"].includes(action))) {
       return json(400, { error: "Request id and update details are required" });
+    }
+
+    if (action === "archive-past-booking") {
+      const { data: currentRequest, error: currentError } = await supabase
+        .from("service_requests")
+        .select("id, preferred_date, status")
+        .eq("id", id)
+        .maybeSingle();
+      if (currentError || !currentRequest) return json(404, { error: "Could not find that booking." });
+      if (!canArchivePastBooking(currentRequest)) {
+        return json(409, { error: "Only past, completed, or cancelled bookings can be deleted." });
+      }
+      const { data, error } = await supabase
+        .from("service_requests")
+        .update({ status: "Archived", updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .select("id, status")
+        .single();
+      if (error) return json(500, { error: "Could not delete this past booking." });
+      return json(200, { request: data });
     }
 
     if (["set-payment-total", "record-payment"].includes(action) && await requestHasPermanentComplimentaryServiceAccess(id)) {
