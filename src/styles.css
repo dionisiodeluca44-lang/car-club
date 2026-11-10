@@ -5870,6 +5870,10 @@ textarea:focus {
 }
 
 @media (max-width: 900px) {
+  .maintenance-admin-grid {
+    grid-template-columns: 1fr;
+  }
+
   .schedule-service-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -6023,6 +6027,12 @@ textarea:focus {
   margin: 0.3rem 0 0;
   color: var(--muted);
   line-height: 1.55;
+}
+
+.admin-intelligence-phase-note .button {
+  align-self: center;
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .admin-intelligence-search {
@@ -6210,6 +6220,142 @@ textarea:focus {
   text-align: right;
 }
 
+/* Vehicle Intelligence — Phase 2 */
+.maintenance-admin-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(18rem, 0.8fr);
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.maintenance-rule-form,
+.maintenance-settings-form,
+.maintenance-rule-list,
+.maintenance-record-list {
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #101010;
+}
+
+.maintenance-rule-form,
+.maintenance-settings-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.maintenance-rule-form header,
+.maintenance-settings-form header,
+.maintenance-record-list > header {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.maintenance-rule-form h3,
+.maintenance-settings-form h3,
+.maintenance-rule-list h3,
+.maintenance-record-list h3,
+.maintenance-record-list h4 {
+  margin: 0;
+}
+
+.maintenance-rule-form header > span,
+.maintenance-settings-form header > span {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgba(229, 200, 121, 0.3);
+  border-radius: 999px;
+  color: var(--gold-bright);
+  font-size: 0.68rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.maintenance-rule-form label,
+.maintenance-settings-form label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.maintenance-rule-form .wide,
+.maintenance-rule-form > button,
+.maintenance-settings-form > p,
+.maintenance-settings-form > button,
+.maintenance-form-note {
+  grid-column: 1 / -1;
+}
+
+.maintenance-form-note,
+.maintenance-settings-form > p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.maintenance-rule-list,
+.maintenance-record-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.maintenance-rule-list > article,
+.maintenance-record-list > article {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) - 0.25rem);
+  background: #151515;
+}
+
+.maintenance-rule-list article > div,
+.maintenance-record-list article > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+  align-items: center;
+}
+
+.maintenance-rule-list span,
+.maintenance-rule-list small,
+.maintenance-record-list span,
+.maintenance-record-list small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.maintenance-rule-list p,
+.maintenance-record-list p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.maintenance-rule-list .button {
+  justify-self: start;
+}
+
+.maintenance-status {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid rgba(229, 200, 121, 0.28);
+  border-radius: 999px;
+  color: var(--gold-bright) !important;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.maintenance-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
 .vehicle-intelligence-form {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -6319,6 +6465,30 @@ textarea:focus {
 
   .admin-intelligence-metrics article {
     min-height: 5.8rem;
+  }
+
+  .maintenance-rule-form,
+  .maintenance-settings-form {
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-rule-form .wide,
+  .maintenance-rule-form > button,
+  .maintenance-settings-form > p,
+  .maintenance-settings-form > button,
+  .maintenance-form-note {
+    grid-column: auto;
+  }
+
+  .admin-intelligence-phase-note,
+  .maintenance-rule-list article > div,
+  .maintenance-record-list article > div:first-child {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-intelligence-phase-note .button {
+    margin-left: 0;
   }
 }
 

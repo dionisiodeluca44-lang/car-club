@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { mileageCorrectionRequired, normalizeMileageUnit, normalizeOdometer } from "../../shared/vehicleIntelligence.js";
+import { getMaintenanceIntelligence, runMaintenanceRecalculation } from "../lib/maintenanceIntelligence.js";
 
 const adminPassword = process.env.ADMIN_PORTAL_PASSWORD;
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -21,6 +22,16 @@ function dateOnly(value) {
 
 function clean(value, limit = 1000) {
   return String(value || "").trim().slice(0, limit);
+}
+
+function integerOrNull(value) {
+  if (value === "" || value == null) return null;
+  const integer = Number.parseInt(value, 10);
+  return Number.isInteger(integer) && integer > 0 ? integer : null;
+}
+
+function stableKey(value) {
+  return clean(value, 120).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
 async function loadVehicle(vehicleId) {
@@ -78,12 +89,30 @@ async function getVehicleIntelligence() {
     requestsByVehicle.set(request.vehicle_id, items);
   }
 
+  let maintenance = { available: false, settings: null, rules: [], forecasts: [], tasks: [], jobRuns: [] };
+  try {
+    maintenance = await getMaintenanceIntelligence(supabase);
+  } catch (error) {
+    if (!["42P01", "PGRST205"].includes(error.code)) throw error;
+  }
+  const forecastsByVehicle = new Map();
+  for (const forecast of maintenance.forecasts || []) {
+    const items = forecastsByVehicle.get(forecast.vehicle_id) || [];
+    items.push(forecast);
+    forecastsByVehicle.set(forecast.vehicle_id, items);
+  }
+  const rulesById = new Map((maintenance.rules || []).map((rule) => [rule.id, rule]));
+
   const vehicles = (vehiclesResult.data || []).map((vehicle) => ({
     ...vehicle,
     customer: profiles.get(vehicle.user_id) || null,
     mileage_readings: readingsByVehicle.get(vehicle.id) || [],
     service_history: historyByVehicle.get(vehicle.id) || [],
     appointments: requestsByVehicle.get(vehicle.id) || [],
+    maintenance_forecasts: (forecastsByVehicle.get(vehicle.id) || []).map((forecast) => ({
+      ...forecast,
+      rule: rulesById.get(forecast.rule_id) || null,
+    })),
   }));
 
   const today = dateOnly(new Date().toISOString());
@@ -106,24 +135,27 @@ async function getVehicleIntelligence() {
     .map((vehicle) => vehicle.user_id));
   const activeVehicles = vehicles.filter((vehicle) => !vehicle.archived_at);
 
+  const actionableForecasts = (maintenance.forecasts || []).filter((forecast) => !forecast.archived_at);
   return {
     overview: {
       totalVehicles: activeVehicles.length,
       archivedVehicles: vehicles.length - activeVehicles.length,
       activeCustomers: activeCustomerIds.size,
       vehiclesRequiringAttention: activeVehicles.filter((vehicle) => !(readingsByVehicle.get(vehicle.id) || []).length).length,
-      maintenanceDue7Days: 0,
-      maintenanceDue30Days: 0,
-      overdueMaintenance: 0,
+      maintenanceDue7Days: actionableForecasts.filter((forecast) => forecast.status === "Due").length,
+      maintenanceDue30Days: actionableForecasts.filter((forecast) => forecast.status === "Approaching").length,
+      overdueMaintenance: actionableForecasts.filter((forecast) => forecast.status === "Overdue").length,
       customersNeedingMileage: customersNeedingMileage.size,
       upcomingAppointments: activeAppointments.length,
       pendingOutreachApprovals: 0,
       unansweredFollowUps: 0,
       estimatedPotentialRevenueCents,
       completedMaintenanceAppointments: (requestsResult.data || []).filter((request) => request.status === "Completed").length,
-      forecastingAvailable: false,
+      pendingMaintenanceTasks: (maintenance.tasks || []).filter((task) => ["open", "in_progress", "snoozed"].includes(task.status)).length,
+      forecastingAvailable: maintenance.available,
     },
     vehicles,
+    maintenance,
   };
 }
 
@@ -185,11 +217,22 @@ async function recordService(payload) {
   if (payload.serviceMileage !== "" && payload.serviceMileage != null && serviceMileage === null) {
     throw Object.assign(new Error("Enter a valid service mileage."), { statusCode: 400 });
   }
+  const appointmentId = clean(payload.appointmentId, 80) || null;
+  if (appointmentId) {
+    const { data: appointment, error: appointmentError } = await supabase
+      .from("service_requests")
+      .select("id, vehicle_id, status")
+      .eq("id", appointmentId)
+      .single();
+    if (appointmentError || appointment?.vehicle_id !== vehicle.id || appointment?.status !== "Completed") {
+      throw Object.assign(new Error("Only a completed appointment for this vehicle can be linked to performed service."), { statusCode: 400 });
+    }
+  }
   const record = {
     vehicle_id: vehicle.id,
     user_id: vehicle.user_id,
     service_type: serviceType,
-    appointment_id: payload.appointmentId || null,
+    appointment_id: appointmentId,
     service_date: serviceDate,
     service_mileage: serviceMileage,
     mileage_unit: normalizeMileageUnit(payload.mileageUnit),
@@ -204,6 +247,188 @@ async function recordService(payload) {
   return data;
 }
 
+async function updateVehicleMaintenanceProfile(payload) {
+  const vehicle = await loadVehicle(clean(payload.vehicleId, 80));
+  const preferences = {
+    ...(vehicle.service_preferences || {}),
+    severeService: Boolean(payload.severeService),
+    severeServiceNote: clean(payload.severeServiceNote, 1000) || null,
+  };
+  if (preferences.severeService && !preferences.severeServiceNote) {
+    throw Object.assign(new Error("Document why this vehicle should use a severe-service schedule."), { statusCode: 400 });
+  }
+  const { data, error } = await supabase.from("vehicles").update({
+    service_preferences: preferences,
+    maintenance_recalculation_required: true,
+    maintenance_recalculation_requested_at: new Date().toISOString(),
+  }).eq("id", vehicle.id).select("*").single();
+  if (error) throw error;
+  await audit({ action: "update_vehicle_maintenance_profile", entityId: vehicle.id, entityType: "vehicle", previousValue: vehicle.service_preferences, nextValue: preferences });
+  return data;
+}
+
+async function createRuleVersion(payload) {
+  const key = stableKey(payload.stableKey || payload.ruleName);
+  const ruleName = clean(payload.ruleName, 180);
+  const serviceType = clean(payload.serviceType, 180);
+  const sourceType = clean(payload.sourceType, 40);
+  const sourceReference = clean(payload.sourceReference, 1000);
+  const sourceVersion = clean(payload.sourceVersion, 200) || null;
+  const explanation = clean(payload.customerExplanation, 1500);
+  const allowedCategories = new Set(["mechanical", "tires", "preventative", "concierge"]);
+  const allowedSources = new Set(["manufacturer", "verified_provider", "internal_inspection", "optional_concierge"]);
+  const allowedTypes = new Set(["scheduled_maintenance", "inspection", "customer_issue", "optional_concierge", "promotion"]);
+  if (!key || !ruleName || !serviceType || !sourceReference || !explanation) {
+    throw Object.assign(new Error("Rule name, service, source reference, and explanation are required."), { statusCode: 400 });
+  }
+  if (!allowedCategories.has(payload.serviceCategory) || !allowedSources.has(sourceType) || !allowedTypes.has(payload.recommendationType)) {
+    throw Object.assign(new Error("Choose valid rule category, type, and source values."), { statusCode: 400 });
+  }
+  const applicability = payload.vehicleApplicability && typeof payload.vehicleApplicability === "object"
+    ? payload.vehicleApplicability
+    : {};
+  if (sourceType === "manufacturer" && (!sourceVersion || (!applicability.makes?.length && !applicability.models?.length))) {
+    throw Object.assign(new Error("Manufacturer rules require a source version and exact vehicle applicability."), { statusCode: 400 });
+  }
+  const mileageIntervalKm = integerOrNull(payload.mileageIntervalKm);
+  const timeIntervalMonths = integerOrNull(payload.timeIntervalMonths);
+  const requiresInspection = Boolean(payload.requiresInspection);
+  if (!mileageIntervalKm && !timeIntervalMonths && !requiresInspection && !["customer_issue", "optional_concierge", "promotion"].includes(payload.recommendationType)) {
+    throw Object.assign(new Error("Add a sourced interval or mark the rule as inspection required."), { statusCode: 400 });
+  }
+  const severeConditions = payload.severeServiceConditions && typeof payload.severeServiceConditions === "object"
+    ? {
+        mileageIntervalKm: integerOrNull(payload.severeServiceConditions.mileageIntervalKm),
+        timeIntervalMonths: integerOrNull(payload.severeServiceConditions.timeIntervalMonths),
+        condition: clean(payload.severeServiceConditions.condition, 1000),
+      }
+    : {};
+  if ((severeConditions.mileageIntervalKm || severeConditions.timeIntervalMonths) && !severeConditions.condition) {
+    throw Object.assign(new Error("Document the sourced severe-service condition before using an adjusted interval."), { statusCode: 400 });
+  }
+  const { data: latest, error: latestError } = await supabase
+    .from("vehicle_maintenance_rules")
+    .select("id, version")
+    .eq("stable_key", key)
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (latestError) throw latestError;
+  const record = {
+    stable_key: key,
+    version: Number(latest?.version || 0) + 1,
+    rule_name: ruleName,
+    service_type: serviceType,
+    service_aliases: Array.isArray(payload.serviceAliases) ? payload.serviceAliases.map((item) => clean(item, 180)).filter(Boolean) : [],
+    service_category: payload.serviceCategory,
+    recommendation_type: payload.recommendationType,
+    vehicle_applicability: applicability,
+    mileage_interval_km: mileageIntervalKm,
+    time_interval_months: timeIntervalMonths,
+    severe_service_conditions: severeConditions,
+    source_type: sourceType,
+    source_reference: sourceReference,
+    source_version: sourceVersion,
+    confidence_level: ["High", "Medium", "Low"].includes(payload.confidenceLevel) ? payload.confidenceLevel : "Low",
+    customer_explanation: explanation,
+    requires_inspection: requiresInspection,
+    safety_related: Boolean(payload.safetyRelated),
+    approval_status: "draft",
+    active: false,
+    supersedes_rule_id: latest?.id || null,
+  };
+  const { data, error } = await supabase.from("vehicle_maintenance_rules").insert(record).select("*").single();
+  if (error) throw error;
+  await audit({ action: "create_maintenance_rule_version", entityId: data.id, entityType: "maintenance_rule", nextValue: data });
+  return data;
+}
+
+async function approveRule(payload) {
+  const ruleId = clean(payload.ruleId, 80);
+  if (!ruleId) throw Object.assign(new Error("Choose a draft rule to approve."), { statusCode: 400 });
+  const { data: current, error: currentError } = await supabase.from("vehicle_maintenance_rules").select("*").eq("id", ruleId).single();
+  if (currentError) throw currentError;
+  if (current.approval_status !== "draft") throw Object.assign(new Error("Only a draft rule can be approved."), { statusCode: 409 });
+  const { data, error } = await supabase.rpc("approve_vehicle_maintenance_rule", { p_rule_id: ruleId });
+  if (error) throw error;
+  await audit({ action: "approve_maintenance_rule", entityId: ruleId, entityType: "maintenance_rule", previousValue: current, nextValue: data });
+  return data;
+}
+
+async function retireRule(payload) {
+  const ruleId = clean(payload.ruleId, 80);
+  if (!ruleId) throw Object.assign(new Error("Choose a rule to retire."), { statusCode: 400 });
+  const { data: current, error: currentError } = await supabase.from("vehicle_maintenance_rules").select("*").eq("id", ruleId).single();
+  if (currentError) throw currentError;
+  const { data, error } = await supabase.from("vehicle_maintenance_rules").update({
+    approval_status: "retired",
+    active: false,
+    archived_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }).eq("id", ruleId).select("*").single();
+  if (error) throw error;
+  await audit({ action: "retire_maintenance_rule", entityId: ruleId, entityType: "maintenance_rule", previousValue: current, nextValue: data });
+  return data;
+}
+
+async function updateMaintenanceTask(payload) {
+  const taskId = clean(payload.taskId, 80);
+  const status = clean(payload.status, 30);
+  if (!taskId || !["open", "in_progress", "snoozed", "completed", "dismissed"].includes(status)) {
+    throw Object.assign(new Error("Choose a valid task and status."), { statusCode: 400 });
+  }
+  const update = {
+    status,
+    updated_at: new Date().toISOString(),
+    completed_at: status === "completed" ? new Date().toISOString() : null,
+    snoozed_until: status === "snoozed" && payload.snoozedUntil ? payload.snoozedUntil : null,
+  };
+  const { data, error } = await supabase.from("crm_tasks").update(update).eq("id", taskId).select("*").single();
+  if (error) throw error;
+  await audit({ action: "update_maintenance_task", entityId: taskId, entityType: "crm_task", nextValue: data });
+  return data;
+}
+
+async function updateMaintenanceSettings(payload) {
+  const values = {
+    approaching_days: integerOrNull(payload.approachingDays),
+    due_days: Number.parseInt(payload.dueDays, 10),
+    approaching_km: integerOrNull(payload.approachingKm),
+    due_km: Number.parseInt(payload.dueKm, 10),
+    high_usage_reminder_days: integerOrNull(payload.highUsageReminderDays),
+    average_usage_reminder_days: integerOrNull(payload.averageUsageReminderDays),
+    low_usage_reminder_days: integerOrNull(payload.lowUsageReminderDays),
+    insufficient_data_reminder_days: integerOrNull(payload.insufficientDataReminderDays),
+    high_confidence_min_verified_readings: integerOrNull(payload.highConfidenceMinVerifiedReadings),
+    high_confidence_min_span_days: integerOrNull(payload.highConfidenceMinSpanDays),
+    recent_verified_mileage_days: integerOrNull(payload.recentVerifiedMileageDays),
+    medium_confidence_min_readings: integerOrNull(payload.mediumConfidenceMinReadings),
+  };
+  if (Object.values(values).some((value) => !Number.isInteger(value) || value < 0)) {
+    throw Object.assign(new Error("Enter valid maintenance thresholds."), { statusCode: 400 });
+  }
+  const { data: current, error: currentError } = await supabase.from("maintenance_settings").select("*").eq("setting_key", "default").eq("active", true).single();
+  if (currentError) throw currentError;
+  if (values.due_days > values.approaching_days || values.due_km > values.approaching_km) {
+    throw Object.assign(new Error("Due thresholds cannot be greater than approaching thresholds."), { statusCode: 400 });
+  }
+  const { data: inserted, error: insertError } = await supabase.from("maintenance_settings").insert({
+    ...current,
+    ...values,
+    id: undefined,
+    version: current.version + 1,
+    active: false,
+    created_at: undefined,
+  }).select("*").single();
+  if (insertError) throw insertError;
+  const { error: deactivateError } = await supabase.from("maintenance_settings").update({ active: false }).eq("id", current.id);
+  if (deactivateError) throw deactivateError;
+  const { data, error } = await supabase.from("maintenance_settings").update({ active: true }).eq("id", inserted.id).select("*").single();
+  if (error) throw error;
+  await audit({ action: "update_maintenance_settings", entityId: data.id, entityType: "maintenance_settings", previousValue: current, nextValue: data });
+  return data;
+}
+
 export async function handler(event) {
   if (!authorized(event)) return json(401, { error: "Unauthorized" });
   if (!supabase) return json(503, { error: "Admin backend is not configured" });
@@ -214,6 +439,20 @@ export async function handler(event) {
     const payload = JSON.parse(event.body || "{}");
     if (payload.action === "record-mileage") return json(200, { reading: await recordMileage(payload) });
     if (payload.action === "record-service") return json(200, { service: await recordService(payload) });
+    if (payload.action === "update-vehicle-maintenance-profile") return json(200, { vehicle: await updateVehicleMaintenanceProfile(payload) });
+    if (payload.action === "create-rule-version") return json(200, { rule: await createRuleVersion(payload) });
+    if (payload.action === "approve-rule") return json(200, { rule: await approveRule(payload) });
+    if (payload.action === "retire-rule") return json(200, { rule: await retireRule(payload) });
+    if (payload.action === "update-maintenance-task") return json(200, { task: await updateMaintenanceTask(payload) });
+    if (payload.action === "update-maintenance-settings") return json(200, { settings: await updateMaintenanceSettings(payload) });
+    if (payload.action === "recalculate-maintenance") {
+      const result = await runMaintenanceRecalculation(supabase, {
+        vehicleIds: payload.vehicleId ? [clean(payload.vehicleId, 80)] : undefined,
+        includeAll: Boolean(payload.includeAll),
+        jobName: "admin-maintenance-recalculation",
+      });
+      return json(200, { result });
+    }
     return json(400, { error: "Choose a valid Vehicle Intelligence action." });
   } catch (error) {
     console.error("Vehicle Intelligence admin request failed", error);

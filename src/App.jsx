@@ -4974,6 +4974,11 @@ function AdminConsultationCalendar({ consultations, onStatus }) {
 function AdminVehicleIntelligence({ data, onAction }) {
   const overview = data?.overview || {};
   const vehicles = ensureList(data?.vehicles);
+  const maintenance = data?.maintenance || {};
+  const rules = ensureList(maintenance.rules);
+  const forecasts = ensureList(maintenance.forecasts);
+  const tasks = ensureList(maintenance.tasks);
+  const settings = maintenance.settings || {};
   const [section, setSection] = useState("overview");
   const [query, setQuery] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
@@ -4993,8 +4998,67 @@ function AdminVehicleIntelligence({ data, onAction }) {
     ["Require attention", overview.vehiclesRequiringAttention || 0],
     ["Upcoming appointments", overview.upcomingAppointments || 0],
     ["Completed appointments", overview.completedMaintenanceAppointments || 0],
+    ["Approaching maintenance", overview.maintenanceDue30Days || 0],
+    ["Maintenance due", overview.maintenanceDue7Days || 0],
+    ["Overdue maintenance", overview.overdueMaintenance || 0],
+    ["Open maintenance tasks", overview.pendingMaintenanceTasks || 0],
     ["Potential booked value", adminMoney(overview.estimatedPotentialRevenueCents || 0)],
   ];
+
+  async function submitRule(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const list = (name) => String(formData.get(name) || "").split(",").map((item) => item.trim()).filter(Boolean);
+    setSaving(true);
+    try {
+      await onAction({
+        action: "create-rule-version",
+        stableKey: formData.get("stableKey"),
+        ruleName: formData.get("ruleName"),
+        serviceType: formData.get("serviceType"),
+        serviceCategory: formData.get("serviceCategory"),
+        recommendationType: formData.get("recommendationType"),
+        mileageIntervalKm: formData.get("mileageIntervalKm"),
+        timeIntervalMonths: formData.get("timeIntervalMonths"),
+        sourceType: formData.get("sourceType"),
+        sourceReference: formData.get("sourceReference"),
+        sourceVersion: formData.get("sourceVersion"),
+        confidenceLevel: formData.get("confidenceLevel"),
+        customerExplanation: formData.get("customerExplanation"),
+        severeServiceConditions: (formData.get("severeMileageIntervalKm") || formData.get("severeTimeIntervalMonths")) ? {
+          mileageIntervalKm: formData.get("severeMileageIntervalKm") ? Number(formData.get("severeMileageIntervalKm")) : null,
+          timeIntervalMonths: formData.get("severeTimeIntervalMonths") ? Number(formData.get("severeTimeIntervalMonths")) : null,
+          condition: formData.get("severeServiceCondition"),
+        } : {},
+        requiresInspection: formData.get("requiresInspection") === "on",
+        safetyRelated: formData.get("safetyRelated") === "on",
+        serviceAliases: list("serviceAliases"),
+        vehicleApplicability: {
+          makes: list("makes"),
+          models: list("models"),
+          trims: list("trims"),
+          engines: list("engines"),
+          yearFrom: formData.get("yearFrom") ? Number(formData.get("yearFrom")) : undefined,
+          yearTo: formData.get("yearTo") ? Number(formData.get("yearTo")) : undefined,
+        },
+      });
+      form.reset();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitSettings(event) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    setSaving(true);
+    try {
+      await onAction({ action: "update-maintenance-settings", ...Object.fromEntries(formData.entries()) });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function submitMileage(event) {
     event.preventDefault();
@@ -5033,8 +5097,25 @@ function AdminVehicleIntelligence({ data, onAction }) {
         provider: formData.get("provider"),
         description: formData.get("description"),
         invoiceReference: formData.get("invoiceReference"),
+        appointmentId: formData.get("appointmentId"),
       });
       form.reset();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitVehicleMaintenanceProfile(event) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    setSaving(true);
+    try {
+      await onAction({
+        action: "update-vehicle-maintenance-profile",
+        vehicleId: selectedVehicle.id,
+        severeService: formData.get("severeService") === "on",
+        severeServiceNote: formData.get("severeServiceNote"),
+      });
     } finally {
       setSaving(false);
     }
@@ -5073,14 +5154,22 @@ function AdminVehicleIntelligence({ data, onAction }) {
             <label>Unit<select defaultValue={selectedVehicle.mileage_unit || "km"} name="mileageUnit"><option value="km">Kilometres</option><option value="mi">Miles</option></select></label>
             <label>Provider<input name="provider" placeholder="Dealer or service shop" /></label>
             <label>Invoice reference<input name="invoiceReference" placeholder="Invoice or document reference" /></label>
+            <label className="wide">Completed appointment (optional)<select defaultValue="" name="appointmentId"><option value="">Not linked to an appointment</option>{ensureList(selectedVehicle.appointments).filter((appointment) => appointment.status === "Completed").map((appointment) => <option key={appointment.id} value={appointment.id}>{appointment.preferred_date || "Completed"} · {appointment.service_type}</option>)}</select></label>
             <label className="wide">Description<textarea name="description" placeholder="Only list work confirmed as performed." rows="2" /></label>
             <button className="button primary compact-button" disabled={saving} type="submit">{saving ? "Saving..." : "Save Service Record"}</button>
+          </form>
+          <form onSubmit={submitVehicleMaintenanceProfile}>
+            <div><Wrench size={19} /><h3>Maintenance profile</h3></div>
+            <label className="admin-inline-check wide"><input defaultChecked={selectedVehicle.service_preferences?.severeService === true} name="severeService" type="checkbox" /> Apply a documented severe-service schedule</label>
+            <label className="wide">Supporting note<textarea defaultValue={selectedVehicle.service_preferences?.severeServiceNote || ""} name="severeServiceNote" placeholder="Document the operating conditions and retained evidence." rows="3" /></label>
+            <button className="button secondary compact-button" disabled={saving} type="submit">Save Maintenance Profile</button>
           </form>
         </div>
         <div className="admin-intelligence-history-grid">
           <section><h3>Mileage history</h3>{ensureList(selectedVehicle.mileage_readings).length ? selectedVehicle.mileage_readings.map((reading) => <div key={reading.id}><strong>{Number(reading.odometer_value).toLocaleString()} {reading.unit}</strong><span>{new Date(reading.recorded_at).toLocaleDateString()} · {String(reading.verification_status).replaceAll("_", " ")}</span></div>) : <p>No mileage readings yet.</p>}</section>
           <section><h3>Service history</h3>{ensureList(selectedVehicle.service_history).length ? selectedVehicle.service_history.map((service) => <div key={service.id}><strong>{service.service_type}</strong><span>{service.service_date}{service.service_mileage != null ? ` · ${Number(service.service_mileage).toLocaleString()} ${service.mileage_unit}` : ""} · {String(service.verification_status).replaceAll("_", " ")}</span></div>) : <p>No normalized service records yet.</p>}</section>
           <section><h3>Linked appointments</h3>{ensureList(selectedVehicle.appointments).length ? selectedVehicle.appointments.map((appointment) => <div key={appointment.id}><strong>{appointment.service_type}</strong><span>{appointment.preferred_date || "Date pending"} · {appointment.status || "Requested"}</span></div>) : <p>No linked appointments yet.</p>}</section>
+          <section><h3>Maintenance forecasts</h3>{ensureList(selectedVehicle.maintenance_forecasts).length ? selectedVehicle.maintenance_forecasts.map((forecast) => <div key={forecast.id}><strong>{forecast.rule?.rule_name || "Maintenance rule"}</strong><span>{forecast.status} · {forecast.confidence} confidence{forecast.next_due_date ? ` · ${forecast.next_due_date}` : ""}</span></div>) : <p>No approved rule currently produces a forecast for this vehicle.</p>}</section>
         </div>
       </section>
     );
@@ -5089,10 +5178,10 @@ function AdminVehicleIntelligence({ data, onAction }) {
   return (
     <section className="admin-intelligence-shell">
       <nav className="admin-intelligence-tabs" aria-label="Vehicle Intelligence pages">
-        {["overview", "vehicles", "mileage", "appointments", "service-history"].map((item) => <button className={section === item ? "active" : ""} key={item} onClick={() => setSection(item)} type="button">{item.split("-").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ")}</button>)}
+        {["overview", "vehicles", "mileage", "appointments", "service-history", "rules", "forecasts", "tasks", "settings"].map((item) => <button className={section === item ? "active" : ""} key={item} onClick={() => setSection(item)} type="button">{item.split("-").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ")}</button>)}
       </nav>
-      {section === "overview" && <><div className="admin-intelligence-metrics">{metrics.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div><div className="admin-intelligence-phase-note"><Wrench size={20} /><div><strong>Maintenance forecasting is intentionally not estimated yet.</strong><p>Phase 1 records verified mileage, service history, and booking links. Vehicle-specific rules and sourced manufacturer schedules are added in Phase 2.</p></div></div></>}
-      {section !== "overview" && <>
+      {section === "overview" && <><div className="admin-intelligence-metrics">{metrics.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div><div className="admin-intelligence-phase-note"><Wrench size={20} /><div><strong>{maintenance.available ? "Maintenance Intelligence Phase 2 is active." : "Phase 2 database migration required."}</strong><p>{maintenance.available ? "Only approved, sourced rules produce forecasts. Low-confidence or missing-history cases are routed to manual review, and no customer messages are sent automatically." : "Run the Phase 2 Supabase migration before creating maintenance rules or forecasts."}</p></div>{maintenance.available && <button className="button secondary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "recalculate-maintenance", includeAll: true }); } finally { setSaving(false); } }} type="button">{saving ? "Recalculating..." : "Recalculate All"}</button>}</div></>}
+      {["vehicles", "mileage", "appointments", "service-history"].includes(section) && <>
         <label className="admin-search-field admin-intelligence-search"><Search size={17} /><input onChange={(event) => setQuery(event.target.value)} placeholder="Search customer, vehicle, VIN, or email" type="search" value={query} /></label>
         <div className="admin-intelligence-table">
           <div className="admin-intelligence-table-head"><span>Vehicle</span><span>Customer</span><span>Mileage</span><span>{section === "appointments" ? "Appointments" : section === "service-history" ? "Service records" : "Last update"}</span></div>
@@ -5100,6 +5189,41 @@ function AdminVehicleIntelligence({ data, onAction }) {
           {!filteredVehicles.length && <p>No vehicles match this view.</p>}
         </div>
       </>}
+      {section === "rules" && <div className="maintenance-admin-grid">
+        <form className="maintenance-rule-form" onSubmit={submitRule}>
+          <header><div><p className="eyebrow">Versioned rule</p><h3>Create a maintenance rule draft</h3></div><span>Approval required</span></header>
+          <p className="maintenance-form-note">Use the exact source and exact vehicle applicability. Generic guidance must never be presented as a manufacturer schedule.</p>
+          <label>Rule name<input name="ruleName" required placeholder="Manufacturer oil service schedule" /></label>
+          <label>Stable key<input name="stableKey" placeholder="oil-service-amg-gt" /></label>
+          <label>Service type<input name="serviceType" required placeholder="Oil and filter service" /></label>
+          <label>Aliases, comma separated<input name="serviceAliases" placeholder="Oil change, Engine oil service" /></label>
+          <label>Category<select name="serviceCategory" defaultValue="mechanical"><option value="mechanical">Mechanical</option><option value="tires">Tires</option><option value="preventative">Preventative</option><option value="concierge">Concierge</option></select></label>
+          <label>Recommendation type<select name="recommendationType" defaultValue="scheduled_maintenance"><option value="scheduled_maintenance">Scheduled maintenance</option><option value="inspection">Inspection</option><option value="customer_issue">Customer issue</option><option value="optional_concierge">Optional concierge</option><option value="promotion">Promotion</option></select></label>
+          <label>Mileage interval (km)<input min="1" name="mileageIntervalKm" type="number" /></label>
+          <label>Time interval (months)<input min="1" name="timeIntervalMonths" type="number" /></label>
+          <label>Documented severe interval (km)<input min="1" name="severeMileageIntervalKm" type="number" /></label>
+          <label>Documented severe interval (months)<input min="1" name="severeTimeIntervalMonths" type="number" /></label>
+          <label className="wide">Severe-service condition<textarea name="severeServiceCondition" rows="2" placeholder="Use only when the retained source explicitly documents the adjusted schedule." /></label>
+          <label>Make(s), comma separated<input name="makes" placeholder="Mercedes-Benz" /></label>
+          <label>Model(s), comma separated<input name="models" placeholder="AMG GT" /></label>
+          <label>Trim(s), comma separated<input name="trims" /></label>
+          <label>Engine(s), comma separated<input name="engines" /></label>
+          <label>First model year<input min="1900" max="2100" name="yearFrom" type="number" /></label>
+          <label>Last model year<input min="1900" max="2100" name="yearTo" type="number" /></label>
+          <label>Source type<select name="sourceType" defaultValue="manufacturer"><option value="manufacturer">Manufacturer</option><option value="verified_provider">Verified provider</option><option value="internal_inspection">Internal inspection</option><option value="optional_concierge">Optional concierge</option></select></label>
+          <label>Source version<input name="sourceVersion" placeholder="2019 owner manual edition" /></label>
+          <label className="wide">Source reference<textarea name="sourceReference" required rows="2" placeholder="Document title, section, publication date, and retained reference" /></label>
+          <label>Source confidence<select name="confidenceLevel" defaultValue="Low"><option value="High">High</option><option value="Medium">Medium</option><option value="Low">Low</option></select></label>
+          <label className="admin-inline-check"><input name="requiresInspection" type="checkbox" /> Inspection required</label>
+          <label className="admin-inline-check"><input name="safetyRelated" type="checkbox" /> Safety related</label>
+          <label className="wide">Customer explanation<textarea name="customerExplanation" required rows="3" placeholder="Explain why this recommendation applies without overstating certainty." /></label>
+          <button className="button primary compact-button" disabled={saving} type="submit">{saving ? "Saving..." : "Save Draft Version"}</button>
+        </form>
+        <section className="maintenance-rule-list"><h3>Rule versions</h3>{rules.length ? rules.map((rule) => <article key={rule.id}><div><strong>{rule.rule_name}</strong><span>v{rule.version} · {rule.approval_status} · {rule.source_type.replaceAll("_", " ")}</span></div><p>{rule.source_reference}</p><small>{rule.mileage_interval_km ? `${Number(rule.mileage_interval_km).toLocaleString()} km` : "No mileage interval"}{rule.time_interval_months ? ` · ${rule.time_interval_months} months` : ""}</small>{rule.approval_status === "draft" && <button className="button secondary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "approve-rule", ruleId: rule.id }); } finally { setSaving(false); } }} type="button">Approve Rule</button>}{rule.approval_status === "approved" && <button className="text-button" disabled={saving} onClick={() => onAction({ action: "retire-rule", ruleId: rule.id })} type="button">Retire Rule</button>}</article>) : <p>No rule versions yet. No maintenance intervals have been assumed.</p>}</section>
+      </div>}
+      {section === "forecasts" && <div className="maintenance-record-list"><header><div><p className="eyebrow">Calculated intelligence</p><h3>Maintenance forecasts</h3></div><button className="button secondary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "recalculate-maintenance", includeAll: true }); } finally { setSaving(false); } }} type="button">Recalculate</button></header>{forecasts.length ? forecasts.map((forecast) => { const vehicle = vehicles.find((item) => item.id === forecast.vehicle_id); const rule = rules.find((item) => item.id === forecast.rule_id); return <article key={forecast.id}><div><strong>{rule?.rule_name || "Maintenance rule"}</strong><span className={`maintenance-status status-${String(forecast.status).toLowerCase().replaceAll(" ", "-")}`}>{forecast.status}</span></div><h4>{vehicle ? `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() : "Vehicle"}</h4><p>{forecast.reason?.summary || "Explanation unavailable."}</p><small>{forecast.confidence} confidence{forecast.next_due_date ? ` · Next threshold ${forecast.next_due_date}` : ""}{forecast.next_due_mileage_km ? ` · ${Number(forecast.next_due_mileage_km).toLocaleString()} km` : ""}</small></article>; }) : <p>No forecasts yet. Approve a sourced rule, then recalculate.</p>}</div>}
+      {section === "tasks" && <div className="maintenance-record-list"><header><div><p className="eyebrow">Administrator work queue</p><h3>Maintenance tasks</h3></div></header>{tasks.length ? tasks.map((task) => { const vehicle = vehicles.find((item) => item.id === task.vehicle_id); return <article key={task.id}><div><strong>{task.title}</strong><span>{task.priority} · {task.status.replaceAll("_", " ")}</span></div><h4>{vehicle ? `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() : "Vehicle"}</h4><p>{task.detail}</p><small>{task.due_at ? `Due ${new Date(task.due_at).toLocaleDateString()}` : "No due date"}</small>{!["completed", "dismissed"].includes(task.status) && <div className="maintenance-task-actions"><button className="button secondary compact-button" onClick={() => onAction({ action: "update-maintenance-task", taskId: task.id, status: "in_progress" })} type="button">Start</button><button className="button secondary compact-button" onClick={() => onAction({ action: "update-maintenance-task", taskId: task.id, status: "completed" })} type="button">Complete</button><button className="text-button" onClick={() => onAction({ action: "update-maintenance-task", taskId: task.id, status: "dismissed" })} type="button">Dismiss</button></div>}</article>; }) : <p>No maintenance tasks.</p>}</div>}
+      {section === "settings" && <form className="maintenance-settings-form" onSubmit={submitSettings}><header><div><p className="eyebrow">Versioned controls</p><h3>Forecast and reminder thresholds</h3></div><span>v{settings.version || 1}</span></header><p>These settings create administrator tasks only. Phase 2 does not send customer messages automatically.</p><label>Approaching days<input defaultValue={settings.approaching_days ?? 30} min="1" name="approachingDays" required type="number" /></label><label>Due days<input defaultValue={settings.due_days ?? 7} min="0" name="dueDays" required type="number" /></label><label>Approaching km<input defaultValue={settings.approaching_km ?? 1500} min="1" name="approachingKm" required type="number" /></label><label>Due km<input defaultValue={settings.due_km ?? 500} min="0" name="dueKm" required type="number" /></label><label>High-use mileage reminder<input defaultValue={settings.high_usage_reminder_days ?? 30} min="7" name="highUsageReminderDays" required type="number" /></label><label>Average-use mileage reminder<input defaultValue={settings.average_usage_reminder_days ?? 60} min="7" name="averageUsageReminderDays" required type="number" /></label><label>Low-use mileage reminder<input defaultValue={settings.low_usage_reminder_days ?? 90} min="7" name="lowUsageReminderDays" required type="number" /></label><label>Insufficient-data reminder<input defaultValue={settings.insufficient_data_reminder_days ?? 60} min="7" name="insufficientDataReminderDays" required type="number" /></label><label>High confidence verified readings<input defaultValue={settings.high_confidence_min_verified_readings ?? 3} min="2" max="20" name="highConfidenceMinVerifiedReadings" required type="number" /></label><label>High confidence history span (days)<input defaultValue={settings.high_confidence_min_span_days ?? 60} min="7" max="730" name="highConfidenceMinSpanDays" required type="number" /></label><label>Recent verified mileage window (days)<input defaultValue={settings.recent_verified_mileage_days ?? 120} min="7" max="730" name="recentVerifiedMileageDays" required type="number" /></label><label>Medium confidence readings<input defaultValue={settings.medium_confidence_min_readings ?? 2} min="1" max="20" name="mediumConfidenceMinReadings" required type="number" /></label><button className="button primary compact-button" disabled={saving} type="submit">{saving ? "Saving..." : "Save New Settings Version"}</button></form>}
     </section>
   );
 }
@@ -5254,7 +5378,18 @@ function AdminPortal({ onBack }) {
       throw error;
     }
     await loadVehicleIntelligence(adminToken);
-    setAdminNotice(payload.action === "record-mileage" ? "Mileage reading saved and audited." : "Service history saved and audited.");
+    const notices = {
+      "record-mileage": "Mileage reading saved and audited.",
+      "record-service": "Service history saved and audited.",
+      "update-vehicle-maintenance-profile": "Vehicle maintenance profile saved and queued for recalculation.",
+      "create-rule-version": "Maintenance rule draft saved as a new version.",
+      "approve-rule": "Maintenance rule approved. A recalculation has been queued.",
+      "retire-rule": "Maintenance rule retired. A recalculation has been queued.",
+      "update-maintenance-task": "Maintenance task updated.",
+      "update-maintenance-settings": "A new maintenance settings version is active.",
+      "recalculate-maintenance": "Maintenance forecasts and administrator tasks were recalculated.",
+    };
+    setAdminNotice(notices[payload.action] || "Vehicle Intelligence updated.");
   }
 
   async function submitAdminLogin(event) {
