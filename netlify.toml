@@ -5,6 +5,9 @@
 [functions]
   directory = "netlify/functions"
 
+[functions."maintenance-rule-discovery-weekly"]
+  schedule = "0 11 * * 1"
+
 [build.environment]
   NODE_VERSION = "24"
 

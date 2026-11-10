@@ -84,6 +84,7 @@ import {
   suggestedBenefitKeysForRequest,
   summarizeMembershipBenefits,
 } from "../shared/membershipBenefits";
+import { automationStatusForRule, vehicleRuleSignature } from "../shared/maintenanceRuleAutomation";
 
 const services = [
   {
@@ -4979,6 +4980,7 @@ function AdminVehicleIntelligence({ data, onAction }) {
   const forecasts = ensureList(maintenance.forecasts);
   const tasks = ensureList(maintenance.tasks);
   const settings = maintenance.settings || {};
+  const maintenanceAutomation = maintenance.automation || {};
   const outreach = data?.outreach || {};
   const opportunities = ensureList(outreach.opportunities);
   const outreachMessages = ensureList(outreach.messages);
@@ -4988,6 +4990,7 @@ function AdminVehicleIntelligence({ data, onAction }) {
   const [section, setSection] = useState("overview");
   const [query, setQuery] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  const [editingRuleId, setEditingRuleId] = useState("");
   const [saving, setSaving] = useState(false);
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || null;
   const filteredVehicles = useMemo(() => {
@@ -5012,6 +5015,7 @@ function AdminVehicleIntelligence({ data, onAction }) {
     ["Unanswered follow-ups", overview.unansweredFollowUps || 0],
     ["Estimated opportunities", adminMoney(overview.estimatedPotentialRevenueCents || 0)],
   ];
+  const distinctVehicleConfigurations = new Set(vehicles.map((vehicle) => vehicleRuleSignature(vehicle) || vehicle.id)).size;
   const customerById = new Map(vehicles.filter((vehicle) => vehicle.customer).map((vehicle) => [vehicle.user_id, vehicle.customer]));
   const vehicleById = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
   const preferenceByCustomer = new Map(communicationPreferences.map((item) => [item.customer_id, item]));
@@ -5074,6 +5078,31 @@ function AdminVehicleIntelligence({ data, onAction }) {
         },
       });
       form.reset();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitRuleEdit(event, ruleId) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    setSaving(true);
+    try {
+      await onAction({
+        action: "update-rule-draft",
+        ruleId,
+        ruleName: formData.get("ruleName"),
+        serviceType: formData.get("serviceType"),
+        mileageIntervalKm: formData.get("mileageIntervalKm"),
+        timeIntervalMonths: formData.get("timeIntervalMonths"),
+        sourceVersion: formData.get("sourceVersion"),
+        sourceReference: formData.get("sourceReference"),
+        confidenceLevel: formData.get("confidenceLevel"),
+        customerExplanation: formData.get("customerExplanation"),
+        requiresInspection: formData.get("requiresInspection") === "on",
+        safetyRelated: formData.get("safetyRelated") === "on",
+      });
+      setEditingRuleId("");
     } finally {
       setSaving(false);
     }
@@ -5220,6 +5249,15 @@ function AdminVehicleIntelligence({ data, onAction }) {
         </div>
       </>}
       {section === "rules" && <div className="maintenance-admin-grid">
+        <section className="maintenance-automation-panel">
+          <div>
+            <p className="eyebrow">Automatic rule drafting</p>
+            <h3>Create rules for every Garage vehicle</h3>
+            <p>The system groups matching vehicles, looks for an exact official schedule, and saves editable drafts only. Nothing becomes active until you approve it.</p>
+            <small>{distinctVehicleConfigurations} vehicle configuration{distinctVehicleConfigurations === 1 ? "" : "s"} · {maintenanceAutomation.mode === "verified_provider" ? "Verified maintenance provider connected" : maintenanceAutomation.mode === "official_web_research" ? "Official-source research connected" : "Review-only safety mode"}</small>
+          </div>
+          <button className="button primary compact-button" disabled={saving || !vehicles.length} onClick={async () => { setSaving(true); try { await onAction({ action: "auto-draft-maintenance-rules" }); } finally { setSaving(false); } }} type="button">{saving ? "Checking Vehicles..." : "Create Rules Automatically"}</button>
+        </section>
         <form className="maintenance-rule-form" onSubmit={submitRule}>
           <header><div><p className="eyebrow">Versioned rule</p><h3>Create a maintenance rule draft</h3></div><span>Approval required</span></header>
           <p className="maintenance-form-note">Use the exact source and exact vehicle applicability. Generic guidance must never be presented as a manufacturer schedule.</p>
@@ -5249,7 +5287,39 @@ function AdminVehicleIntelligence({ data, onAction }) {
           <label className="wide">Customer explanation<textarea name="customerExplanation" required rows="3" placeholder="Explain why this recommendation applies without overstating certainty." /></label>
           <button className="button primary compact-button" disabled={saving} type="submit">{saving ? "Saving..." : "Save Draft Version"}</button>
         </form>
-        <section className="maintenance-rule-list"><h3>Rule versions</h3>{rules.length ? rules.map((rule) => <article key={rule.id}><div><strong>{rule.rule_name}</strong><span>v{rule.version} · {rule.approval_status} · {rule.source_type.replaceAll("_", " ")}</span></div><p>{rule.source_reference}</p><small>{rule.mileage_interval_km ? `${Number(rule.mileage_interval_km).toLocaleString()} km` : "No mileage interval"}{rule.time_interval_months ? ` · ${rule.time_interval_months} months` : ""}</small>{rule.approval_status === "draft" && <button className="button secondary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "approve-rule", ruleId: rule.id }); } finally { setSaving(false); } }} type="button">Approve Rule</button>}{rule.approval_status === "approved" && <button className="text-button" disabled={saving} onClick={() => onAction({ action: "retire-rule", ruleId: rule.id })} type="button">Retire Rule</button>}</article>) : <p>No rule versions yet. No maintenance intervals have been assumed.</p>}</section>
+        <section className="maintenance-rule-list">
+          <h3>Rule versions</h3>
+          {rules.length ? rules.map((rule) => {
+            const status = automationStatusForRule(rule);
+            const isEditing = editingRuleId === rule.id;
+            return <article key={rule.id}>
+              <div><strong>{rule.rule_name}</strong><span className={`automation-rule-status automation-${status.toLowerCase().replaceAll(" ", "-")}`}>{status}</span></div>
+              <small>v{rule.version} · {rule.approval_status} · {rule.source_type.replaceAll("_", " ")}</small>
+              {!isEditing && <>
+                <p>{rule.source_reference}</p>
+                <small>{rule.mileage_interval_km ? `${Number(rule.mileage_interval_km).toLocaleString()} km` : "No mileage interval"}{rule.time_interval_months ? ` · ${rule.time_interval_months} months` : ""}</small>
+                <div className="maintenance-task-actions">
+                  {rule.approval_status === "draft" && <button className="button secondary compact-button" disabled={saving} onClick={() => setEditingRuleId(rule.id)} type="button">Edit Draft</button>}
+                  {rule.approval_status === "draft" && <button className="button primary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "approve-rule", ruleId: rule.id }); } finally { setSaving(false); } }} type="button">Approve Rule</button>}
+                  {rule.approval_status === "approved" && <button className="text-button" disabled={saving} onClick={() => onAction({ action: "retire-rule", ruleId: rule.id })} type="button">Retire Rule</button>}
+                </div>
+              </>}
+              {isEditing && <form className="maintenance-rule-edit-form" onSubmit={(event) => submitRuleEdit(event, rule.id)}>
+                <label>Rule name<input defaultValue={rule.rule_name} name="ruleName" required /></label>
+                <label>Service type<input defaultValue={rule.service_type} name="serviceType" required /></label>
+                <label>Mileage interval (km)<input defaultValue={rule.mileage_interval_km || ""} min="1" name="mileageIntervalKm" type="number" /></label>
+                <label>Time interval (months)<input defaultValue={rule.time_interval_months || ""} min="1" name="timeIntervalMonths" type="number" /></label>
+                <label>Source version<input defaultValue={rule.source_version || ""} name="sourceVersion" /></label>
+                <label>Confidence<select defaultValue={rule.confidence_level || "Low"} name="confidenceLevel"><option>High</option><option>Medium</option><option>Low</option></select></label>
+                <label className="wide">Source reference<textarea defaultValue={rule.source_reference} name="sourceReference" required rows="3" /></label>
+                <label className="wide">Customer explanation<textarea defaultValue={rule.customer_explanation} name="customerExplanation" required rows="3" /></label>
+                <label className="admin-inline-check"><input defaultChecked={rule.requires_inspection} name="requiresInspection" type="checkbox" /> Inspection required</label>
+                <label className="admin-inline-check"><input defaultChecked={rule.safety_related} name="safetyRelated" type="checkbox" /> Safety related</label>
+                <div className="maintenance-task-actions wide"><button className="button primary compact-button" disabled={saving} type="submit">Save Changes</button><button className="button secondary compact-button" onClick={() => setEditingRuleId("")} type="button">Cancel</button></div>
+              </form>}
+            </article>;
+          }) : <p>No rule versions yet. Select Create Rules Automatically to begin.</p>}
+        </section>
       </div>}
       {section === "forecasts" && <div className="maintenance-record-list"><header><div><p className="eyebrow">Calculated intelligence</p><h3>Maintenance forecasts</h3></div><button className="button secondary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "recalculate-maintenance", includeAll: true }); } finally { setSaving(false); } }} type="button">Recalculate</button></header>{forecasts.length ? forecasts.map((forecast) => { const vehicle = vehicles.find((item) => item.id === forecast.vehicle_id); const rule = rules.find((item) => item.id === forecast.rule_id); return <article key={forecast.id}><div><strong>{rule?.rule_name || "Maintenance rule"}</strong><span className={`maintenance-status status-${String(forecast.status).toLowerCase().replaceAll(" ", "-")}`}>{forecast.status}</span></div><h4>{vehicle ? `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() : "Vehicle"}</h4><p>{forecast.reason?.summary || "Explanation unavailable."}</p><small>{forecast.confidence} confidence{forecast.next_due_date ? ` · Next threshold ${forecast.next_due_date}` : ""}{forecast.next_due_mileage_km ? ` · ${Number(forecast.next_due_mileage_km).toLocaleString()} km` : ""}</small></article>; }) : <p>No forecasts yet. Approve a sourced rule, then recalculate.</p>}</div>}
       {section === "tasks" && <div className="maintenance-record-list"><header><div><p className="eyebrow">Administrator work queue</p><h3>CRM tasks</h3></div></header>{tasks.length ? tasks.map((task) => { const vehicle = vehicles.find((item) => item.id === task.vehicle_id); return <article key={task.id}><div><strong>{task.title}</strong><span>{task.priority} · {task.status.replaceAll("_", " ")}</span></div><h4>{vehicle ? `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() : "Vehicle"}</h4><p>{task.detail}</p><small>{task.due_at ? `Due ${new Date(task.due_at).toLocaleDateString()}` : "No due date"}</small>{!["completed", "dismissed"].includes(task.status) && <div className="maintenance-task-actions"><button className="button secondary compact-button" onClick={() => onAction({ action: "update-maintenance-task", taskId: task.id, status: "in_progress" })} type="button">Start</button><button className="button secondary compact-button" onClick={() => onAction({ action: "update-maintenance-task", taskId: task.id, status: "completed" })} type="button">Complete</button><button className="text-button" onClick={() => onAction({ action: "update-maintenance-task", taskId: task.id, status: "dismissed" })} type="button">Dismiss</button></div>}</article>; }) : <p>No CRM tasks.</p>}</div>}
@@ -5466,6 +5536,10 @@ function AdminPortal({ onBack }) {
       "record-service": "Service history saved and audited.",
       "update-vehicle-maintenance-profile": "Vehicle maintenance profile saved and queued for recalculation.",
       "create-rule-version": "Maintenance rule draft saved as a new version.",
+      "update-rule-draft": "Maintenance rule draft updated. It still requires approval.",
+      "auto-draft-maintenance-rules": result.result
+        ? `Automatic check complete: ${result.result.draftsCreated} draft${result.result.draftsCreated === 1 ? "" : "s"} created, ${result.result.readyToApprove} ready to approve, ${result.result.needsReview} needing review, and ${result.result.noReliableSource} without a reliable exact source.`
+        : "Automatic maintenance rule check completed.",
       "approve-rule": "Maintenance rule approved. A recalculation has been queued.",
       "retire-rule": "Maintenance rule retired. A recalculation has been queued.",
       "update-maintenance-task": "Maintenance task updated.",

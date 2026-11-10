@@ -2,7 +2,9 @@ import { createClient } from "@supabase/supabase-js";
 import { mileageCorrectionRequired, normalizeMileageUnit, normalizeOdometer } from "../../shared/vehicleIntelligence.js";
 import { buildOutreachDraft, communicationEligibility, isMaterialMessageChange, normalizePreferredLanguage } from "../../shared/outreachIntelligence.js";
 import { getMaintenanceIntelligence, runMaintenanceRecalculation } from "../lib/maintenanceIntelligence.js";
+import { discoverVehicleMaintenanceRules } from "../lib/maintenanceRuleAutomation.js";
 import { getOutreachIntelligence, runOutreachIntelligence } from "../lib/outreachIntelligence.js";
+import { vehicleRuleSignature } from "../../shared/maintenanceRuleAutomation.js";
 
 const adminPassword = process.env.ADMIN_PORTAL_PASSWORD;
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -94,6 +96,13 @@ async function getVehicleIntelligence() {
   let maintenance = { available: false, settings: null, rules: [], forecasts: [], tasks: [], jobRuns: [] };
   try {
     maintenance = await getMaintenanceIntelligence(supabase);
+    maintenance.automation = {
+      mode: process.env.MAINTENANCE_RULE_PROVIDER_URL
+        ? "verified_provider"
+        : process.env.OPENAI_API_KEY ? "official_web_research" : "review_only",
+      providerConfigured: Boolean(process.env.MAINTENANCE_RULE_PROVIDER_URL),
+      officialResearchConfigured: Boolean(process.env.OPENAI_API_KEY),
+    };
   } catch (error) {
     if (!["42P01", "PGRST205"].includes(error.code)) throw error;
   }
@@ -350,6 +359,115 @@ async function createRuleVersion(payload) {
   if (error) throw error;
   await audit({ action: "create_maintenance_rule_version", entityId: data.id, entityType: "maintenance_rule", nextValue: data });
   return data;
+}
+
+async function updateDraftRule(payload) {
+  const ruleId = clean(payload.ruleId, 80);
+  if (!ruleId) throw Object.assign(new Error("Choose a draft rule to edit."), { statusCode: 400 });
+  const { data: current, error: currentError } = await supabase.from("vehicle_maintenance_rules").select("*").eq("id", ruleId).single();
+  if (currentError) throw currentError;
+  if (current.approval_status !== "draft") throw Object.assign(new Error("Only an unapproved draft can be edited."), { statusCode: 409 });
+
+  const ruleName = clean(payload.ruleName, 180);
+  const serviceType = clean(payload.serviceType, 180);
+  const sourceReference = clean(payload.sourceReference, 1000);
+  const sourceVersion = clean(payload.sourceVersion, 200) || null;
+  const explanation = clean(payload.customerExplanation, 1500);
+  const mileageIntervalKm = integerOrNull(payload.mileageIntervalKm);
+  const timeIntervalMonths = integerOrNull(payload.timeIntervalMonths);
+  const requiresInspection = Boolean(payload.requiresInspection);
+  if (!ruleName || !serviceType || !sourceReference || !explanation) {
+    throw Object.assign(new Error("Rule name, service, source reference, and explanation are required."), { statusCode: 400 });
+  }
+  if (current.source_type === "manufacturer" && !sourceVersion) {
+    throw Object.assign(new Error("Manufacturer rules require an exact source version."), { statusCode: 400 });
+  }
+  if (!mileageIntervalKm && !timeIntervalMonths && !requiresInspection) {
+    throw Object.assign(new Error("Add a sourced interval or keep inspection required selected."), { statusCode: 400 });
+  }
+  const update = {
+    rule_name: ruleName,
+    service_type: serviceType,
+    mileage_interval_km: mileageIntervalKm,
+    time_interval_months: timeIntervalMonths,
+    source_reference: sourceReference,
+    source_version: sourceVersion,
+    confidence_level: ["High", "Medium", "Low"].includes(payload.confidenceLevel) ? payload.confidenceLevel : "Low",
+    customer_explanation: explanation,
+    requires_inspection: requiresInspection,
+    safety_related: Boolean(payload.safetyRelated),
+    updated_at: new Date().toISOString(),
+  };
+  const { data, error } = await supabase.from("vehicle_maintenance_rules").update(update).eq("id", ruleId).select("*").single();
+  if (error) throw error;
+  await audit({ action: "edit_maintenance_rule_draft", entityId: ruleId, entityType: "maintenance_rule", previousValue: current, nextValue: data });
+  return data;
+}
+
+async function autoDraftMaintenanceRules(payload) {
+  let query = supabase.from("vehicles").select("*").is("archived_at", null).order("created_at", { ascending: true });
+  if (payload.vehicleId) query = query.eq("id", clean(payload.vehicleId, 80));
+  const { data: vehicles, error: vehicleError } = await query;
+  if (vehicleError) throw vehicleError;
+  const representatives = [];
+  const seenSignatures = new Set();
+  for (const vehicle of vehicles || []) {
+    const signature = vehicleRuleSignature(vehicle) || `vehicle-${vehicle.id}`;
+    if (seenSignatures.has(signature)) continue;
+    seenSignatures.add(signature);
+    representatives.push(vehicle);
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("vehicle_maintenance_rules")
+    .select("id, stable_key, source_type, approval_status, archived_at");
+  if (existingError) throw existingError;
+  const currentKeys = new Set((existing || [])
+    .filter((rule) => !rule.archived_at && ["draft", "approved"].includes(rule.approval_status))
+    .map((rule) => rule.stable_key));
+  const result = {
+    vehiclesScanned: vehicles?.length || 0,
+    vehicleConfigurations: representatives.length,
+    draftsCreated: 0,
+    readyToApprove: 0,
+    needsReview: 0,
+    noReliableSource: 0,
+    skippedExisting: 0,
+    errors: [],
+  };
+
+  for (const vehicle of representatives) {
+    try {
+      const signature = vehicleRuleSignature(vehicle) || `vehicle-${vehicle.id}`;
+      const prefix = `auto-${signature}-`;
+      const existingForVehicle = (existing || []).filter((rule) => !rule.archived_at && rule.stable_key.startsWith(prefix));
+      const exactSourceAlreadyCovered = existingForVehicle.some((rule) => rule.source_type === "manufacturer");
+      const reviewOnlyAlreadyChecked = !process.env.MAINTENANCE_RULE_PROVIDER_URL && !process.env.OPENAI_API_KEY && existingForVehicle.length > 0;
+      if (exactSourceAlreadyCovered || reviewOnlyAlreadyChecked) {
+        result.skippedExisting += existingForVehicle.length || 1;
+        continue;
+      }
+      const discovery = await discoverVehicleMaintenanceRules(vehicle);
+      for (const rule of discovery.rules) {
+        const key = stableKey(rule.stableKey || rule.ruleName);
+        if (currentKeys.has(key)) {
+          result.skippedExisting += 1;
+          continue;
+        }
+        const created = await createRuleVersion(rule);
+        currentKeys.add(created.stable_key);
+        result.draftsCreated += 1;
+        if (rule.automationStatus === "ready_to_approve") result.readyToApprove += 1;
+        else if (rule.automationStatus === "no_reliable_source") result.noReliableSource += 1;
+        else result.needsReview += 1;
+      }
+      if (discovery.errors?.length) result.errors.push(...discovery.errors.map((message) => `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}: ${message}`.trim()));
+    } catch (error) {
+      result.errors.push(`${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || "Vehicle"}: ${error.message}`.trim());
+    }
+  }
+  await audit({ action: "auto_draft_maintenance_rules", entityId: null, entityType: "maintenance_automation", nextValue: result });
+  return result;
 }
 
 async function approveRule(payload) {
@@ -723,6 +841,8 @@ export async function handler(event) {
     if (payload.action === "record-service") return json(200, { service: await recordService(payload) });
     if (payload.action === "update-vehicle-maintenance-profile") return json(200, { vehicle: await updateVehicleMaintenanceProfile(payload) });
     if (payload.action === "create-rule-version") return json(200, { rule: await createRuleVersion(payload) });
+    if (payload.action === "update-rule-draft") return json(200, { rule: await updateDraftRule(payload) });
+    if (payload.action === "auto-draft-maintenance-rules") return json(200, { result: await autoDraftMaintenanceRules(payload) });
     if (payload.action === "approve-rule") return json(200, { rule: await approveRule(payload) });
     if (payload.action === "retire-rule") return json(200, { rule: await retireRule(payload) });
     if (payload.action === "update-maintenance-task") return json(200, { task: await updateMaintenanceTask(payload) });

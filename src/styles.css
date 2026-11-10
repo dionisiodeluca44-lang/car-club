@@ -6228,6 +6228,38 @@ textarea:focus {
   align-items: start;
 }
 
+.maintenance-automation-panel {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(229, 200, 121, 0.34);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(201, 164, 92, 0.13), rgba(16, 16, 16, 0.96));
+}
+
+.maintenance-automation-panel h3,
+.maintenance-automation-panel p {
+  margin: 0;
+}
+
+.maintenance-automation-panel > div {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.maintenance-automation-panel p,
+.maintenance-automation-panel small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.maintenance-automation-panel .button {
+  flex: 0 0 auto;
+}
+
 .maintenance-rule-form,
 .maintenance-settings-form,
 .maintenance-rule-list,
@@ -6339,6 +6371,48 @@ textarea:focus {
 
 .maintenance-rule-list .button {
   justify-self: start;
+}
+
+.automation-rule-status {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid rgba(229, 200, 121, 0.3);
+  border-radius: 999px;
+  color: var(--gold-bright) !important;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.automation-ready-to-approve,
+.automation-approved {
+  border-color: rgba(83, 190, 126, 0.4);
+  background: rgba(83, 190, 126, 0.1);
+  color: #86dfa9 !important;
+}
+
+.automation-no-reliable-source-found {
+  border-color: rgba(224, 97, 97, 0.42);
+  background: rgba(224, 97, 97, 0.08);
+  color: #f2a3a3 !important;
+}
+
+.maintenance-rule-edit-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--line);
+}
+
+.maintenance-rule-edit-form label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.maintenance-rule-edit-form .wide {
+  grid-column: 1 / -1;
 }
 
 .maintenance-status {
@@ -6569,7 +6643,8 @@ textarea:focus {
   }
 
   .maintenance-rule-form,
-  .maintenance-settings-form {
+  .maintenance-settings-form,
+  .maintenance-rule-edit-form {
     grid-template-columns: 1fr;
   }
 
@@ -6580,6 +6655,15 @@ textarea:focus {
   .maintenance-settings-form .wide,
   .maintenance-form-note {
     grid-column: auto;
+  }
+
+  .maintenance-rule-edit-form .wide {
+    grid-column: auto;
+  }
+
+  .maintenance-automation-panel {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .communication-preference-card {
