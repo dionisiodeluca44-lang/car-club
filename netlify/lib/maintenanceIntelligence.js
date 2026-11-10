@@ -151,7 +151,20 @@ async function syncMileageUpdateTask(supabase, { vehicle, readings, history, for
     .filter(Number.isFinite);
   const lastEvidenceAt = Math.max(0, ...reliableReadingDates, ...serviceMileageDates);
   const elapsedDays = lastEvidenceAt ? (new Date(asOf).getTime() - lastEvidenceAt) / 86400000 : Infinity;
-  if (elapsedDays < intervalDays) return false;
+  if (elapsedDays < intervalDays) {
+    const { error } = await supabase
+      .from("crm_tasks")
+      .update({
+        status: "completed",
+        completed_at: new Date(asOf).toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("vehicle_id", vehicle.id)
+      .eq("task_type", "mileage_update")
+      .in("status", ["open", "in_progress", "snoozed"]);
+    if (error) throw error;
+    return false;
+  }
 
   const bucket = Math.floor(new Date(asOf).getTime() / (intervalDays * 86400000));
   const idempotencyKey = `${vehicle.id}:mileage-update:${bucket}`;

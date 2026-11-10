@@ -6285,6 +6285,19 @@ textarea:focus {
   transform: translateY(-1px);
 }
 
+.calendar-event-card.is-complete {
+  border-color: rgba(85, 201, 125, 0.72);
+  border-left-color: #55c97d;
+  background: rgba(63, 164, 99, 0.14);
+  animation: calendar-complete 820ms ease both;
+}
+
+@keyframes calendar-complete {
+  0% { transform: scale(0.985); opacity: 0.78; }
+  45% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 .calendar-event-heading {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -6408,6 +6421,380 @@ textarea:focus {
   background: rgba(239, 130, 111, 0.08);
   color: #ffab9d !important;
   font-size: 0.69rem !important;
+}
+
+.calendar-mileage-success {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem;
+  border: 1px solid rgba(85, 201, 125, 0.42);
+  border-radius: 8px;
+  background: rgba(85, 201, 125, 0.12);
+  color: #9ce2b4;
+}
+
+.calendar-mileage-success > div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.calendar-mileage-success strong,
+.calendar-mileage-success span {
+  color: #b8edca;
+}
+
+.calendar-mileage-success span {
+  font-size: 0.69rem;
+}
+
+.admin-vehicle-calendars {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.admin-vehicle-calendar-picker,
+.admin-vehicle-calendar-facts,
+.admin-vehicle-calendar-month,
+.admin-vehicle-service-list {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #111;
+}
+
+.admin-vehicle-calendar-picker {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+}
+
+.admin-vehicle-calendar-picker h2,
+.admin-vehicle-calendar-picker p {
+  margin: 0;
+}
+
+.admin-vehicle-calendar-picker h2 {
+  margin-top: 0.18rem;
+}
+
+.admin-vehicle-calendar-picker > div > p:last-child {
+  margin-top: 0.28rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.admin-vehicle-calendar-picker label {
+  display: grid;
+  width: min(100%, 420px);
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-vehicle-calendar-picker select {
+  width: 100%;
+  min-height: 2.8rem;
+  padding: 0.7rem 2.2rem 0.7rem 0.8rem;
+  border: 1px solid rgba(229, 200, 121, 0.32);
+  border-radius: 9px;
+  background: rgba(201, 164, 92, 0.08);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.admin-vehicle-calendar-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.admin-vehicle-calendar-facts > div {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.9rem 1rem;
+  border-right: 1px solid var(--line);
+}
+
+.admin-vehicle-calendar-facts > div:last-child {
+  border-right: 0;
+}
+
+.admin-vehicle-calendar-facts span {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-vehicle-calendar-facts strong {
+  color: var(--gold-bright);
+  font-size: 1.05rem;
+}
+
+.admin-vehicle-calendar-layout {
+  display: grid;
+  grid-template-columns: minmax(500px, 1.3fr) minmax(330px, 0.7fr);
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.admin-vehicle-calendar-month {
+  padding: 1rem;
+}
+
+.admin-vehicle-calendar-month > header,
+.admin-vehicle-service-list > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-vehicle-calendar-month > header h3,
+.admin-vehicle-service-list > header h3 {
+  margin: 0.15rem 0 0;
+  font-size: 1.45rem;
+}
+
+.admin-vehicle-calendar-month > header > div:last-child {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.admin-vehicle-calendar-month > header button {
+  display: grid;
+  place-items: center;
+  min-width: 2.35rem;
+  min-height: 2.35rem;
+  padding: 0 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.admin-vehicle-calendar-weekdays,
+.admin-vehicle-calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.admin-vehicle-calendar-weekdays {
+  margin-top: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-vehicle-calendar-weekdays span {
+  padding: 0.4rem 0.2rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.admin-vehicle-calendar-days {
+  gap: 0.3rem;
+  margin-top: 0.45rem;
+}
+
+.admin-vehicle-calendar-days > span,
+.admin-vehicle-calendar-days > button {
+  min-height: 5.6rem;
+}
+
+.admin-vehicle-calendar-days > button {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-content: start;
+  gap: 0.3rem;
+  padding: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.018);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-vehicle-calendar-days > button.selected,
+.admin-vehicle-calendar-days > button:hover {
+  border-color: rgba(229, 200, 121, 0.5);
+  background: rgba(201, 164, 92, 0.09);
+}
+
+.admin-vehicle-calendar-days > button > span {
+  font-weight: 900;
+}
+
+.admin-vehicle-calendar-days > button > strong {
+  display: grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  background: var(--gold);
+  color: #090909;
+  font-size: 0.64rem;
+}
+
+.admin-vehicle-calendar-days > button > div,
+.admin-vehicle-calendar-days > button > small {
+  grid-column: 1 / -1;
+}
+
+.admin-vehicle-calendar-days > button > div {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.admin-vehicle-calendar-days > button > small {
+  overflow: hidden;
+  color: #777;
+  font-size: 0.58rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vehicle-calendar-dot {
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #ef826f;
+}
+
+.vehicle-calendar-dot.appointment {
+  background: #d7b45d;
+}
+
+.admin-vehicle-calendar-month > footer {
+  display: flex;
+  gap: 0.8rem;
+  margin-top: 0.75rem;
+  color: var(--muted);
+  font-size: 0.67rem;
+}
+
+.admin-vehicle-calendar-month > footer span {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.admin-vehicle-service-list {
+  overflow: hidden;
+}
+
+.admin-vehicle-service-list > header {
+  display: block;
+  padding: 1rem;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(145deg, rgba(201, 164, 92, 0.1), transparent);
+}
+
+.admin-vehicle-service-list > header > span {
+  display: block;
+  margin-top: 0.4rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.admin-vehicle-service-list > div {
+  display: grid;
+  gap: 0.65rem;
+  max-height: 660px;
+  overflow-y: auto;
+  padding: 0.75rem;
+}
+
+.vehicle-service-event {
+  display: grid;
+  gap: 0.42rem;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-left: 3px solid #ef826f;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.vehicle-service-event.event-appointment {
+  border-left-color: #d7b45d;
+}
+
+.vehicle-service-event > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.vehicle-service-event span,
+.vehicle-service-event em,
+.vehicle-service-event p,
+.vehicle-service-event small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.vehicle-service-event em {
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.vehicle-service-event h4,
+.vehicle-service-event p {
+  margin: 0;
+}
+
+@media (max-width: 1050px) {
+  .admin-vehicle-calendar-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .admin-vehicle-calendar-picker {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-vehicle-calendar-picker label {
+    width: 100%;
+  }
+
+  .admin-vehicle-calendar-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-vehicle-calendar-facts > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .admin-vehicle-calendar-facts > div:last-child {
+    border-bottom: 0;
+  }
+
+  .admin-vehicle-calendar-days > span,
+  .admin-vehicle-calendar-days > button {
+    min-height: 4.1rem;
+  }
+
+  .admin-vehicle-calendar-days > button {
+    padding: 0.3rem;
+  }
 }
 
 .admin-calendar-empty {
@@ -8671,7 +9058,7 @@ textarea:focus {
 
 .admin-primary-navigation {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.4rem;
   padding: 0.45rem;
   border: 1px solid var(--line);

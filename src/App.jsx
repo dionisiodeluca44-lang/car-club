@@ -5001,6 +5001,7 @@ function AdminOperationsCalendar({ events, vehicles, onOpenVehicle, onSaveMileag
   const [selectedDate, setSelectedDate] = useState(today);
   const [editingMileageEventId, setEditingMileageEventId] = useState("");
   const [savingMileageEventId, setSavingMileageEventId] = useState("");
+  const [completedMileageEventId, setCompletedMileageEventId] = useState("");
   const [mileageError, setMileageError] = useState("");
   const [visibleMonth, setVisibleMonth] = useState(() => {
     const now = new Date();
@@ -5036,6 +5037,8 @@ function AdminOperationsCalendar({ events, vehicles, onOpenVehicle, onSaveMileag
         isCorrection: formData.get("isCorrection") === "on",
       });
       setEditingMileageEventId("");
+      setCompletedMileageEventId(calendarEvent.id);
+      window.setTimeout(() => setCompletedMileageEventId(""), 5000);
     } catch (error) {
       setMileageError(error.message || "Could not save this mileage reading.");
     } finally {
@@ -5078,27 +5081,29 @@ function AdminOperationsCalendar({ events, vehicles, onOpenVehicle, onSaveMileag
               const EventIcon = event.type === "appointment" ? CalendarCheck : event.type === "mileage" ? Gauge : Wrench;
               const vehicle = vehicleById.get(event.vehicleId);
               const editingMileage = event.type === "mileage" && editingMileageEventId === event.id;
+              const completedMileage = event.type === "mileage" && completedMileageEventId === event.id;
               const canUpdateMileage = event.type === "mileage" && Boolean(event.vehicleId);
               return (
                 <article
-                  className={`calendar-event-card event-card-${event.type}${canUpdateMileage && !editingMileage ? " is-actionable" : ""}`}
+                  className={`calendar-event-card event-card-${event.type}${canUpdateMileage && !editingMileage && !completedMileage ? " is-actionable" : ""}${completedMileage ? " is-complete" : ""}`}
                   key={event.id}
-                  onClick={canUpdateMileage && !editingMileage ? () => { setMileageError(""); setEditingMileageEventId(event.id); } : undefined}
-                  onKeyDown={canUpdateMileage && !editingMileage ? (keyboardEvent) => {
+                  onClick={canUpdateMileage && !editingMileage && !completedMileage ? () => { setMileageError(""); setEditingMileageEventId(event.id); } : undefined}
+                  onKeyDown={canUpdateMileage && !editingMileage && !completedMileage ? (keyboardEvent) => {
                     if (["Enter", " "].includes(keyboardEvent.key)) {
                       keyboardEvent.preventDefault();
                       setMileageError("");
                       setEditingMileageEventId(event.id);
                     }
                   } : undefined}
-                  role={canUpdateMileage && !editingMileage ? "button" : undefined}
-                  tabIndex={canUpdateMileage && !editingMileage ? 0 : undefined}
+                  role={canUpdateMileage && !editingMileage && !completedMileage ? "button" : undefined}
+                  tabIndex={canUpdateMileage && !editingMileage && !completedMileage ? 0 : undefined}
                 >
                   <div className="calendar-event-heading"><EventIcon size={18} /><div><strong>{event.title}</strong><span>{readableConsultationDate(event.date, { short: true })}{event.time ? ` · ${readableConsultationTime(event.time)}` : ""}</span></div><em>{event.status}</em></div>
                   <h4>{event.customer}</h4>
                   <p>{event.vehicle}</p>
                   {event.detail && <small>{event.detail}</small>}
-                  {canUpdateMileage && !editingMileage && <span className="calendar-mileage-prompt">Press to update mileage</span>}
+                  {completedMileage && <div className="calendar-mileage-success"><Check size={18} /><div><strong>Mileage updated</strong><span>Service timing recalculated</span></div></div>}
+                  {canUpdateMileage && !editingMileage && !completedMileage && <span className="calendar-mileage-prompt">Press to update mileage</span>}
                   {editingMileage && (
                     <form className="calendar-mileage-form" onClick={(clickEvent) => clickEvent.stopPropagation()} onSubmit={(submitEvent) => submitMileage(submitEvent, event)}>
                       <div className="calendar-mileage-current"><span>Current reading</span><strong>{vehicle?.mileage ? `${Number(vehicle.mileage).toLocaleString()} ${vehicle.mileage_unit || "km"}` : "Not recorded"}</strong></div>
@@ -5113,10 +5118,132 @@ function AdminOperationsCalendar({ events, vehicles, onOpenVehicle, onSaveMileag
                       </div>
                     </form>
                   )}
-                  {event.vehicleId && !editingMileage && <button className="text-button" onClick={(clickEvent) => { clickEvent.stopPropagation(); onOpenVehicle(event.vehicleId); }} type="button">Open vehicle</button>}
+                  {event.vehicleId && !editingMileage && !completedMileage && <button className="text-button" onClick={(clickEvent) => { clickEvent.stopPropagation(); onOpenVehicle(event.vehicleId); }} type="button">Open vehicle</button>}
                 </article>
               );
             }) : <div className="admin-calendar-empty"><CalendarCheck size={24} /><strong>Nothing scheduled</strong><span>No upcoming appointments, mileage check-ins, or maintenance actions.</span></div>}
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function AdminVehicleServiceCalendars({ vehicles }) {
+  const activeVehicles = useMemo(() => vehicles.filter((vehicle) => !vehicle.archived_at), [vehicles]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  const [selectedDate, setSelectedDate] = useState(localIsoDate(new Date()));
+  const [visibleMonth, setVisibleMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+
+  useEffect(() => {
+    if (!activeVehicles.length) {
+      setSelectedVehicleId("");
+      return;
+    }
+    if (!activeVehicles.some((vehicle) => vehicle.id === selectedVehicleId)) {
+      setSelectedVehicleId(activeVehicles[0].id);
+    }
+  }, [activeVehicles, selectedVehicleId]);
+
+  const selectedVehicle = activeVehicles.find((vehicle) => vehicle.id === selectedVehicleId) || null;
+  const scheduleEvents = useMemo(() => {
+    if (!selectedVehicle) return [];
+    const excludedForecastStatuses = new Set(["Completed", "Dismissed", "Not Applicable"]);
+    const forecasts = ensureList(selectedVehicle.maintenance_forecasts)
+      .filter((forecast) => !excludedForecastStatuses.has(forecast.status))
+      .map((forecast) => ({
+        id: `forecast:${forecast.id}`,
+        type: "service",
+        date: forecast.next_due_date || "",
+        title: forecast.rule?.rule_name || forecast.rule?.service_type || "Expected service",
+        status: forecast.status || "Upcoming",
+        detail: forecast.reason?.summary || "Calculated from the approved maintenance schedule.",
+        confidence: forecast.confidence,
+        dueMileage: forecast.next_due_mileage_km,
+      }));
+    const appointments = ensureList(selectedVehicle.appointments)
+      .filter((appointment) => appointment.preferred_date && !["Archived", "Cancelled", "Completed"].includes(appointment.status))
+      .map((appointment) => ({
+        id: `appointment:${appointment.id}`,
+        type: "appointment",
+        date: String(appointment.preferred_date).slice(0, 10),
+        title: appointment.service_type || "Service appointment",
+        status: appointment.status || "Booked",
+        detail: appointment.preferred_time ? `Appointment at ${readableConsultationTime(appointment.preferred_time)}` : "Appointment time pending",
+        confidence: "Confirmed booking",
+        dueMileage: null,
+      }));
+    return [...forecasts, ...appointments].sort((left, right) => {
+      if (!left.date) return 1;
+      if (!right.date) return -1;
+      return left.date.localeCompare(right.date) || left.title.localeCompare(right.title);
+    });
+  }, [selectedVehicle]);
+  const scheduleKey = scheduleEvents.map((event) => `${event.id}:${event.date}:${event.status}`).join("|");
+
+  useEffect(() => {
+    const today = localIsoDate(new Date());
+    const nextDatedEvent = scheduleEvents.find((event) => event.date >= today) || scheduleEvents.find((event) => event.date);
+    if (!nextDatedEvent) return;
+    const target = new Date(`${nextDatedEvent.date}T12:00:00`);
+    setVisibleMonth(new Date(target.getFullYear(), target.getMonth(), 1));
+    setSelectedDate(nextDatedEvent.date);
+  }, [selectedVehicleId, scheduleKey]);
+
+  const monthCells = useMemo(() => calendarMonthCells(visibleMonth), [visibleMonth]);
+  const eventsByDate = useMemo(() => scheduleEvents.reduce((grouped, event) => {
+    if (!event.date) return grouped;
+    const items = grouped.get(event.date) || [];
+    items.push(event);
+    grouped.set(event.date, items);
+    return grouped;
+  }, new Map()), [scheduleEvents]);
+  const selectedEvents = eventsByDate.get(selectedDate) || [];
+  const upcomingEvents = scheduleEvents.filter((event) => !event.date || event.date >= localIsoDate(new Date()));
+  const displayedEvents = selectedEvents.length ? selectedEvents : upcomingEvents;
+  const vehicleName = selectedVehicle
+    ? `${selectedVehicle.year || ""} ${selectedVehicle.make || ""} ${selectedVehicle.model || ""}`.trim() || "Vehicle"
+    : "Choose a vehicle";
+
+  if (!activeVehicles.length) {
+    return <div className="admin-calendar-empty"><Car size={25} /><strong>No vehicles yet</strong><span>Member vehicles will appear here with their service calendars.</span></div>;
+  }
+
+  return (
+    <section className="admin-vehicle-calendars">
+      <header className="admin-vehicle-calendar-picker">
+        <div><p className="eyebrow">Individual vehicle schedule</p><h2>{vehicleName}</h2><p>{selectedVehicle?.customer?.full_name || selectedVehicle?.customer?.email || "Member"}</p></div>
+        <label>Choose car<select value={selectedVehicleId} onChange={(event) => setSelectedVehicleId(event.target.value)}>{activeVehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{`${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Vehicle"} · {vehicle.customer?.full_name || vehicle.customer?.email || "Member"}</option>)}</select></label>
+      </header>
+      <div className="admin-vehicle-calendar-facts">
+        <div><span>Current odometer</span><strong>{selectedVehicle?.mileage ? `${Number(selectedVehicle.mileage).toLocaleString()} ${selectedVehicle.mileage_unit || "km"}` : "Needed"}</strong></div>
+        <div><span>Expected services</span><strong>{scheduleEvents.filter((event) => event.type === "service").length}</strong></div>
+        <div><span>Next scheduled date</span><strong>{scheduleEvents.find((event) => event.date)?.date ? readableConsultationDate(scheduleEvents.find((event) => event.date).date, { short: true }) : "Needs review"}</strong></div>
+      </div>
+      <div className="admin-vehicle-calendar-layout">
+        <article className="admin-vehicle-calendar-month">
+          <header>
+            <div><p className="eyebrow">Service calendar</p><h3>{visibleMonth.toLocaleDateString("en-CA", { month: "long", year: "numeric" })}</h3></div>
+            <div><button aria-label="Previous month" onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1))} type="button"><ChevronLeft size={18} /></button><button onClick={() => { const now = new Date(); setVisibleMonth(new Date(now.getFullYear(), now.getMonth(), 1)); setSelectedDate(localIsoDate(now)); }} type="button">Today</button><button aria-label="Next month" onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1))} type="button"><ChevronRight size={18} /></button></div>
+          </header>
+          <div className="admin-vehicle-calendar-weekdays">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span key={day}>{day}</span>)}</div>
+          <div className="admin-vehicle-calendar-days">
+            {monthCells.map((date, index) => {
+              if (!date) return <span key={`empty-${index}`} />;
+              const isoDate = localIsoDate(date);
+              const dayEvents = eventsByDate.get(isoDate) || [];
+              return <button className={selectedDate === isoDate ? "selected" : ""} key={isoDate} onClick={() => setSelectedDate(isoDate)} type="button"><span>{date.getDate()}</span>{dayEvents.length > 0 && <strong>{dayEvents.length}</strong>}<div>{dayEvents.slice(0, 2).map((event) => <i className={`vehicle-calendar-dot ${event.type}`} key={event.id} />)}</div><small>{dayEvents[0]?.title || ""}</small></button>;
+            })}
+          </div>
+          <footer><span><i className="vehicle-calendar-dot service" /> Expected service</span><span><i className="vehicle-calendar-dot appointment" /> Appointment</span></footer>
+        </article>
+        <aside className="admin-vehicle-service-list">
+          <header><p className="eyebrow">{selectedEvents.length ? readableConsultationDate(selectedDate) : "Coming up"}</p><h3>Expected services</h3><span>Changes automatically when mileage is updated.</span></header>
+          <div>
+            {displayedEvents.length ? displayedEvents.map((event) => <article className={`vehicle-service-event event-${event.type}`} key={event.id}><div><span>{event.date ? readableConsultationDate(event.date, { short: true }) : "Date needs review"}</span><em>{event.status}</em></div><h4>{event.title}</h4><p>{event.detail}</p><small>{[event.dueMileage ? `Due near ${Number(event.dueMileage).toLocaleString()} km` : "", event.confidence ? `${event.confidence}${event.confidence === "Confirmed booking" ? "" : " confidence"}` : ""].filter(Boolean).join(" · ")}</small></article>) : <div className="admin-calendar-empty"><CalendarCheck size={24} /><strong>No expected services</strong><span>Approve a verified maintenance rule to generate this vehicle's schedule.</span></div>}
           </div>
         </aside>
       </div>
@@ -5722,7 +5849,7 @@ function AdminPortal({ onBack }) {
     }
   }
 
-  async function updateVehicleIntelligence(payload) {
+  async function requestVehicleIntelligenceAction(payload) {
     setAdminError("");
     const response = await fetch("/.netlify/functions/admin-vehicle-intelligence", {
       method: "POST",
@@ -5738,6 +5865,19 @@ function AdminPortal({ onBack }) {
       error.handledByAdminUi = true;
       setAdminError(error.message);
       throw error;
+    }
+    return result;
+  }
+
+  async function updateVehicleIntelligence(payload) {
+    const result = await requestVehicleIntelligenceAction(payload);
+    if (payload.action === "record-mileage") {
+      const recalculation = await requestVehicleIntelligenceAction({ action: "recalculate-maintenance", vehicleId: payload.vehicleId });
+      if (Number(recalculation.result?.errors) > 0) {
+        const error = new Error("Mileage was saved, but the service schedule could not be recalculated. Please try Recalculate Maintenance.");
+        setAdminError(error.message);
+        throw error;
+      }
     }
     await loadVehicleIntelligence(adminToken);
     const notices = {
@@ -5771,9 +5911,15 @@ function AdminPortal({ onBack }) {
   }
 
   async function updateCalendarMileage(payload) {
-    await updateVehicleIntelligence({ action: "record-mileage", ...payload });
-    await updateVehicleIntelligence({ action: "recalculate-maintenance", vehicleId: payload.vehicleId });
+    await requestVehicleIntelligenceAction({ action: "record-mileage", ...payload });
+    const recalculation = await requestVehicleIntelligenceAction({ action: "recalculate-maintenance", vehicleId: payload.vehicleId });
+    if (Number(recalculation.result?.errors) > 0) {
+      const error = new Error("Mileage was saved, but the service schedule could not be recalculated. Please try Recalculate Maintenance.");
+      setAdminError(error.message);
+      throw error;
+    }
     setAdminNotice("Mileage saved. Service timing and maintenance tasks were updated immediately.");
+    window.setTimeout(() => loadVehicleIntelligence(adminToken), 850);
   }
 
   async function submitAdminLogin(event) {
@@ -6126,6 +6272,7 @@ function AdminPortal({ onBack }) {
 
   const primaryAdminNavigation = [
     { id: "calendar", label: "Calendar", icon: CalendarCheck },
+    { id: "vehicle-calendars", label: "Car Calendars", icon: Car },
     { id: "requests", label: "Bookings", icon: ClipboardCheck },
     { id: "member-activity", label: "Members", icon: Users },
     { id: "vehicle-intelligence", label: "Vehicles", icon: Car },
@@ -6148,6 +6295,10 @@ function AdminPortal({ onBack }) {
     calendar: {
       title: "Calendar",
       description: "Appointments, mileage check-ins, and maintenance follow-ups in one place.",
+    },
+    "vehicle-calendars": {
+      title: "Car Calendars",
+      description: "Review each vehicle's appointments and expected services individually.",
     },
     "vehicle-intelligence": {
       title: "Vehicles",
@@ -6277,6 +6428,7 @@ function AdminPortal({ onBack }) {
             vehicles={ensureList(vehicleIntelligence?.vehicles)}
           />
         )}
+        {adminMenu === "vehicle-calendars" && <AdminVehicleServiceCalendars vehicles={ensureList(vehicleIntelligence?.vehicles)} />}
         {adminMenu === "pricing" && <AdminServicePricingEditor onSave={updateServicePrice} pricing={servicePricing} />}
         {adminMenu === "memberships" && <AdminMembershipPricingEditor membershipPricing={membershipPricing} onSave={updateMembershipPrice} />}
         {adminMenu === "garage-capacity" && <AdminGarageCapacity members={adminMembers} onSave={updateMemberGarageCapacity} />}
