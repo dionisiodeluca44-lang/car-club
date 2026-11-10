@@ -6356,6 +6356,107 @@ textarea:focus {
   gap: 0.45rem;
 }
 
+/* Vehicle Intelligence — Phase 3 */
+.outreach-admin-list > header {
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.outreach-provider-status {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgba(229, 200, 121, 0.3);
+  border-radius: 999px;
+  color: var(--gold-bright) !important;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.outreach-message-card,
+.communication-preference-card {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) - 0.25rem);
+  background: #151515;
+}
+
+.outreach-draft-form {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.outreach-draft-form label,
+.communication-preference-card label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.outreach-draft-form textarea {
+  min-height: 8rem;
+  resize: vertical;
+}
+
+.outreach-draft-form .button {
+  justify-self: start;
+}
+
+.outreach-message-card details {
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.outreach-message-card summary {
+  color: var(--gold-bright);
+  font-size: 0.75rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.outreach-message-card details p {
+  padding: 0.45rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 0.72rem;
+}
+
+.communication-preference-card {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.communication-preference-card header {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.communication-preference-card header div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.communication-preference-card header > span {
+  color: var(--gold-bright);
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.communication-preference-card > button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.maintenance-settings-form .wide {
+  grid-column: 1 / -1;
+}
+
+.outreach-settings-form {
+  margin-top: 0.8rem;
+}
+
 .vehicle-intelligence-form {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -6476,7 +6577,17 @@ textarea:focus {
   .maintenance-rule-form > button,
   .maintenance-settings-form > p,
   .maintenance-settings-form > button,
+  .maintenance-settings-form .wide,
   .maintenance-form-note {
+    grid-column: auto;
+  }
+
+  .communication-preference-card {
+    grid-template-columns: 1fr;
+  }
+
+  .communication-preference-card header,
+  .communication-preference-card > button {
     grid-column: auto;
   }
 

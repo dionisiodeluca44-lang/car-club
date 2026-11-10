@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { mileageCorrectionRequired, normalizeMileageUnit, normalizeOdometer } from "../../shared/vehicleIntelligence.js";
+import { buildOutreachDraft, communicationEligibility, isMaterialMessageChange, normalizePreferredLanguage } from "../../shared/outreachIntelligence.js";
 import { getMaintenanceIntelligence, runMaintenanceRecalculation } from "../lib/maintenanceIntelligence.js";
+import { getOutreachIntelligence, runOutreachIntelligence } from "../lib/outreachIntelligence.js";
 
 const adminPassword = process.env.ADMIN_PORTAL_PASSWORD;
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -95,6 +97,12 @@ async function getVehicleIntelligence() {
   } catch (error) {
     if (!["42P01", "PGRST205"].includes(error.code)) throw error;
   }
+  let outreach = { available: false, settings: null, preferences: [], opportunities: [], messages: [], events: [], jobRuns: [] };
+  try {
+    outreach = await getOutreachIntelligence(supabase);
+  } catch (error) {
+    if (!["42P01", "PGRST205"].includes(error.code)) throw error;
+  }
   const forecastsByVehicle = new Map();
   for (const forecast of maintenance.forecasts || []) {
     const items = forecastsByVehicle.get(forecast.vehicle_id) || [];
@@ -127,9 +135,9 @@ async function getVehicleIntelligence() {
       return !lastReading || new Date(lastReading.recorded_at).getTime() < staleMileageCutoff;
     })
     .map((vehicle) => vehicle.user_id));
-  const estimatedPotentialRevenueCents = (requestsResult.data || [])
-    .filter((request) => !["Cancelled", "Completed"].includes(request.status))
-    .reduce((total, request) => total + Math.max(0, Number(request.quoted_total_cents) || 0), 0);
+  const estimatedPotentialRevenueCents = (outreach.opportunities || [])
+    .filter((opportunity) => ["open", "qualified", "contacted"].includes(opportunity.status) && !opportunity.quote_required)
+    .reduce((total, opportunity) => total + Math.max(0, Number(opportunity.estimated_revenue_cents) || 0), 0);
   const activeCustomerIds = new Set(vehicles
     .filter((vehicle) => !vehicle.archived_at && ["active", "trialing"].includes(String(vehicle.customer?.subscription_status || "").toLowerCase()))
     .map((vehicle) => vehicle.user_id));
@@ -147,8 +155,8 @@ async function getVehicleIntelligence() {
       overdueMaintenance: actionableForecasts.filter((forecast) => forecast.status === "Overdue").length,
       customersNeedingMileage: customersNeedingMileage.size,
       upcomingAppointments: activeAppointments.length,
-      pendingOutreachApprovals: 0,
-      unansweredFollowUps: 0,
+      pendingOutreachApprovals: (outreach.messages || []).filter((message) => message.approval_status === "pending_approval").length,
+      unansweredFollowUps: (outreach.messages || []).filter((message) => ["sent", "delivered"].includes(message.delivery_status) && message.response_status === "none").length,
       estimatedPotentialRevenueCents,
       completedMaintenanceAppointments: (requestsResult.data || []).filter((request) => request.status === "Completed").length,
       pendingMaintenanceTasks: (maintenance.tasks || []).filter((task) => ["open", "in_progress", "snoozed"].includes(task.status)).length,
@@ -156,6 +164,7 @@ async function getVehicleIntelligence() {
     },
     vehicles,
     maintenance,
+    outreach: { ...outreach, deliveryProviderConfigured: Boolean(process.env.OUTREACH_DELIVERY_PROVIDER_URL) },
   };
 }
 
@@ -429,6 +438,279 @@ async function updateMaintenanceSettings(payload) {
   return data;
 }
 
+async function outreachEvent(messageId, eventType, detail = {}) {
+  const { error } = await supabase.from("outreach_events").insert({
+    outreach_message_id: messageId,
+    event_type: eventType,
+    actor_type: "administrator",
+    detail,
+  });
+  if (error) throw error;
+}
+
+async function loadOutreachMessage(messageId) {
+  const { data: message, error } = await supabase.from("outreach_messages").select("*").eq("id", clean(messageId, 80)).single();
+  if (error || !message) throw Object.assign(new Error("Outreach message not found."), { statusCode: 404 });
+  const [{ data: preferences }, { data: profile }] = await Promise.all([
+    supabase.from("communication_preferences").select("*").eq("customer_id", message.customer_id).maybeSingle(),
+    supabase.from("profiles").select("id, email, phone, full_name").eq("id", message.customer_id).maybeSingle(),
+  ]);
+  return { message, preferences, profile };
+}
+
+function requireCommunicationEligibility(message, preferences) {
+  const eligibility = communicationEligibility(preferences, { channel: message.channel, purpose: message.purpose });
+  if (!eligibility.eligible) throw Object.assign(new Error(`Delivery blocked: ${eligibility.reason}`), { statusCode: 409 });
+  return eligibility;
+}
+
+function withinQuietHours(preferences, now = new Date()) {
+  if (!preferences) return false;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: preferences.timezone || "America/Toronto",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const hour = Number(parts.find((part) => part.type === "hour")?.value || 0);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value || 0);
+  const current = hour * 60 + minute;
+  const toMinutes = (value) => {
+    const [hours, minutes] = String(value || "").split(":").map(Number);
+    return (hours || 0) * 60 + (minutes || 0);
+  };
+  const start = toMinutes(preferences.quiet_hours_start);
+  const end = toMinutes(preferences.quiet_hours_end);
+  return start > end ? current >= start || current < end : current >= start && current < end;
+}
+
+async function updateCommunicationPreferences(payload) {
+  const customerId = clean(payload.customerId, 80);
+  const { data: profile, error: profileError } = await supabase.from("profiles").select("id").eq("id", customerId).maybeSingle();
+  if (profileError || !profile) throw Object.assign(new Error("Customer not found."), { statusCode: 404 });
+  const transactionalConsent = Boolean(payload.transactionalConsent);
+  const promotionalConsent = Boolean(payload.promotionalConsent);
+  const suppressed = Boolean(payload.suppressed);
+  const timezone = clean(payload.timezone, 100) || "America/Toronto";
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
+  } catch {
+    throw Object.assign(new Error("Enter a valid IANA timezone, such as America/Toronto."), { statusCode: 400 });
+  }
+  const record = {
+    customer_id: customerId,
+    preferred_language: normalizePreferredLanguage(payload.preferredLanguage),
+    email_enabled: Boolean(payload.emailEnabled),
+    sms_enabled: Boolean(payload.smsEnabled),
+    transactional_consent: transactionalConsent,
+    promotional_consent: promotionalConsent,
+    consent_source: clean(payload.consentSource, 500) || null,
+    consent_timestamp: transactionalConsent || promotionalConsent ? (payload.consentTimestamp || new Date().toISOString()) : null,
+    unsubscribe_timestamp: suppressed ? (payload.unsubscribeTimestamp || new Date().toISOString()) : null,
+    suppressed_at: suppressed ? new Date().toISOString() : null,
+    suppression_reason: suppressed ? (clean(payload.suppressionReason, 500) || "Administrator recorded suppression") : null,
+    quiet_hours_start: clean(payload.quietHoursStart, 8) || "21:00",
+    quiet_hours_end: clean(payload.quietHoursEnd, 8) || "09:00",
+    timezone,
+    updated_at: new Date().toISOString(),
+  };
+  const { data: previous } = await supabase.from("communication_preferences").select("*").eq("customer_id", customerId).maybeSingle();
+  const { data, error } = await supabase.from("communication_preferences").upsert(record, { onConflict: "customer_id" }).select("*").single();
+  if (error) throw error;
+  await supabase.from("vehicles").update({ outreach_recalculation_required: true, outreach_recalculation_requested_at: new Date().toISOString() }).eq("user_id", customerId);
+  await audit({ action: "update_communication_preferences", entityId: data.id, entityType: "communication_preferences", previousValue: previous, nextValue: data });
+  return data;
+}
+
+async function editOutreachMessage(payload) {
+  const { message } = await loadOutreachMessage(payload.messageId);
+  const subject = clean(payload.subject, 240) || null;
+  const body = clean(payload.messageBody, 4000);
+  if (!body) throw Object.assign(new Error("Message body is required."), { statusCode: 400 });
+  const material = isMaterialMessageChange(message, subject, body);
+  const update = { subject, message_body: body, draft_method: "administrator", updated_at: new Date().toISOString() };
+  if (material) Object.assign(update, { approval_status: "pending_approval", approved_by: null, approved_by_label: null, approved_at: null, scheduled_at: null, delivery_status: "not_scheduled" });
+  const { data, error } = await supabase.from("outreach_messages").update(update).eq("id", message.id).select("*").single();
+  if (error) throw error;
+  await outreachEvent(message.id, material ? "draft_materially_edited_reapproval_required" : "draft_edited", { revision: data.revision });
+  await audit({ action: "edit_outreach_message", entityId: message.id, entityType: "outreach_message", previousValue: message, nextValue: data });
+  if (material) {
+    await supabase.from("crm_tasks").upsert({
+      customer_id: data.customer_id,
+      vehicle_id: data.vehicle_id,
+      related_forecast_id: data.forecast_id,
+      task_type: "outreach_approval",
+      title: `Review edited ${String(data.outreach_type).replaceAll("_", " ")} draft`,
+      detail: "The message changed after approval and requires a new explicit review.",
+      priority: "high",
+      due_at: new Date().toISOString(),
+      status: "open",
+      idempotency_key: `outreach-approval:${data.id}:r${data.revision}`,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "idempotency_key", ignoreDuplicates: true });
+  }
+  return data;
+}
+
+async function regenerateOutreachMessage(payload) {
+  const { message, profile, preferences } = await loadOutreachMessage(payload.messageId);
+  const [{ data: vehicle }, { data: forecast }, { data: opportunity }] = await Promise.all([
+    supabase.from("vehicles").select("*").eq("id", message.vehicle_id).maybeSingle(),
+    supabase.from("vehicle_maintenance_forecasts").select("*").eq("id", message.forecast_id).maybeSingle(),
+    supabase.from("service_opportunities").select("*").eq("id", message.opportunity_id).maybeSingle(),
+  ]);
+  const draft = buildOutreachDraft({
+    customerName: profile?.full_name,
+    vehicle,
+    serviceName: opportunity?.service_type || "recommended service",
+    forecast,
+    language: preferences?.preferred_language || message.language,
+    bookingUrl: clean(payload.bookingUrl, 1000),
+  });
+  return editOutreachMessage({ messageId: message.id, subject: draft.subject, messageBody: draft.body });
+}
+
+async function approveOutreachMessage(payload) {
+  const { message, preferences } = await loadOutreachMessage(payload.messageId);
+  if (!["draft", "pending_approval", "rejected"].includes(message.approval_status)) {
+    throw Object.assign(new Error("Only an unapproved draft can be approved."), { statusCode: 409 });
+  }
+  requireCommunicationEligibility(message, preferences);
+  const { data, error } = await supabase.from("outreach_messages").update({
+    approval_status: "approved",
+    approved_by_label: clean(payload.approvedByLabel, 160) || "Admin portal",
+    approved_at: new Date().toISOString(),
+    rejected_reason: null,
+    updated_at: new Date().toISOString(),
+  }).eq("id", message.id).select("*").single();
+  if (error) throw error;
+  if (message.task_id) await supabase.from("crm_tasks").update({ status: "completed", completed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", message.task_id);
+  if (message.opportunity_id) await supabase.from("service_opportunities").update({ contact_status: "approved", updated_at: new Date().toISOString() }).eq("id", message.opportunity_id);
+  await outreachEvent(message.id, "approved", { approvedBy: data.approved_by_label, revision: data.revision });
+  await audit({ action: "approve_outreach_message", entityId: message.id, entityType: "outreach_message", previousValue: message, nextValue: data });
+  return data;
+}
+
+async function rejectOutreachMessage(payload) {
+  const { message } = await loadOutreachMessage(payload.messageId);
+  const reason = clean(payload.reason, 1000);
+  if (!reason) throw Object.assign(new Error("Add a rejection reason."), { statusCode: 400 });
+  const { data, error } = await supabase.from("outreach_messages").update({ approval_status: "rejected", rejected_reason: reason, scheduled_at: null, delivery_status: "not_scheduled", updated_at: new Date().toISOString() }).eq("id", message.id).select("*").single();
+  if (error) throw error;
+  if (message.task_id) await supabase.from("crm_tasks").update({ status: "dismissed", updated_at: new Date().toISOString() }).eq("id", message.task_id);
+  await outreachEvent(message.id, "rejected", { reason });
+  await audit({ action: "reject_outreach_message", entityId: message.id, entityType: "outreach_message", previousValue: message, nextValue: data });
+  return data;
+}
+
+async function scheduleOutreachMessage(payload) {
+  const { message, preferences } = await loadOutreachMessage(payload.messageId);
+  requireCommunicationEligibility(message, preferences);
+  if (message.approval_status !== "approved") throw Object.assign(new Error("Approve the message before scheduling it."), { statusCode: 409 });
+  const scheduledAt = new Date(payload.scheduledAt);
+  if (Number.isNaN(scheduledAt.getTime()) || scheduledAt.getTime() <= Date.now()) throw Object.assign(new Error("Choose a future send time."), { statusCode: 400 });
+  const { data, error } = await supabase.from("outreach_messages").update({ scheduled_at: scheduledAt.toISOString(), delivery_status: "scheduled", updated_at: new Date().toISOString() }).eq("id", message.id).select("*").single();
+  if (error) throw error;
+  await outreachEvent(message.id, "scheduled", { scheduledAt: data.scheduled_at });
+  return data;
+}
+
+async function sendApprovedOutreachMessage(payload) {
+  const { message, preferences, profile } = await loadOutreachMessage(payload.messageId);
+  requireCommunicationEligibility(message, preferences);
+  if (message.approval_status !== "approved") throw Object.assign(new Error("Approve the message before sending it."), { statusCode: 409 });
+  if (withinQuietHours(preferences)) throw Object.assign(new Error("Delivery is blocked during the customer's recorded quiet hours."), { statusCode: 409 });
+  const endpoint = process.env.OUTREACH_DELIVERY_PROVIDER_URL;
+  if (!endpoint) throw Object.assign(new Error("No delivery provider is configured. Copy the approved draft or record a verified manual send."), { statusCode: 409 });
+  const destination = message.channel === "sms" ? profile?.phone : profile?.email;
+  if (!destination) throw Object.assign(new Error(`Customer does not have a ${message.channel === "sms" ? "phone number" : "email address"} on file.`), { statusCode: 409 });
+  await supabase.from("outreach_messages").update({ delivery_status: "sending", delivery_error: null }).eq("id", message.id);
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(process.env.OUTREACH_DELIVERY_PROVIDER_SECRET ? { Authorization: `Bearer ${process.env.OUTREACH_DELIVERY_PROVIDER_SECRET}` } : {}) },
+      body: JSON.stringify({ idempotencyKey: message.idempotency_key, channel: message.channel, to: destination, subject: message.subject, body: message.message_body }),
+    });
+    const providerResult = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(providerResult.error || `Delivery provider returned ${response.status}.`);
+    const now = new Date().toISOString();
+    const { data, error } = await supabase.from("outreach_messages").update({ delivery_status: providerResult.delivered ? "delivered" : "sent", sent_at: now, delivery_provider: providerResult.provider || "configured_provider", provider_message_id: providerResult.messageId || providerResult.id || null, delivery_error: null }).eq("id", message.id).select("*").single();
+    if (error) throw error;
+    if (message.opportunity_id) await supabase.from("service_opportunities").update({ contact_status: "contacted", status: "contacted", updated_at: now }).eq("id", message.opportunity_id);
+    await outreachEvent(message.id, data.delivery_status, { provider: data.delivery_provider, providerMessageId: data.provider_message_id });
+    return data;
+  } catch (error) {
+    await supabase.from("outreach_messages").update({ delivery_status: "failed", delivery_error: clean(error.message, 2000) }).eq("id", message.id);
+    await outreachEvent(message.id, "delivery_failed", { error: clean(error.message, 1000) });
+    throw Object.assign(error, { statusCode: 502 });
+  }
+}
+
+async function markOutreachManuallySent(payload) {
+  const { message, preferences } = await loadOutreachMessage(payload.messageId);
+  requireCommunicationEligibility(message, preferences);
+  if (message.approval_status !== "approved") throw Object.assign(new Error("Approve the message before recording delivery."), { statusCode: 409 });
+  const reference = clean(payload.manualReference, 500);
+  if (!reference) throw Object.assign(new Error("Add a manual delivery reference."), { statusCode: 400 });
+  const now = new Date().toISOString();
+  const { data, error } = await supabase.from("outreach_messages").update({ delivery_status: "sent", sent_at: now, delivery_provider: "manual", provider_message_id: reference, delivery_error: null }).eq("id", message.id).select("*").single();
+  if (error) throw error;
+  if (message.opportunity_id) await supabase.from("service_opportunities").update({ contact_status: "contacted", status: "contacted", updated_at: now }).eq("id", message.opportunity_id);
+  await outreachEvent(message.id, "manual_send_recorded", { reference });
+  await audit({ action: "record_manual_outreach_send", entityId: message.id, entityType: "outreach_message", previousValue: message, nextValue: data });
+  return data;
+}
+
+async function recordOutreachResponse(payload) {
+  const { message } = await loadOutreachMessage(payload.messageId);
+  const responseStatus = ["replied", "booked", "declined", "no_response"].includes(payload.responseStatus) ? payload.responseStatus : "replied";
+  const update = { response_status: responseStatus, customer_response: clean(payload.customerResponse, 4000) || null, responded_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const { data, error } = await supabase.from("outreach_messages").update(update).eq("id", message.id).select("*").single();
+  if (error) throw error;
+  if (message.opportunity_id) await supabase.from("service_opportunities").update({ contact_status: "responded", status: responseStatus === "booked" ? "won" : "contacted", booking_status: responseStatus === "booked" ? "booked" : "not_booked", updated_at: new Date().toISOString() }).eq("id", message.opportunity_id);
+  await outreachEvent(message.id, "customer_response_recorded", { responseStatus, response: update.customer_response });
+  return data;
+}
+
+async function updateServiceOpportunity(payload) {
+  const opportunityId = clean(payload.opportunityId, 80);
+  const update = {};
+  if (["open", "qualified", "contacted", "won", "lost", "dismissed", "expired"].includes(payload.status)) update.status = payload.status;
+  if (["not_booked", "requested", "booked", "completed", "cancelled"].includes(payload.bookingStatus)) update.booking_status = payload.bookingStatus;
+  if (["not_contacted", "drafted", "approved", "contacted", "responded", "suppressed"].includes(payload.contactStatus)) update.contact_status = payload.contactStatus;
+  update.updated_at = new Date().toISOString();
+  const { data: previous } = await supabase.from("service_opportunities").select("*").eq("id", opportunityId).maybeSingle();
+  if (!previous) throw Object.assign(new Error("Service opportunity not found."), { statusCode: 404 });
+  const { data, error } = await supabase.from("service_opportunities").update(update).eq("id", opportunityId).select("*").single();
+  if (error) throw error;
+  await audit({ action: "update_service_opportunity", entityId: opportunityId, entityType: "service_opportunity", previousValue: previous, nextValue: data });
+  return data;
+}
+
+async function updateOutreachSettings(payload) {
+  const { data: current, error: currentError } = await supabase.from("outreach_settings").select("*").eq("setting_key", "default").eq("active", true).single();
+  if (currentError) throw currentError;
+  const record = {
+    setting_key: "default",
+    version: Number(current.version || 0) + 1,
+    draft_generation_enabled: payload.draftGenerationEnabled !== false && payload.draftGenerationEnabled !== "false",
+    approval_required: true,
+    max_customer_contacts_per_30_days: Math.min(30, Math.max(1, Number(payload.maxCustomerContactsPer30Days) || 4)),
+    minimum_days_between_contacts: Math.min(90, Math.max(1, Number(payload.minimumDaysBetweenContacts) || 7)),
+    opportunity_min_confidence: ["High", "Medium", "Low"].includes(payload.opportunityMinConfidence) ? payload.opportunityMinConfidence : "Medium",
+    default_channel: payload.defaultChannel === "sms" ? "sms" : "email",
+    booking_url: clean(payload.bookingUrl, 1000) || null,
+    active: false,
+  };
+  const { data: inserted, error: insertError } = await supabase.from("outreach_settings").insert(record).select("*").single();
+  if (insertError) throw insertError;
+  await supabase.from("outreach_settings").update({ active: false }).eq("id", current.id);
+  const { data, error } = await supabase.from("outreach_settings").update({ active: true }).eq("id", inserted.id).select("*").single();
+  if (error) throw error;
+  await audit({ action: "update_outreach_settings", entityId: data.id, entityType: "outreach_settings", previousValue: current, nextValue: data });
+  return data;
+}
+
 export async function handler(event) {
   if (!authorized(event)) return json(401, { error: "Unauthorized" });
   if (!supabase) return json(503, { error: "Admin backend is not configured" });
@@ -445,11 +727,30 @@ export async function handler(event) {
     if (payload.action === "retire-rule") return json(200, { rule: await retireRule(payload) });
     if (payload.action === "update-maintenance-task") return json(200, { task: await updateMaintenanceTask(payload) });
     if (payload.action === "update-maintenance-settings") return json(200, { settings: await updateMaintenanceSettings(payload) });
+    if (payload.action === "update-communication-preferences") return json(200, { preferences: await updateCommunicationPreferences(payload) });
+    if (payload.action === "edit-outreach-message") return json(200, { message: await editOutreachMessage(payload) });
+    if (payload.action === "regenerate-outreach-message") return json(200, { message: await regenerateOutreachMessage(payload) });
+    if (payload.action === "approve-outreach-message") return json(200, { message: await approveOutreachMessage(payload) });
+    if (payload.action === "reject-outreach-message") return json(200, { message: await rejectOutreachMessage(payload) });
+    if (payload.action === "schedule-outreach-message") return json(200, { message: await scheduleOutreachMessage(payload) });
+    if (payload.action === "send-approved-outreach-message") return json(200, { message: await sendApprovedOutreachMessage(payload) });
+    if (payload.action === "mark-outreach-manually-sent") return json(200, { message: await markOutreachManuallySent(payload) });
+    if (payload.action === "record-outreach-response") return json(200, { message: await recordOutreachResponse(payload) });
+    if (payload.action === "update-service-opportunity") return json(200, { opportunity: await updateServiceOpportunity(payload) });
+    if (payload.action === "update-outreach-settings") return json(200, { settings: await updateOutreachSettings(payload) });
     if (payload.action === "recalculate-maintenance") {
       const result = await runMaintenanceRecalculation(supabase, {
         vehicleIds: payload.vehicleId ? [clean(payload.vehicleId, 80)] : undefined,
         includeAll: Boolean(payload.includeAll),
         jobName: "admin-maintenance-recalculation",
+      });
+      return json(200, { result });
+    }
+    if (payload.action === "run-outreach-intelligence") {
+      const result = await runOutreachIntelligence(supabase, {
+        vehicleIds: payload.vehicleId ? [clean(payload.vehicleId, 80)] : undefined,
+        includeAll: Boolean(payload.includeAll),
+        jobName: "admin-outreach-intelligence",
       });
       return json(200, { result });
     }

@@ -4979,6 +4979,12 @@ function AdminVehicleIntelligence({ data, onAction }) {
   const forecasts = ensureList(maintenance.forecasts);
   const tasks = ensureList(maintenance.tasks);
   const settings = maintenance.settings || {};
+  const outreach = data?.outreach || {};
+  const opportunities = ensureList(outreach.opportunities);
+  const outreachMessages = ensureList(outreach.messages);
+  const outreachEvents = ensureList(outreach.events);
+  const communicationPreferences = ensureList(outreach.preferences);
+  const outreachSettings = outreach.settings || {};
   const [section, setSection] = useState("overview");
   const [query, setQuery] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
@@ -5002,8 +5008,32 @@ function AdminVehicleIntelligence({ data, onAction }) {
     ["Maintenance due", overview.maintenanceDue7Days || 0],
     ["Overdue maintenance", overview.overdueMaintenance || 0],
     ["Open maintenance tasks", overview.pendingMaintenanceTasks || 0],
-    ["Potential booked value", adminMoney(overview.estimatedPotentialRevenueCents || 0)],
+    ["Outreach approvals", overview.pendingOutreachApprovals || 0],
+    ["Unanswered follow-ups", overview.unansweredFollowUps || 0],
+    ["Estimated opportunities", adminMoney(overview.estimatedPotentialRevenueCents || 0)],
   ];
+  const customerById = new Map(vehicles.filter((vehicle) => vehicle.customer).map((vehicle) => [vehicle.user_id, vehicle.customer]));
+  const vehicleById = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
+  const preferenceByCustomer = new Map(communicationPreferences.map((item) => [item.customer_id, item]));
+
+  async function submitOutreachSettings(event) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    setSaving(true);
+    try {
+      await onAction({
+        action: "update-outreach-settings",
+        draftGenerationEnabled: formData.get("draftGenerationEnabled") === "on",
+        maxCustomerContactsPer30Days: formData.get("maxCustomerContactsPer30Days"),
+        minimumDaysBetweenContacts: formData.get("minimumDaysBetweenContacts"),
+        opportunityMinConfidence: formData.get("opportunityMinConfidence"),
+        defaultChannel: formData.get("defaultChannel"),
+        bookingUrl: formData.get("bookingUrl"),
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function submitRule(event) {
     event.preventDefault();
@@ -5178,9 +5208,9 @@ function AdminVehicleIntelligence({ data, onAction }) {
   return (
     <section className="admin-intelligence-shell">
       <nav className="admin-intelligence-tabs" aria-label="Vehicle Intelligence pages">
-        {["overview", "vehicles", "mileage", "appointments", "service-history", "rules", "forecasts", "tasks", "settings"].map((item) => <button className={section === item ? "active" : ""} key={item} onClick={() => setSection(item)} type="button">{item.split("-").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ")}</button>)}
+        {["overview", "vehicles", "mileage", "appointments", "service-history", "rules", "forecasts", "tasks", "opportunities", "outreach", "preferences", "settings"].map((item) => <button className={section === item ? "active" : ""} key={item} onClick={() => setSection(item)} type="button">{item.split("-").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ")}</button>)}
       </nav>
-      {section === "overview" && <><div className="admin-intelligence-metrics">{metrics.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div><div className="admin-intelligence-phase-note"><Wrench size={20} /><div><strong>{maintenance.available ? "Maintenance Intelligence Phase 2 is active." : "Phase 2 database migration required."}</strong><p>{maintenance.available ? "Only approved, sourced rules produce forecasts. Low-confidence or missing-history cases are routed to manual review, and no customer messages are sent automatically." : "Run the Phase 2 Supabase migration before creating maintenance rules or forecasts."}</p></div>{maintenance.available && <button className="button secondary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "recalculate-maintenance", includeAll: true }); } finally { setSaving(false); } }} type="button">{saving ? "Recalculating..." : "Recalculate All"}</button>}</div></>}
+      {section === "overview" && <><div className="admin-intelligence-metrics">{metrics.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div><div className="admin-intelligence-phase-note"><Wrench size={20} /><div><strong>{outreach.available ? "CRM and Outreach Phase 3 is active." : maintenance.available ? "Maintenance Intelligence Phase 2 is active. Phase 3 migration required." : "Vehicle Intelligence database migration required."}</strong><p>{outreach.available ? "Opportunities use verified evidence and existing pricing only. Drafts require recorded consent and explicit administrator approval; no background process sends customer messages." : "Run the next numbered Supabase migration before using the corresponding intelligence controls."}</p></div>{maintenance.available && <div className="maintenance-task-actions"><button className="button secondary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "recalculate-maintenance", includeAll: true }); } finally { setSaving(false); } }} type="button">Recalculate Maintenance</button>{outreach.available && <button className="button primary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "run-outreach-intelligence", includeAll: true }); } finally { setSaving(false); } }} type="button">Build Opportunities & Drafts</button>}</div>}</div></>}
       {["vehicles", "mileage", "appointments", "service-history"].includes(section) && <>
         <label className="admin-search-field admin-intelligence-search"><Search size={17} /><input onChange={(event) => setQuery(event.target.value)} placeholder="Search customer, vehicle, VIN, or email" type="search" value={query} /></label>
         <div className="admin-intelligence-table">
@@ -5222,8 +5252,61 @@ function AdminVehicleIntelligence({ data, onAction }) {
         <section className="maintenance-rule-list"><h3>Rule versions</h3>{rules.length ? rules.map((rule) => <article key={rule.id}><div><strong>{rule.rule_name}</strong><span>v{rule.version} · {rule.approval_status} · {rule.source_type.replaceAll("_", " ")}</span></div><p>{rule.source_reference}</p><small>{rule.mileage_interval_km ? `${Number(rule.mileage_interval_km).toLocaleString()} km` : "No mileage interval"}{rule.time_interval_months ? ` · ${rule.time_interval_months} months` : ""}</small>{rule.approval_status === "draft" && <button className="button secondary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "approve-rule", ruleId: rule.id }); } finally { setSaving(false); } }} type="button">Approve Rule</button>}{rule.approval_status === "approved" && <button className="text-button" disabled={saving} onClick={() => onAction({ action: "retire-rule", ruleId: rule.id })} type="button">Retire Rule</button>}</article>) : <p>No rule versions yet. No maintenance intervals have been assumed.</p>}</section>
       </div>}
       {section === "forecasts" && <div className="maintenance-record-list"><header><div><p className="eyebrow">Calculated intelligence</p><h3>Maintenance forecasts</h3></div><button className="button secondary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "recalculate-maintenance", includeAll: true }); } finally { setSaving(false); } }} type="button">Recalculate</button></header>{forecasts.length ? forecasts.map((forecast) => { const vehicle = vehicles.find((item) => item.id === forecast.vehicle_id); const rule = rules.find((item) => item.id === forecast.rule_id); return <article key={forecast.id}><div><strong>{rule?.rule_name || "Maintenance rule"}</strong><span className={`maintenance-status status-${String(forecast.status).toLowerCase().replaceAll(" ", "-")}`}>{forecast.status}</span></div><h4>{vehicle ? `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() : "Vehicle"}</h4><p>{forecast.reason?.summary || "Explanation unavailable."}</p><small>{forecast.confidence} confidence{forecast.next_due_date ? ` · Next threshold ${forecast.next_due_date}` : ""}{forecast.next_due_mileage_km ? ` · ${Number(forecast.next_due_mileage_km).toLocaleString()} km` : ""}</small></article>; }) : <p>No forecasts yet. Approve a sourced rule, then recalculate.</p>}</div>}
-      {section === "tasks" && <div className="maintenance-record-list"><header><div><p className="eyebrow">Administrator work queue</p><h3>Maintenance tasks</h3></div></header>{tasks.length ? tasks.map((task) => { const vehicle = vehicles.find((item) => item.id === task.vehicle_id); return <article key={task.id}><div><strong>{task.title}</strong><span>{task.priority} · {task.status.replaceAll("_", " ")}</span></div><h4>{vehicle ? `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() : "Vehicle"}</h4><p>{task.detail}</p><small>{task.due_at ? `Due ${new Date(task.due_at).toLocaleDateString()}` : "No due date"}</small>{!["completed", "dismissed"].includes(task.status) && <div className="maintenance-task-actions"><button className="button secondary compact-button" onClick={() => onAction({ action: "update-maintenance-task", taskId: task.id, status: "in_progress" })} type="button">Start</button><button className="button secondary compact-button" onClick={() => onAction({ action: "update-maintenance-task", taskId: task.id, status: "completed" })} type="button">Complete</button><button className="text-button" onClick={() => onAction({ action: "update-maintenance-task", taskId: task.id, status: "dismissed" })} type="button">Dismiss</button></div>}</article>; }) : <p>No maintenance tasks.</p>}</div>}
+      {section === "tasks" && <div className="maintenance-record-list"><header><div><p className="eyebrow">Administrator work queue</p><h3>CRM tasks</h3></div></header>{tasks.length ? tasks.map((task) => { const vehicle = vehicles.find((item) => item.id === task.vehicle_id); return <article key={task.id}><div><strong>{task.title}</strong><span>{task.priority} · {task.status.replaceAll("_", " ")}</span></div><h4>{vehicle ? `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() : "Vehicle"}</h4><p>{task.detail}</p><small>{task.due_at ? `Due ${new Date(task.due_at).toLocaleDateString()}` : "No due date"}</small>{!["completed", "dismissed"].includes(task.status) && <div className="maintenance-task-actions"><button className="button secondary compact-button" onClick={() => onAction({ action: "update-maintenance-task", taskId: task.id, status: "in_progress" })} type="button">Start</button><button className="button secondary compact-button" onClick={() => onAction({ action: "update-maintenance-task", taskId: task.id, status: "completed" })} type="button">Complete</button><button className="text-button" onClick={() => onAction({ action: "update-maintenance-task", taskId: task.id, status: "dismissed" })} type="button">Dismiss</button></div>}</article>; }) : <p>No CRM tasks.</p>}</div>}
+      {section === "opportunities" && <div className="maintenance-record-list outreach-admin-list">
+        <header><div><p className="eyebrow">Evidence-based pipeline</p><h3>Service opportunities</h3></div><button className="button primary compact-button" disabled={saving || !outreach.available} onClick={async () => { setSaving(true); try { await onAction({ action: "run-outreach-intelligence", includeAll: true }); } finally { setSaving(false); } }} type="button">Refresh Opportunities</button></header>
+        {!outreach.available && <p>Run the Phase 3 Supabase migration to activate CRM and outreach.</p>}
+        {opportunities.length ? opportunities.map((opportunity) => { const vehicle = vehicleById.get(opportunity.vehicle_id); const customer = customerById.get(opportunity.customer_id); return <article key={opportunity.id}>
+          <div><strong>{opportunity.service_type}</strong><span>{opportunity.priority} · {opportunity.status}</span></div>
+          <h4>{customer?.full_name || "Member"} · {vehicle ? `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() : "Vehicle"}</h4>
+          <p>{opportunity.reason}</p>
+          <small>{opportunity.quote_required ? "Quote Required" : `Estimated opportunity ${adminMoney(opportunity.estimated_revenue_cents || 0)}`} · {opportunity.confidence} confidence · {opportunity.contact_status.replaceAll("_", " ")} · {opportunity.booking_status.replaceAll("_", " ")}</small>
+          <div className="maintenance-task-actions"><button className="button secondary compact-button" onClick={() => onAction({ action: "update-service-opportunity", opportunityId: opportunity.id, status: "qualified" })} type="button">Qualify</button><button className="button secondary compact-button" onClick={() => onAction({ action: "update-service-opportunity", opportunityId: opportunity.id, status: "won", bookingStatus: "booked" })} type="button">Mark Booked</button><button className="text-button" onClick={() => onAction({ action: "update-service-opportunity", opportunityId: opportunity.id, status: "dismissed" })} type="button">Dismiss</button></div>
+        </article>; }) : outreach.available && <p>No actionable service opportunities. Existing appointments are excluded.</p>}
+      </div>}
+      {section === "outreach" && <div className="maintenance-record-list outreach-admin-list">
+        <header><div><p className="eyebrow">Mandatory approval queue</p><h3>Customer outreach</h3></div><span className="outreach-provider-status">{outreach.deliveryProviderConfigured ? "Delivery provider configured" : "Manual delivery only"}</span></header>
+        <p className="maintenance-form-note">Drafting never sends a message. Consent is checked again at approval and delivery. Editing approved wording requires a new approval.</p>
+        {outreachMessages.length ? outreachMessages.map((message) => { const customer = customerById.get(message.customer_id); const vehicle = vehicleById.get(message.vehicle_id); const history = outreachEvents.filter((event) => event.outreach_message_id === message.id); return <article className="outreach-message-card" key={message.id}>
+          <div><strong>{customer?.full_name || "Member"} · {message.channel.toUpperCase()}</strong><span>{message.approval_status.replaceAll("_", " ")} · {message.delivery_status.replaceAll("_", " ")}</span></div>
+          <h4>{vehicle ? `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() : "Vehicle"} · {message.language}</h4>
+          <form className="outreach-draft-form" onSubmit={async (event) => { event.preventDefault(); const values = new FormData(event.currentTarget); await onAction({ action: "edit-outreach-message", messageId: message.id, subject: values.get("subject"), messageBody: values.get("messageBody") }); }}>
+            <label>Subject<input defaultValue={message.subject || ""} name="subject" /></label>
+            <label>Editable message<textarea defaultValue={message.message_body} name="messageBody" required rows="5" /></label>
+            <button className="button secondary compact-button" type="submit">Save Draft</button>
+          </form>
+          <small>Trigger: {message.trigger_reason} · revision {message.revision} · {message.generated_by_ai ? "AI provider draft" : message.draft_method.replaceAll("_", " ")}</small>
+          <div className="maintenance-task-actions">
+            <button className="button secondary compact-button" onClick={() => onAction({ action: "regenerate-outreach-message", messageId: message.id, bookingUrl: outreachSettings.booking_url || "" })} type="button">Regenerate</button>
+            {message.approval_status !== "approved" && <button className="button primary compact-button" onClick={() => onAction({ action: "approve-outreach-message", messageId: message.id })} type="button">Approve</button>}
+            {!["rejected", "cancelled"].includes(message.approval_status) && <button className="text-button" onClick={() => { const reason = window.prompt("Why is this draft being rejected?"); if (reason) onAction({ action: "reject-outreach-message", messageId: message.id, reason }); }} type="button">Reject</button>}
+            {message.approval_status === "approved" && !["sent", "delivered"].includes(message.delivery_status) && <button className="button primary compact-button" onClick={() => onAction({ action: "send-approved-outreach-message", messageId: message.id })} type="button">Send via Provider</button>}
+            {message.approval_status === "approved" && !["sent", "delivered"].includes(message.delivery_status) && <button className="button secondary compact-button" onClick={() => { const manualReference = window.prompt("Enter the external delivery reference after sending the exact approved message:"); if (manualReference) onAction({ action: "mark-outreach-manually-sent", messageId: message.id, manualReference }); }} type="button">Record Manual Send</button>}
+            {["sent", "delivered"].includes(message.delivery_status) && <button className="button secondary compact-button" onClick={() => { const customerResponse = window.prompt("Record the customer's response:"); if (customerResponse !== null) onAction({ action: "record-outreach-response", messageId: message.id, responseStatus: "replied", customerResponse }); }} type="button">Record Response</button>}
+          </div>
+          <details><summary>History ({history.length})</summary>{history.map((event) => <p key={event.id}><strong>{event.event_type.replaceAll("_", " ")}</strong> · {new Date(event.created_at).toLocaleString()}</p>)}</details>
+        </article>; }) : <p>No outreach drafts. Configure consent, then build opportunities and drafts.</p>}
+      </div>}
+      {section === "preferences" && <div className="maintenance-record-list outreach-admin-list">
+        <header><div><p className="eyebrow">Consent and suppression</p><h3>Communication preferences</h3></div></header>
+        {[...customerById.entries()].map(([customerId, customer]) => { const preference = preferenceByCustomer.get(customerId); return <form className="communication-preference-card" key={customerId} onSubmit={async (event) => { event.preventDefault(); const values = new FormData(event.currentTarget); await onAction({ action: "update-communication-preferences", customerId, preferredLanguage: values.get("preferredLanguage"), emailEnabled: values.get("emailEnabled") === "on", smsEnabled: values.get("smsEnabled") === "on", transactionalConsent: values.get("transactionalConsent") === "on", promotionalConsent: values.get("promotionalConsent") === "on", consentSource: values.get("consentSource"), suppressed: values.get("suppressed") === "on", suppressionReason: values.get("suppressionReason"), quietHoursStart: values.get("quietHoursStart"), quietHoursEnd: values.get("quietHoursEnd"), timezone: values.get("timezone") }); }}>
+          <header><div><strong>{customer.full_name || "Member"}</strong><span>{customer.email}</span></div><span>{preference ? "Recorded" : "Contact blocked until configured"}</span></header>
+          <label>Language<select defaultValue={preference?.preferred_language || "en-CA"} name="preferredLanguage"><option value="en-CA">English</option><option value="fr-CA">Français (Québec)</option></select></label>
+          <label className="admin-inline-check"><input defaultChecked={preference?.email_enabled} name="emailEnabled" type="checkbox" /> Email enabled</label>
+          <label className="admin-inline-check"><input defaultChecked={preference?.sms_enabled} name="smsEnabled" type="checkbox" /> SMS enabled</label>
+          <label className="admin-inline-check"><input defaultChecked={preference?.transactional_consent} name="transactionalConsent" type="checkbox" /> Transactional consent recorded</label>
+          <label className="admin-inline-check"><input defaultChecked={preference?.promotional_consent} name="promotionalConsent" type="checkbox" /> Promotional consent recorded</label>
+          <label className="admin-inline-check"><input defaultChecked={Boolean(preference?.suppressed_at)} name="suppressed" type="checkbox" /> Suppress all outreach</label>
+          <label>Consent source<input defaultValue={preference?.consent_source || ""} name="consentSource" placeholder="Signed form, account setting, or documented authorization" /></label>
+          <label>Suppression reason<input defaultValue={preference?.suppression_reason || ""} name="suppressionReason" /></label>
+          <label>Quiet hours start<input defaultValue={String(preference?.quiet_hours_start || "21:00").slice(0, 5)} name="quietHoursStart" type="time" /></label>
+          <label>Quiet hours end<input defaultValue={String(preference?.quiet_hours_end || "09:00").slice(0, 5)} name="quietHoursEnd" type="time" /></label>
+          <label>Timezone<input defaultValue={preference?.timezone || "America/Toronto"} name="timezone" /></label>
+          <button className="button secondary compact-button" type="submit">Save Preferences</button>
+        </form>; })}
+      </div>}
       {section === "settings" && <form className="maintenance-settings-form" onSubmit={submitSettings}><header><div><p className="eyebrow">Versioned controls</p><h3>Forecast and reminder thresholds</h3></div><span>v{settings.version || 1}</span></header><p>These settings create administrator tasks only. Phase 2 does not send customer messages automatically.</p><label>Approaching days<input defaultValue={settings.approaching_days ?? 30} min="1" name="approachingDays" required type="number" /></label><label>Due days<input defaultValue={settings.due_days ?? 7} min="0" name="dueDays" required type="number" /></label><label>Approaching km<input defaultValue={settings.approaching_km ?? 1500} min="1" name="approachingKm" required type="number" /></label><label>Due km<input defaultValue={settings.due_km ?? 500} min="0" name="dueKm" required type="number" /></label><label>High-use mileage reminder<input defaultValue={settings.high_usage_reminder_days ?? 30} min="7" name="highUsageReminderDays" required type="number" /></label><label>Average-use mileage reminder<input defaultValue={settings.average_usage_reminder_days ?? 60} min="7" name="averageUsageReminderDays" required type="number" /></label><label>Low-use mileage reminder<input defaultValue={settings.low_usage_reminder_days ?? 90} min="7" name="lowUsageReminderDays" required type="number" /></label><label>Insufficient-data reminder<input defaultValue={settings.insufficient_data_reminder_days ?? 60} min="7" name="insufficientDataReminderDays" required type="number" /></label><label>High confidence verified readings<input defaultValue={settings.high_confidence_min_verified_readings ?? 3} min="2" max="20" name="highConfidenceMinVerifiedReadings" required type="number" /></label><label>High confidence history span (days)<input defaultValue={settings.high_confidence_min_span_days ?? 60} min="7" max="730" name="highConfidenceMinSpanDays" required type="number" /></label><label>Recent verified mileage window (days)<input defaultValue={settings.recent_verified_mileage_days ?? 120} min="7" max="730" name="recentVerifiedMileageDays" required type="number" /></label><label>Medium confidence readings<input defaultValue={settings.medium_confidence_min_readings ?? 2} min="1" max="20" name="mediumConfidenceMinReadings" required type="number" /></label><button className="button primary compact-button" disabled={saving} type="submit">{saving ? "Saving..." : "Save New Settings Version"}</button></form>}
+      {section === "settings" && outreach.available && <form className="maintenance-settings-form outreach-settings-form" onSubmit={submitOutreachSettings}><header><div><p className="eyebrow">Versioned CRM controls</p><h3>Outreach and opportunity settings</h3></div><span>v{outreachSettings.version || 1}</span></header><p>Administrator approval is permanently required and cannot be disabled.</p><label className="admin-inline-check"><input defaultChecked={outreachSettings.draft_generation_enabled !== false} name="draftGenerationEnabled" type="checkbox" /> Generate consent-eligible drafts</label><label>Maximum contacts per 30 days<input defaultValue={outreachSettings.max_customer_contacts_per_30_days ?? 4} max="30" min="1" name="maxCustomerContactsPer30Days" required type="number" /></label><label>Minimum days between contacts<input defaultValue={outreachSettings.minimum_days_between_contacts ?? 7} max="90" min="1" name="minimumDaysBetweenContacts" required type="number" /></label><label>Minimum opportunity confidence<select defaultValue={outreachSettings.opportunity_min_confidence || "Medium"} name="opportunityMinConfidence"><option>High</option><option>Medium</option><option>Low</option></select></label><label>Default channel<select defaultValue={outreachSettings.default_channel || "email"} name="defaultChannel"><option value="email">Email</option><option value="sms">SMS</option></select></label><label className="wide">Booking link<input defaultValue={outreachSettings.booking_url || ""} name="bookingUrl" placeholder="https://..." type="url" /></label><button className="button primary compact-button" disabled={saving} type="submit">Save CRM Settings Version</button></form>}
     </section>
   );
 }
@@ -5388,6 +5471,18 @@ function AdminPortal({ onBack }) {
       "update-maintenance-task": "Maintenance task updated.",
       "update-maintenance-settings": "A new maintenance settings version is active.",
       "recalculate-maintenance": "Maintenance forecasts and administrator tasks were recalculated.",
+      "update-communication-preferences": "Communication consent and preferences were saved and audited.",
+      "edit-outreach-message": "Outreach draft saved. Material changes require a new approval.",
+      "regenerate-outreach-message": "A new verified draft was generated and requires approval.",
+      "approve-outreach-message": "Outreach draft approved after a fresh consent check.",
+      "reject-outreach-message": "Outreach draft rejected and retained in history.",
+      "schedule-outreach-message": "Approved outreach scheduled.",
+      "send-approved-outreach-message": "Approved outreach was submitted to the configured provider.",
+      "mark-outreach-manually-sent": "Verified manual delivery was recorded.",
+      "record-outreach-response": "Customer response recorded.",
+      "update-service-opportunity": "Service opportunity updated.",
+      "update-outreach-settings": "A new outreach settings version is active.",
+      "run-outreach-intelligence": "Service opportunities and eligible approval drafts were refreshed.",
     };
     setAdminNotice(notices[payload.action] || "Vehicle Intelligence updated.");
   }
