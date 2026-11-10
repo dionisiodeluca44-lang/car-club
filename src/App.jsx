@@ -84,7 +84,7 @@ import {
   suggestedBenefitKeysForRequest,
   summarizeMembershipBenefits,
 } from "../shared/membershipBenefits";
-import { automationStatusForRule, vehicleRuleSignature } from "../shared/maintenanceRuleAutomation";
+import { automationStatusForRule, unresolvedAutomaticRule, vehicleRuleSignature } from "../shared/maintenanceRuleAutomation";
 
 const services = [
   {
@@ -5300,7 +5300,8 @@ function AdminVehicleIntelligence({ data, onAction }) {
                 <small>{rule.mileage_interval_km ? `${Number(rule.mileage_interval_km).toLocaleString()} km` : "No mileage interval"}{rule.time_interval_months ? ` · ${rule.time_interval_months} months` : ""}</small>
                 <div className="maintenance-task-actions">
                   {rule.approval_status === "draft" && <button className="button secondary compact-button" disabled={saving} onClick={() => setEditingRuleId(rule.id)} type="button">Edit Draft</button>}
-                  {rule.approval_status === "draft" && <button className="button primary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "approve-rule", ruleId: rule.id }); } finally { setSaving(false); } }} type="button">Approve Rule</button>}
+                  {rule.approval_status === "draft" && !unresolvedAutomaticRule(rule) && <button className="button primary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "approve-rule", ruleId: rule.id }); } finally { setSaving(false); } }} type="button">Approve Rule</button>}
+                  {rule.approval_status === "draft" && unresolvedAutomaticRule(rule) && <span className="automation-source-required">Verified source required before approval</span>}
                   {rule.approval_status === "approved" && <button className="text-button" disabled={saving} onClick={() => onAction({ action: "retire-rule", ruleId: rule.id })} type="button">Retire Rule</button>}
                 </div>
               </>}

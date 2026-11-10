@@ -159,3 +159,10 @@ export function automationStatusForRule(rule = {}) {
   return "Needs review";
 }
 
+export function unresolvedAutomaticRule(rule = {}) {
+  const generated = String(rule.stable_key || "").startsWith("auto-");
+  const missingInterval = !Number(rule.mileage_interval_km) && !Number(rule.time_interval_months);
+  const unresolvedSource = /No exact interval|No supported official|needs to be verified/i.test(rule.source_reference || "");
+  return generated && Boolean(rule.requires_inspection) && (missingInterval || unresolvedSource);
+}
+

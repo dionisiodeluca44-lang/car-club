@@ -6395,6 +6395,13 @@ textarea:focus {
   color: #f2a3a3 !important;
 }
 
+.automation-source-required {
+  align-self: center;
+  color: #f2a3a3 !important;
+  font-size: 0.7rem;
+  font-weight: 850;
+}
+
 .maintenance-rule-edit-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

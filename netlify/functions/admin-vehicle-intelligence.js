@@ -4,7 +4,7 @@ import { buildOutreachDraft, communicationEligibility, isMaterialMessageChange, 
 import { getMaintenanceIntelligence, runMaintenanceRecalculation } from "../lib/maintenanceIntelligence.js";
 import { discoverVehicleMaintenanceRules } from "../lib/maintenanceRuleAutomation.js";
 import { getOutreachIntelligence, runOutreachIntelligence } from "../lib/outreachIntelligence.js";
-import { vehicleRuleSignature } from "../../shared/maintenanceRuleAutomation.js";
+import { unresolvedAutomaticRule, vehicleRuleSignature } from "../../shared/maintenanceRuleAutomation.js";
 
 const adminPassword = process.env.ADMIN_PORTAL_PASSWORD;
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -476,6 +476,9 @@ async function approveRule(payload) {
   const { data: current, error: currentError } = await supabase.from("vehicle_maintenance_rules").select("*").eq("id", ruleId).single();
   if (currentError) throw currentError;
   if (current.approval_status !== "draft") throw Object.assign(new Error("Only a draft rule can be approved."), { statusCode: 409 });
+  if (unresolvedAutomaticRule(current)) {
+    throw Object.assign(new Error("This automatic placeholder has no verified schedule. Add and verify an exact source and interval before approval."), { statusCode: 409 });
+  }
   const { data, error } = await supabase.rpc("approve_vehicle_maintenance_rule", { p_rule_id: ruleId });
   if (error) throw error;
   await audit({ action: "approve_maintenance_rule", entityId: ruleId, entityType: "maintenance_rule", previousValue: current, nextValue: data });

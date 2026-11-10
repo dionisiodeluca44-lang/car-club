@@ -5,6 +5,7 @@ import {
   normalizeDiscoveredRule,
   officialOwnerPortal,
   safeInspectionDraft,
+  unresolvedAutomaticRule,
   vehicleRuleSignature,
 } from "../shared/maintenanceRuleAutomation.js";
 
@@ -48,4 +49,16 @@ test("automation statuses remain review-first", () => {
   assert.equal(automationStatusForRule({ approval_status: "draft", source_type: "manufacturer", confidence_level: "High" }), "Ready to approve");
   assert.equal(automationStatusForRule({ approval_status: "draft", source_type: "internal_inspection", requires_inspection: true, source_reference: "No exact interval was confirmed" }), "No reliable source found");
   assert.equal(automationStatusForRule({ approval_status: "approved" }), "Approved");
+});
+
+test("unresolved automatic placeholders cannot be approved", () => {
+  const draft = safeInspectionDraft(vehicle);
+  assert.equal(unresolvedAutomaticRule({
+    stable_key: draft.stableKey,
+    requires_inspection: draft.requiresInspection,
+    mileage_interval_km: draft.mileageIntervalKm,
+    time_interval_months: draft.timeIntervalMonths,
+    source_reference: draft.sourceReference,
+  }), true);
+  assert.equal(unresolvedAutomaticRule({ stable_key: "manual-rule", requires_inspection: true }), false);
 });
