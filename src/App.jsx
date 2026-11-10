@@ -5089,7 +5089,6 @@ function AdminVehicleIntelligence({ data, onAction }) {
   const customerById = new Map(vehicles.filter((vehicle) => vehicle.customer).map((vehicle) => [vehicle.user_id, vehicle.customer]));
   const vehicleById = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
   const preferenceByCustomer = new Map(communicationPreferences.map((item) => [item.customer_id, item]));
-  const calendarEvents = useMemo(() => buildAdminCalendarEvents({ vehicles, rules, forecasts, tasks }), [vehicles, rules, forecasts, tasks]);
 
   async function runAutomaticRuleDrafting() {
     const signatures = new Set();
@@ -5332,11 +5331,36 @@ function AdminVehicleIntelligence({ data, onAction }) {
 
   return (
     <section className="admin-intelligence-shell">
-      <nav className="admin-intelligence-tabs" aria-label="Vehicle Intelligence pages">
-        {["overview", "calendar", "vehicles", "mileage", "appointments", "service-history", "rules", "forecasts", "tasks", "opportunities", "outreach", "preferences", "settings"].map((item) => <button className={section === item ? "active" : ""} key={item} onClick={() => setSection(item)} type="button">{item.split("-").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ")}</button>)}
-      </nav>
+      <div className="admin-intelligence-view-picker">
+        <div>
+          <p className="eyebrow">Vehicle workspace</p>
+          <strong>Choose what you want to manage</strong>
+        </div>
+        <label>
+          <span>View</span>
+          <select onChange={(event) => setSection(event.target.value)} value={section}>
+            <option value="overview">Overview</option>
+            <optgroup label="Vehicle records">
+              <option value="vehicles">Vehicles</option>
+              <option value="mileage">Mileage</option>
+              <option value="appointments">Appointments</option>
+              <option value="service-history">Service history</option>
+            </optgroup>
+            <optgroup label="Maintenance">
+              <option value="rules">Maintenance rules</option>
+              <option value="forecasts">Forecasts</option>
+              <option value="tasks">Tasks</option>
+            </optgroup>
+            <optgroup label="Customer follow-up">
+              <option value="opportunities">Opportunities</option>
+              <option value="outreach">Outreach</option>
+              <option value="preferences">Communication preferences</option>
+            </optgroup>
+            <option value="settings">Settings</option>
+          </select>
+        </label>
+      </div>
       {section === "overview" && <><div className="admin-intelligence-metrics">{metrics.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div><div className="admin-intelligence-phase-note"><Wrench size={20} /><div><strong>{outreach.available ? "CRM and Outreach Phase 3 is active." : maintenance.available ? "Maintenance Intelligence Phase 2 is active. Phase 3 migration required." : "Vehicle Intelligence database migration required."}</strong><p>{outreach.available ? "Opportunities use verified evidence and existing pricing only. Drafts require recorded consent and explicit administrator approval; no background process sends customer messages." : "Run the next numbered Supabase migration before using the corresponding intelligence controls."}</p></div>{maintenance.available && <div className="maintenance-task-actions"><button className="button secondary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "recalculate-maintenance", includeAll: true }); } finally { setSaving(false); } }} type="button">Recalculate Maintenance</button>{outreach.available && <button className="button primary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "run-outreach-intelligence", includeAll: true }); } finally { setSaving(false); } }} type="button">Build Opportunities & Drafts</button>}</div>}</div></>}
-      {section === "calendar" && <AdminOperationsCalendar events={calendarEvents} onOpenVehicle={setSelectedVehicleId} />}
       {["vehicles", "mileage", "appointments", "service-history"].includes(section) && <>
         <label className="admin-search-field admin-intelligence-search"><Search size={17} /><input onChange={(event) => setQuery(event.target.value)} placeholder="Search customer, vehicle, VIN, or email" type="search" value={query} /></label>
         <div className="admin-intelligence-table">
@@ -5484,7 +5508,7 @@ function AdminPortal({ onBack }) {
   const [draftToken, setDraftToken] = useState(() => localStorage.getItem("whiteGloveAdminToken") || "");
   const [adminError, setAdminError] = useState("");
   const [adminNotice, setAdminNotice] = useState("");
-  const [adminMenu, setAdminMenu] = useState("requests");
+  const [adminMenu, setAdminMenu] = useState("calendar");
   const [adminSidebarOpen, setAdminSidebarOpen] = useState(false);
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [membershipPricing, setMembershipPricing] = useState({});
@@ -5672,7 +5696,7 @@ function AdminPortal({ onBack }) {
       await loadAdminRequests(draftToken, { throwOnError: true });
       localStorage.setItem("whiteGloveAdminToken", draftToken);
       setAdminToken(draftToken);
-      setAdminMenu("requests");
+      setAdminMenu("calendar");
       setAdminSidebarOpen(false);
       loadAdminPricing(draftToken, { keepNotice: true });
       loadAdminMembershipPricing(draftToken, { keepNotice: true });
@@ -5690,7 +5714,7 @@ function AdminPortal({ onBack }) {
     localStorage.removeItem("whiteGloveAdminToken");
     setAdminToken("");
     setDraftToken("");
-    setAdminMenu("requests");
+    setAdminMenu("calendar");
     setAdminSidebarOpen(false);
     setServiceRequests([]);
     setServicePricing({});
@@ -5990,48 +6014,62 @@ function AdminPortal({ onBack }) {
     }
   }
 
-  const adminNavigation = [
-    { id: "vehicle-intelligence", label: "Vehicle Intelligence", icon: Gauge },
-    { id: "requests", label: "Bookings", icon: CalendarCheck },
-    { id: "consultations", label: "Consultations", icon: MessageCircle },
+  const primaryAdminNavigation = [
+    { id: "calendar", label: "Calendar", icon: CalendarCheck },
+    { id: "requests", label: "Bookings", icon: ClipboardCheck },
     { id: "member-activity", label: "Members", icon: Users },
-    { id: "past-events", label: "Past Events" },
-    { id: "pricing", label: "Booking Price Settings" },
-    { id: "memberships", label: "Subscription Price Settings" },
-    { id: "garage-capacity", label: "Garage Capacity" },
+    { id: "vehicle-intelligence", label: "Vehicles", icon: Car },
   ];
+  const secondaryAdminNavigation = [
+    { id: "consultations", label: "Consultations", icon: MessageCircle },
+    { id: "past-events", label: "Past Events", icon: Clock },
+    { id: "pricing", label: "Booking Prices", icon: CreditCard },
+    { id: "memberships", label: "Membership Prices", icon: Gift },
+    { id: "garage-capacity", label: "Garage Capacity", icon: Warehouse },
+  ];
+  const adminNavigation = [...primaryAdminNavigation, ...secondaryAdminNavigation];
+  const adminCalendarEvents = useMemo(() => buildAdminCalendarEvents({
+    vehicles: ensureList(vehicleIntelligence?.vehicles),
+    rules: ensureList(vehicleIntelligence?.maintenance?.rules),
+    forecasts: ensureList(vehicleIntelligence?.maintenance?.forecasts),
+    tasks: ensureList(vehicleIntelligence?.maintenance?.tasks),
+  }), [vehicleIntelligence]);
   const adminPageContent = {
+    calendar: {
+      title: "Calendar",
+      description: "Appointments, mileage check-ins, and maintenance follow-ups in one place.",
+    },
     "vehicle-intelligence": {
-      title: "Vehicle Intelligence",
-      description: "Review every managed vehicle, verified mileage reading, performed service, and linked appointment.",
+      title: "Vehicles",
+      description: "Manage vehicle records, mileage, maintenance, and customer follow-ups.",
     },
     requests: {
       title: "Bookings",
-      description: "Review booking status, payment progress, balances, documents, and member details in one place.",
+      description: "Manage appointments, payments, and service requests.",
     },
     consultations: {
       title: "Membership Consultations",
-      description: "See every private membership call on one calendar and keep each consultation organized.",
+      description: "Manage upcoming membership calls.",
     },
     "member-activity": {
       title: "Members",
-      description: "Open each account to review its membership, complete booking history, payments, and remaining balances.",
+      description: "Find members and review their account activity.",
     },
     "past-events": {
       title: "Past Events",
-      description: "Review events that have automatically left the member feed after their scheduled time.",
+      description: "Review events that have left the member feed.",
     },
     pricing: {
       title: "Booking Price Settings",
-      description: "Set the same service request price for every member.",
+      description: "Update service request prices.",
     },
     memberships: {
       title: "Subscription Price Settings",
-      description: "Set the membership prices used for new account activation checkouts.",
+      description: "Update membership checkout prices.",
     },
     "garage-capacity": {
       title: "Garage Capacity",
-      description: "Review Collector Garage use and grant extra vehicle spots to individual members.",
+      description: "Manage additional vehicle spaces for members.",
     },
   }[adminMenu] || { title: "Service Requests", description: "Review member service requests." };
 
@@ -6042,7 +6080,7 @@ function AdminPortal({ onBack }) {
           <div className="admin-login-intro">
             <p className="eyebrow">White Glove backend</p>
             <h1>Admin Portal</h1>
-            <p>Enter the admin password to view service requests, booking details, and price settings.</p>
+            <p>Enter the admin password to manage your daily operations.</p>
           </div>
 
           <form className="admin-login-card admin-login-card-locked" onSubmit={submitAdminLogin}>
@@ -6076,33 +6114,39 @@ function AdminPortal({ onBack }) {
           </div>
           <div className="admin-header-actions">
             <button className="button secondary compact-button" type="button" onClick={() => { loadAdminRequests(adminToken); loadAdminPricing(adminToken); loadAdminMembershipPricing(adminToken); loadAdminMembers(adminToken); loadAdminConsultations(adminToken); loadVehicleIntelligence(adminToken); }} disabled={loadingRequests}>
-              {loadingRequests ? "Loading..." : "Refresh"}
+              <RefreshCw size={17} /> {loadingRequests ? "Loading..." : "Refresh"}
             </button>
-            <button className="button secondary compact-button" type="button" onClick={closeAdminPortal}>Log Out</button>
-            <button className="button secondary compact-button" type="button" onClick={onBack}>Back to Website</button>
           </div>
         </div>
 
         {adminSidebarOpen && (
           <aside className="admin-sidebar" aria-label="Admin menu">
-            {adminNavigation.map((item) => (
-              <button
-                className={adminMenu === item.id ? "active" : ""}
-                key={item.id}
-                onClick={() => {
-                  setAdminMenu(item.id);
-                  setAdminSidebarOpen(false);
-                }}
-                type="button"
-              >
-                {item.label}
-              </button>
-            ))}
+            <p>All admin tools</p>
+            {adminNavigation.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  className={adminMenu === item.id ? "active" : ""}
+                  key={item.id}
+                  onClick={() => {
+                    setAdminMenu(item.id);
+                    setAdminSidebarOpen(false);
+                  }}
+                  type="button"
+                >
+                  {Icon && <Icon size={17} />}{item.label}
+                </button>
+              );
+            })}
+            <div className="admin-sidebar-actions">
+              <button onClick={onBack} type="button"><Home size={17} />Back to Website</button>
+              <button onClick={closeAdminPortal} type="button"><LogOut size={17} />Log Out</button>
+            </div>
           </aside>
         )}
 
         <nav className="admin-primary-navigation" aria-label="Admin sections">
-          {adminNavigation.map((item) => {
+          {primaryAdminNavigation.map((item) => {
             const Icon = item.icon;
             return (
               <button className={adminMenu === item.id ? "active" : ""} key={item.id} onClick={() => setAdminMenu(item.id)} type="button">
@@ -6115,6 +6159,7 @@ function AdminPortal({ onBack }) {
         {adminError && <div className="error-message">{adminError}</div>}
         {adminNotice && <div className="admin-notice">{adminNotice}</div>}
 
+        {adminMenu === "calendar" && <AdminOperationsCalendar events={adminCalendarEvents} onOpenVehicle={() => setAdminMenu("vehicle-intelligence")} />}
         {adminMenu === "pricing" && <AdminServicePricingEditor onSave={updateServicePrice} pricing={servicePricing} />}
         {adminMenu === "memberships" && <AdminMembershipPricingEditor membershipPricing={membershipPricing} onSave={updateMembershipPrice} />}
         {adminMenu === "garage-capacity" && <AdminGarageCapacity members={adminMembers} onSave={updateMemberGarageCapacity} />}
