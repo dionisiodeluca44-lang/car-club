@@ -166,3 +166,26 @@ export function unresolvedAutomaticRule(rule = {}) {
   return generated && Boolean(rule.requires_inspection) && (missingInterval || unresolvedSource);
 }
 
+export function verifiedRuleCanAutoActivate(rule = {}) {
+  const applicability = rule.vehicle_applicability || {};
+  const hasExactVehicle = Array.isArray(applicability.makes)
+    && applicability.makes.length > 0
+    && Array.isArray(applicability.models)
+    && applicability.models.length > 0
+    && Number.isInteger(Number(applicability.yearFrom))
+    && Number(applicability.yearFrom) >= 1886
+    && Number.isInteger(Number(applicability.yearTo))
+    && Number(applicability.yearTo) >= Number(applicability.yearFrom);
+  const hasInterval = Number(rule.mileage_interval_km) > 0 || Number(rule.time_interval_months) > 0;
+  const hasRetainedHttpsSource = /https:\/\//i.test(String(rule.source_reference || ""));
+  return rule.approval_status === "draft"
+    && rule.source_type === "manufacturer"
+    && rule.confidence_level === "High"
+    && Boolean(String(rule.source_version || "").trim())
+    && hasExactVehicle
+    && hasInterval
+    && hasRetainedHttpsSource
+    && !rule.requires_inspection
+    && !unresolvedAutomaticRule(rule);
+}
+

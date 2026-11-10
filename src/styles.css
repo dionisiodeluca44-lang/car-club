@@ -7341,6 +7341,332 @@ textarea:focus {
   background: #151515;
 }
 
+/* Vehicle Intelligence — Phase 4 CRM */
+.phase4-crm,
+.phase4-crm-detail,
+.phase4-service-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.phase4-crm-toolbar,
+.phase4-owner-card,
+.phase4-service-list,
+.phase4-vehicle-list {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #101010;
+}
+
+.phase4-crm-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.phase4-crm-toolbar h2,
+.phase4-crm-toolbar p,
+.phase4-owner-card h3,
+.phase4-service-list h3,
+.phase4-service-list h4,
+.phase4-service-list p {
+  margin: 0;
+}
+
+.phase4-crm-toolbar > div,
+.phase4-owner-card header > div {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.phase4-crm-toolbar > div > p:last-child,
+.phase4-service-list > header > span,
+.phase4-service-list article > p,
+.phase4-service-list article > small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.phase4-crm-layout {
+  display: grid;
+  grid-template-columns: minmax(15rem, 0.58fr) minmax(0, 1.7fr);
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.phase4-vehicle-list {
+  position: sticky;
+  top: 0.75rem;
+  overflow: hidden;
+}
+
+.phase4-vehicle-list > label {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.phase4-vehicle-list input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+
+.phase4-vehicle-list input:focus {
+  outline: 0;
+}
+
+.phase4-vehicle-list > div {
+  display: grid;
+  max-height: 42rem;
+  overflow-y: auto;
+}
+
+.phase4-vehicle-list button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.8rem;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.phase4-vehicle-list button:hover,
+.phase4-vehicle-list button.active {
+  background: rgba(201, 164, 92, 0.1);
+  color: var(--gold-bright);
+}
+
+.phase4-vehicle-list button span {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.phase4-vehicle-list button strong,
+.phase4-vehicle-list button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phase4-vehicle-list button small {
+  color: var(--muted);
+}
+
+.phase4-vehicle-list button em {
+  display: grid;
+  place-items: center;
+  min-width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 999px;
+  background: var(--gold);
+  color: #090909;
+  font-size: 0.7rem;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.phase4-owner-card {
+  padding: 1rem;
+}
+
+.phase4-owner-card > header,
+.phase4-service-list > header,
+.phase4-service-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.phase4-owner-card > header > span,
+.phase4-service-heading > em {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgba(229, 200, 121, 0.32);
+  border-radius: 999px;
+  color: var(--gold-bright);
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.phase4-owner-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+}
+
+.phase4-owner-grid > div {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  background: #151515;
+  min-width: 0;
+}
+
+.phase4-owner-grid small {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.phase4-owner-grid strong,
+.phase4-owner-grid a {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 0.78rem;
+}
+
+.phase4-owner-grid a {
+  color: var(--gold-bright);
+}
+
+.phase4-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #101010;
+}
+
+.phase4-summary-strip > div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border-right: 1px solid var(--line);
+}
+
+.phase4-summary-strip > div:last-child {
+  border-right: 0;
+}
+
+.phase4-summary-strip span {
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.phase4-summary-strip strong {
+  color: var(--gold-bright);
+  font-size: 1.25rem;
+}
+
+.phase4-service-list {
+  padding: 1rem;
+}
+
+.phase4-service-list > header {
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.phase4-service-list > header > span {
+  max-width: 25rem;
+  font-size: 0.72rem;
+  text-align: right;
+}
+
+.phase4-service-list > article {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) - 0.25rem);
+  background: #151515;
+}
+
+.phase4-service-list > article.contacted {
+  border-color: rgba(83, 190, 126, 0.42);
+  background: rgba(83, 190, 126, 0.07);
+}
+
+.phase4-service-heading > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.phase4-service-heading span {
+  color: var(--gold-bright);
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.phase4-service-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+}
+
+.phase4-contact-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.25rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid rgba(229, 200, 121, 0.34);
+  border-radius: 7px;
+  background: rgba(201, 164, 92, 0.1);
+  color: var(--gold-bright);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.phase4-contact-check.done {
+  border-color: rgba(83, 190, 126, 0.44);
+  background: rgba(83, 190, 126, 0.14);
+  color: #91e0af;
+  cursor: default;
+}
+
+.phase4-service-actions details {
+  flex: 1 0 100%;
+  padding: 0.65rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.phase4-service-actions summary {
+  color: var(--gold-bright);
+  font-size: 0.73rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.phase4-service-actions details > strong,
+.phase4-service-actions details > p,
+.phase4-service-actions details > small {
+  display: block;
+  margin-top: 0.55rem;
+}
+
+.phase4-service-actions details > small {
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
 .outreach-draft-form {
   display: grid;
   gap: 0.6rem;
@@ -7482,6 +7808,18 @@ textarea:focus {
 }
 
 @media (max-width: 900px) {
+  .phase4-crm-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .phase4-vehicle-list {
+    position: static;
+  }
+
+  .phase4-vehicle-list > div {
+    max-height: 17rem;
+  }
+
   .admin-intelligence-metrics,
   .admin-intelligence-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7510,6 +7848,34 @@ textarea:focus {
 }
 
 @media (max-width: 680px) {
+  .phase4-crm-toolbar,
+  .phase4-owner-card > header,
+  .phase4-service-list > header,
+  .phase4-service-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .phase4-owner-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .phase4-summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .phase4-summary-strip > div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .phase4-summary-strip > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .phase4-service-list > header > span {
+    text-align: left;
+  }
+
   .admin-intelligence-view-picker {
     display: grid;
     align-items: stretch;
@@ -9058,7 +9424,7 @@ textarea:focus {
 
 .admin-primary-navigation {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0.4rem;
   padding: 0.45rem;
   border: 1px solid var(--line);

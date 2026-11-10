@@ -5251,6 +5251,153 @@ function AdminVehicleServiceCalendars({ vehicles }) {
   );
 }
 
+function AdminPhase4Crm({ data, onAction }) {
+  const vehicles = useMemo(() => ensureList(data?.vehicles).filter((vehicle) => !vehicle.archived_at), [data]);
+  const opportunities = ensureList(data?.outreach?.opportunities);
+  const messages = ensureList(data?.outreach?.messages);
+  const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  const [query, setQuery] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const filteredVehicles = useMemo(() => {
+    const text = query.trim().toLowerCase();
+    return vehicles.filter((vehicle) => !text || [
+      vehicle.year, vehicle.make, vehicle.model, vehicle.trim, vehicle.vin,
+      vehicle.customer?.full_name, vehicle.customer?.email, vehicle.customer?.phone,
+    ].some((value) => String(value || "").toLowerCase().includes(text)));
+  }, [query, vehicles]);
+
+  useEffect(() => {
+    if (!filteredVehicles.length) {
+      setSelectedVehicleId("");
+      return;
+    }
+    if (!filteredVehicles.some((vehicle) => vehicle.id === selectedVehicleId)) setSelectedVehicleId(filteredVehicles[0].id);
+  }, [filteredVehicles, selectedVehicleId]);
+
+  const selectedVehicle = filteredVehicles.find((vehicle) => vehicle.id === selectedVehicleId) || null;
+  const vehicleOpportunities = useMemo(() => opportunities.filter((item) => item.vehicle_id === selectedVehicleId), [opportunities, selectedVehicleId]);
+  const opportunityByForecast = useMemo(() => new Map(vehicleOpportunities.map((item) => [item.forecast_id, item])), [vehicleOpportunities]);
+  const messageByOpportunity = useMemo(() => {
+    const result = new Map();
+    messages.forEach((message) => {
+      if (message.vehicle_id === selectedVehicleId && message.opportunity_id && !result.has(message.opportunity_id)) result.set(message.opportunity_id, message);
+    });
+    return result;
+  }, [messages, selectedVehicleId]);
+  const serviceRows = useMemo(() => {
+    if (!selectedVehicle) return [];
+    const excluded = new Set(["Completed", "Dismissed", "Not Applicable"]);
+    const rows = ensureList(selectedVehicle.maintenance_forecasts)
+      .filter((forecast) => !forecast.archived_at && !excluded.has(forecast.status))
+      .map((forecast) => ({
+        id: forecast.id,
+        forecast,
+        opportunity: opportunityByForecast.get(forecast.id) || null,
+        title: forecast.rule?.service_type || forecast.rule?.rule_name || "Expected service",
+        date: forecast.next_due_date || "",
+        status: forecast.status || "Upcoming",
+      }));
+    const forecastIds = new Set(rows.map((row) => row.id));
+    vehicleOpportunities.forEach((opportunity) => {
+      if (!forecastIds.has(opportunity.forecast_id) && !["dismissed", "lost", "expired"].includes(opportunity.status)) {
+        rows.push({ id: `opportunity-${opportunity.id}`, forecast: null, opportunity, title: opportunity.service_type || "Service opportunity", date: opportunity.estimated_due_date || "", status: opportunity.status || "open" });
+      }
+    });
+    const priority = { Overdue: 0, Due: 1, "Inspection Required": 2, Approaching: 3, Upcoming: 4, "Awaiting Mileage": 5, "Not Yet Due": 6 };
+    return rows.sort((left, right) => (priority[left.status] ?? 7) - (priority[right.status] ?? 7) || (left.date || "9999").localeCompare(right.date || "9999"));
+  }, [selectedVehicle, opportunityByForecast, vehicleOpportunities]);
+
+  async function runForVehicle() {
+    if (!selectedVehicle) return;
+    setSaving(true);
+    try {
+      await onAction({ action: "run-phase4-crm", vehicleId: selectedVehicle.id });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function markContacted(opportunityId) {
+    setSaving(true);
+    try {
+      await onAction({ action: "update-service-opportunity", opportunityId, contactStatus: "contacted", status: "contacted" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function approveDraft(messageId) {
+    setSaving(true);
+    try {
+      await onAction({ action: "approve-outreach-message", messageId, approvedByLabel: "Phase 4 CRM" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!vehicles.length) return <div className="admin-calendar-empty"><Car size={25} /><strong>No vehicles yet</strong><span>Member vehicles will appear here with their CRM schedule.</span></div>;
+
+  const owner = selectedVehicle?.customer || {};
+  const vehicleName = selectedVehicle ? `${selectedVehicle.year || ""} ${selectedVehicle.make || ""} ${selectedVehicle.model || ""} ${selectedVehicle.trim || ""}`.trim() : "Choose a car";
+  const contactedCount = vehicleOpportunities.filter((item) => ["contacted", "responded"].includes(item.contact_status)).length;
+
+  return (
+    <section className="phase4-crm">
+      <header className="phase4-crm-toolbar">
+        <div><p className="eyebrow">Phase 4 · Opportunities and drafts</p><h2>Car-by-car CRM</h2><p>See what should be booked, who owns the car, and whether contact has been made.</p></div>
+        <button className="button primary compact-button" disabled={saving || !selectedVehicle} onClick={runForVehicle} type="button"><Sparkles size={17} />{saving ? "Updating..." : "Build schedule & drafts"}</button>
+      </header>
+      <div className="phase4-crm-layout">
+        <aside className="phase4-vehicle-list">
+          <label><Search size={16} /><input onChange={(event) => setQuery(event.target.value)} placeholder="Search car or owner" value={query} /></label>
+          <div>{filteredVehicles.map((vehicle) => {
+            const name = `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Vehicle";
+            const count = opportunities.filter((item) => item.vehicle_id === vehicle.id && !["dismissed", "lost", "expired"].includes(item.status)).length;
+            return <button className={selectedVehicleId === vehicle.id ? "active" : ""} key={vehicle.id} onClick={() => setSelectedVehicleId(vehicle.id)} type="button"><Car size={18} /><span><strong>{name}</strong><small>{vehicle.customer?.full_name || vehicle.customer?.email || "Owner unavailable"}</small></span>{count > 0 && <em>{count}</em>}</button>;
+          })}</div>
+        </aside>
+
+        {selectedVehicle && <div className="phase4-crm-detail">
+          <article className="phase4-owner-card">
+            <header><div><p className="eyebrow">Owner and vehicle</p><h3>{vehicleName}</h3></div><span>{selectedVehicle.status || "Active"}</span></header>
+            <div className="phase4-owner-grid">
+              <div><small>Owner</small><strong>{owner.full_name || "Name unavailable"}</strong></div>
+              <div><small>Email</small>{owner.email ? <a href={`mailto:${owner.email}`}>{owner.email}</a> : <strong>Unavailable</strong>}</div>
+              <div><small>Phone</small>{owner.phone ? <a href={`tel:${owner.phone}`}>{owner.phone}</a> : <strong>Unavailable</strong>}</div>
+              <div><small>Membership</small><strong>{[owner.plan, owner.subscription_status].filter(Boolean).join(" · ") || "Not recorded"}</strong></div>
+              <div><small>VIN</small><strong>{selectedVehicle.vin || "Not recorded"}</strong></div>
+              <div><small>Odometer</small><strong>{selectedVehicle.mileage ? `${Number(selectedVehicle.mileage).toLocaleString()} ${selectedVehicle.mileage_unit || "km"}` : "Mileage needed"}</strong></div>
+            </div>
+          </article>
+
+          <div className="phase4-summary-strip"><div><span>Coming up</span><strong>{serviceRows.length}</strong></div><div><span>Opportunities</span><strong>{vehicleOpportunities.length}</strong></div><div><span>Contacted</span><strong>{contactedCount}</strong></div><div><span>Drafts</span><strong>{[...messageByOpportunity.values()].filter((item) => ["draft", "pending_approval"].includes(item.approval_status)).length}</strong></div></div>
+
+          <section className="phase4-service-list">
+            <header><div><p className="eyebrow">What should be booked</p><h3>Upcoming services</h3></div><span>Verified rules activate schedules automatically. Customer messages still require your approval.</span></header>
+            {serviceRows.length ? serviceRows.map((row) => {
+              const opportunity = row.opportunity;
+              const message = opportunity ? messageByOpportunity.get(opportunity.id) : null;
+              const contacted = ["contacted", "responded"].includes(opportunity?.contact_status);
+              const suppressed = opportunity?.contact_status === "suppressed";
+              return <article className={contacted ? "contacted" : ""} key={row.id}>
+                <div className="phase4-service-heading"><div><span>{row.date ? readableConsultationDate(row.date, { short: true }) : "Date needs review"}</span><h4>{row.title}</h4></div><em>{row.status}</em></div>
+                <p>{row.forecast?.reason?.summary || opportunity?.reason || "Calculated from the approved maintenance schedule."}</p>
+                <small>{[row.forecast?.next_due_mileage_km ? `Due near ${Number(row.forecast.next_due_mileage_km).toLocaleString()} km` : "", row.forecast?.confidence ? `${row.forecast.confidence} confidence` : "", opportunity?.priority ? `${opportunity.priority} priority` : ""].filter(Boolean).join(" · ")}</small>
+                <div className="phase4-service-actions">
+                  {opportunity ? <button className={`phase4-contact-check ${contacted ? "done" : ""}`} disabled={saving || contacted || suppressed} onClick={() => markContacted(opportunity.id)} type="button"><Check size={16} />{contacted ? "Contact made" : suppressed ? "Contact suppressed" : "Mark contact made"}</button> : <button className="button secondary compact-button" disabled={saving} onClick={runForVehicle} type="button">Build opportunity</button>}
+                  {message && ["draft", "pending_approval", "rejected"].includes(message.approval_status) && <button className="button secondary compact-button" disabled={saving} onClick={() => approveDraft(message.id)} type="button"><ShieldCheck size={16} />Approve draft</button>}
+                  {message && <details><summary>View message draft</summary><strong>{message.subject || "Message"}</strong><p>{message.message_body}</p><small>{String(message.approval_status || "draft").replaceAll("_", " ")}</small></details>}
+                </div>
+              </article>;
+            }) : <div className="admin-calendar-empty"><CalendarCheck size={24} /><strong>No schedule yet</strong><span>Use Build schedule & drafts. Only an exact, verified manufacturer rule will activate automatically.</span></div>}
+          </section>
+        </div>}
+      </div>
+    </section>
+  );
+}
+
 function AdminVehicleIntelligence({ data, onAction }) {
   const overview = data?.overview || {};
   const vehicles = ensureList(data?.vehicles);
@@ -5570,7 +5717,7 @@ function AdminVehicleIntelligence({ data, onAction }) {
           </select>
         </label>
       </div>
-      {section === "overview" && <><div className="admin-intelligence-metrics">{metrics.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div><div className="admin-intelligence-phase-note"><Wrench size={20} /><div><strong>{outreach.available ? "CRM and Outreach Phase 3 is active." : maintenance.available ? "Maintenance Intelligence Phase 2 is active. Phase 3 migration required." : "Vehicle Intelligence database migration required."}</strong><p>{outreach.available ? "Opportunities use verified evidence and existing pricing only. Drafts require recorded consent and explicit administrator approval; no background process sends customer messages." : "Run the next numbered Supabase migration before using the corresponding intelligence controls."}</p></div>{maintenance.available && <div className="maintenance-task-actions"><button className="button secondary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "recalculate-maintenance", includeAll: true }); } finally { setSaving(false); } }} type="button">Recalculate Maintenance</button>{outreach.available && <button className="button primary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "run-outreach-intelligence", includeAll: true }); } finally { setSaving(false); } }} type="button">Build Opportunities & Drafts</button>}</div>}</div></>}
+      {section === "overview" && <><div className="admin-intelligence-metrics">{metrics.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div><div className="admin-intelligence-phase-note"><Wrench size={20} /><div><strong>{outreach.available ? "CRM Phase 4 is active." : maintenance.available ? "Maintenance Intelligence Phase 2 is active. Phase 3 migration required." : "Vehicle Intelligence database migration required."}</strong><p>{outreach.available ? "Exact, high-confidence manufacturer rules can activate schedules automatically. Opportunities use verified evidence, and every customer message still requires explicit administrator approval." : "Run the next numbered Supabase migration before using the corresponding intelligence controls."}</p></div>{maintenance.available && <div className="maintenance-task-actions"><button className="button secondary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "recalculate-maintenance", includeAll: true }); } finally { setSaving(false); } }} type="button">Recalculate Maintenance</button>{outreach.available && <button className="button primary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "run-phase4-crm", includeAll: true }); } finally { setSaving(false); } }} type="button">Build Opportunities & Drafts</button>}</div>}</div></>}
       {["vehicles", "mileage", "appointments", "service-history"].includes(section) && <>
         <label className="admin-search-field admin-intelligence-search"><Search size={17} /><input onChange={(event) => setQuery(event.target.value)} placeholder="Search customer, vehicle, VIN, or email" type="search" value={query} /></label>
         <div className="admin-intelligence-table">
@@ -5887,8 +6034,11 @@ function AdminPortal({ onBack }) {
       "create-rule-version": "Maintenance rule draft saved as a new version.",
       "update-rule-draft": "Maintenance rule draft updated. It still requires approval.",
       "auto-draft-maintenance-rules": result.result
-        ? `Automatic check complete: ${result.result.draftsCreated} draft${result.result.draftsCreated === 1 ? "" : "s"} created, ${result.result.readyToApprove} ready to approve, ${result.result.needsReview} needing review, and ${result.result.noReliableSource} without a reliable exact source.${result.result.errors?.length ? ` Research notice: ${result.result.errors[0]}` : ""}`
+        ? `Automatic check complete: ${result.result.draftsCreated} draft${result.result.draftsCreated === 1 ? "" : "s"} created, ${result.result.autoActivation?.activated || 0} verified rule${result.result.autoActivation?.activated === 1 ? "" : "s"} activated, ${result.result.needsReview} needing review, and ${result.result.noReliableSource} without a reliable exact source.${result.result.errors?.length ? ` Research notice: ${result.result.errors[0]}` : ""}`
         : "Automatic maintenance rule check completed.",
+      "run-phase4-crm": result.result
+        ? `CRM refreshed: ${result.result.activation?.activated || 0} verified rule${result.result.activation?.activated === 1 ? "" : "s"} activated, ${result.result.outreach?.opportunities || 0} opportunit${result.result.outreach?.opportunities === 1 ? "y" : "ies"}, and ${result.result.outreach?.drafts || 0} draft${result.result.outreach?.drafts === 1 ? "" : "s"} created.`
+        : "The vehicle schedule, opportunities, and drafts were refreshed.",
       "approve-rule": "Maintenance rule approved. A recalculation has been queued.",
       "retire-rule": "Maintenance rule retired. A recalculation has been queued.",
       "update-maintenance-task": "Maintenance task updated.",
@@ -6273,6 +6423,7 @@ function AdminPortal({ onBack }) {
   const primaryAdminNavigation = [
     { id: "calendar", label: "Calendar", icon: CalendarCheck },
     { id: "vehicle-calendars", label: "Car Calendars", icon: Car },
+    { id: "crm", label: "CRM", icon: MessageCircle },
     { id: "requests", label: "Bookings", icon: ClipboardCheck },
     { id: "member-activity", label: "Members", icon: Users },
     { id: "vehicle-intelligence", label: "Vehicles", icon: Car },
@@ -6303,6 +6454,10 @@ function AdminPortal({ onBack }) {
     "vehicle-intelligence": {
       title: "Vehicles",
       description: "Manage vehicle records, mileage, maintenance, and customer follow-ups.",
+    },
+    crm: {
+      title: "CRM Opportunities",
+      description: "Work car by car, review upcoming services, and track owner contact.",
     },
     requests: {
       title: "Bookings",
@@ -6429,6 +6584,7 @@ function AdminPortal({ onBack }) {
           />
         )}
         {adminMenu === "vehicle-calendars" && <AdminVehicleServiceCalendars vehicles={ensureList(vehicleIntelligence?.vehicles)} />}
+        {adminMenu === "crm" && <AdminPhase4Crm data={vehicleIntelligence} onAction={updateVehicleIntelligence} />}
         {adminMenu === "pricing" && <AdminServicePricingEditor onSave={updateServicePrice} pricing={servicePricing} />}
         {adminMenu === "memberships" && <AdminMembershipPricingEditor membershipPricing={membershipPricing} onSave={updateMembershipPrice} />}
         {adminMenu === "garage-capacity" && <AdminGarageCapacity members={adminMembers} onSave={updateMemberGarageCapacity} />}

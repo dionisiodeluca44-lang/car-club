@@ -4,7 +4,7 @@ import { buildOutreachDraft, communicationEligibility, isMaterialMessageChange, 
 import { getMaintenanceIntelligence, runMaintenanceRecalculation } from "../lib/maintenanceIntelligence.js";
 import { discoverVehicleMaintenanceRules } from "../lib/maintenanceRuleAutomation.js";
 import { getOutreachIntelligence, runOutreachIntelligence } from "../lib/outreachIntelligence.js";
-import { unresolvedAutomaticRule, vehicleRuleSignature } from "../../shared/maintenanceRuleAutomation.js";
+import { unresolvedAutomaticRule, vehicleRuleSignature, verifiedRuleCanAutoActivate } from "../../shared/maintenanceRuleAutomation.js";
 
 const adminPassword = process.env.ADMIN_PORTAL_PASSWORD;
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -485,6 +485,46 @@ async function approveRule(payload) {
   return data;
 }
 
+async function autoActivateVerifiedRules() {
+  const { data: drafts, error } = await supabase
+    .from("vehicle_maintenance_rules")
+    .select("*")
+    .eq("approval_status", "draft")
+    .is("archived_at", null);
+  if (error) throw error;
+  const eligible = (drafts || []).filter(verifiedRuleCanAutoActivate);
+  const result = { eligible: eligible.length, activated: 0, heldForReview: (drafts || []).length - eligible.length, errors: [] };
+  for (const rule of eligible) {
+    try {
+      await approveRule({ ruleId: rule.id });
+      result.activated += 1;
+    } catch (activationError) {
+      result.errors.push(`${rule.rule_name || rule.service_type || rule.id}: ${activationError.message}`);
+    }
+  }
+  await audit({ action: "auto_activate_verified_maintenance_rules", entityId: null, entityType: "maintenance_automation", nextValue: result });
+  return result;
+}
+
+async function runPhase4Crm(payload) {
+  const vehicleId = clean(payload.vehicleId, 80) || null;
+  const drafting = await autoDraftMaintenanceRules(vehicleId ? { vehicleId } : {});
+  const activation = await autoActivateVerifiedRules();
+  const maintenance = await runMaintenanceRecalculation(supabase, {
+    vehicleIds: vehicleId ? [vehicleId] : undefined,
+    includeAll: !vehicleId,
+    jobName: "phase4-crm-maintenance",
+  });
+  const outreach = await runOutreachIntelligence(supabase, {
+    vehicleIds: vehicleId ? [vehicleId] : undefined,
+    includeAll: !vehicleId,
+    jobName: "phase4-crm-opportunities",
+  });
+  const result = { drafting, activation, maintenance, outreach };
+  await audit({ action: "run_phase4_crm", entityId: vehicleId, entityType: vehicleId ? "vehicle" : "maintenance_automation", nextValue: result });
+  return result;
+}
+
 async function retireRule(payload) {
   const ruleId = clean(payload.ruleId, 80);
   if (!ruleId) throw Object.assign(new Error("Choose a rule to retire."), { statusCode: 400 });
@@ -845,7 +885,12 @@ export async function handler(event) {
     if (payload.action === "update-vehicle-maintenance-profile") return json(200, { vehicle: await updateVehicleMaintenanceProfile(payload) });
     if (payload.action === "create-rule-version") return json(200, { rule: await createRuleVersion(payload) });
     if (payload.action === "update-rule-draft") return json(200, { rule: await updateDraftRule(payload) });
-    if (payload.action === "auto-draft-maintenance-rules") return json(200, { result: await autoDraftMaintenanceRules(payload) });
+    if (payload.action === "auto-draft-maintenance-rules") {
+      const result = await autoDraftMaintenanceRules(payload);
+      result.autoActivation = await autoActivateVerifiedRules();
+      return json(200, { result });
+    }
+    if (payload.action === "run-phase4-crm") return json(200, { result: await runPhase4Crm(payload) });
     if (payload.action === "approve-rule") return json(200, { rule: await approveRule(payload) });
     if (payload.action === "retire-rule") return json(200, { rule: await retireRule(payload) });
     if (payload.action === "update-maintenance-task") return json(200, { task: await updateMaintenanceTask(payload) });

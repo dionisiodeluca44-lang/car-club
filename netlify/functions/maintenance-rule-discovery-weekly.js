@@ -7,6 +7,6 @@ export async function handler() {
   return adminVehicleIntelligenceHandler({
     httpMethod: "POST",
     headers: { "x-admin-token": process.env.ADMIN_PORTAL_PASSWORD },
-    body: JSON.stringify({ action: "auto-draft-maintenance-rules" }),
+    body: JSON.stringify({ action: "run-phase4-crm", includeAll: true }),
   });
 }

@@ -6,6 +6,7 @@ import {
   officialOwnerPortal,
   safeInspectionDraft,
   unresolvedAutomaticRule,
+  verifiedRuleCanAutoActivate,
   vehicleRuleSignature,
 } from "../shared/maintenanceRuleAutomation.js";
 
@@ -61,4 +62,24 @@ test("unresolved automatic placeholders cannot be approved", () => {
     source_reference: draft.sourceReference,
   }), true);
   assert.equal(unresolvedAutomaticRule({ stable_key: "manual-rule", requires_inspection: true }), false);
+});
+
+test("only exact high-confidence manufacturer rules auto-activate", () => {
+  const verified = {
+    approval_status: "draft",
+    source_type: "manufacturer",
+    confidence_level: "High",
+    source_version: "2019 Canadian owner booklet",
+    source_reference: "Owner booklet — https://example.com/official.pdf — page 12",
+    mileage_interval_km: 16000,
+    time_interval_months: 12,
+    requires_inspection: false,
+    vehicle_applicability: { makes: ["Mercedes-Benz"], models: ["AMG GT"], yearFrom: 2019, yearTo: 2019 },
+  };
+  assert.equal(verifiedRuleCanAutoActivate(verified), true);
+  assert.equal(verifiedRuleCanAutoActivate({ ...verified, confidence_level: "Medium" }), false);
+  assert.equal(verifiedRuleCanAutoActivate({ ...verified, source_reference: "Unretained source" }), false);
+  assert.equal(verifiedRuleCanAutoActivate({ ...verified, mileage_interval_km: null, time_interval_months: null }), false);
+  assert.equal(verifiedRuleCanAutoActivate({ ...verified, requires_inspection: true }), false);
+  assert.equal(verifiedRuleCanAutoActivate({ ...verified, vehicle_applicability: { makes: ["Mercedes-Benz"], models: ["AMG GT"] } }), false);
 });
