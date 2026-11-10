@@ -2911,7 +2911,12 @@ function App() {
   useEffect(() => {
     function reportRuntimeError(event) {
       if (event.target && event.target !== window) return;
-      setRuntimeError(event.reason?.message || event.error?.message || event.message || "The app hit an unexpected error.");
+      const error = event.reason || event.error;
+      if (error?.handledByAdminUi) {
+        event.preventDefault?.();
+        return;
+      }
+      setRuntimeError(error?.message || event.message || "The app hit an unexpected error.");
     }
 
     window.addEventListener("error", reportRuntimeError);
@@ -4992,6 +4997,7 @@ function AdminVehicleIntelligence({ data, onAction }) {
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [editingRuleId, setEditingRuleId] = useState("");
   const [saving, setSaving] = useState(false);
+  const [automationProgress, setAutomationProgress] = useState({ current: 0, total: 0 });
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || null;
   const filteredVehicles = useMemo(() => {
     const text = query.trim().toLowerCase();
@@ -5019,6 +5025,31 @@ function AdminVehicleIntelligence({ data, onAction }) {
   const customerById = new Map(vehicles.filter((vehicle) => vehicle.customer).map((vehicle) => [vehicle.user_id, vehicle.customer]));
   const vehicleById = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
   const preferenceByCustomer = new Map(communicationPreferences.map((item) => [item.customer_id, item]));
+
+  async function runAutomaticRuleDrafting() {
+    const signatures = new Set();
+    const representatives = vehicles.filter((vehicle) => {
+      const signature = vehicleRuleSignature(vehicle) || vehicle.id;
+      if (signatures.has(signature)) return false;
+      signatures.add(signature);
+      return true;
+    });
+    setSaving(true);
+    setAutomationProgress({ current: 0, total: representatives.length });
+    try {
+      for (let index = 0; index < representatives.length; index += 1) {
+        setAutomationProgress({ current: index + 1, total: representatives.length });
+        try {
+          await onAction({ action: "auto-draft-maintenance-rules", vehicleId: representatives[index].id });
+        } catch {
+          break;
+        }
+      }
+    } finally {
+      setSaving(false);
+      setAutomationProgress({ current: 0, total: 0 });
+    }
+  }
 
   async function submitOutreachSettings(event) {
     event.preventDefault();
@@ -5256,7 +5287,7 @@ function AdminVehicleIntelligence({ data, onAction }) {
             <p>The system groups matching vehicles, looks for an exact official schedule, and saves editable drafts only. Nothing becomes active until you approve it.</p>
             <small>{distinctVehicleConfigurations} vehicle configuration{distinctVehicleConfigurations === 1 ? "" : "s"} · {maintenanceAutomation.mode === "verified_provider" ? "Verified maintenance provider connected" : maintenanceAutomation.mode === "official_web_research" ? "Official-source research connected" : "Review-only safety mode"}</small>
           </div>
-          <button className="button primary compact-button" disabled={saving || !vehicles.length} onClick={async () => { setSaving(true); try { await onAction({ action: "auto-draft-maintenance-rules" }); } finally { setSaving(false); } }} type="button">{saving ? "Checking Vehicles..." : "Create Rules Automatically"}</button>
+          <button className="button primary compact-button" disabled={saving || !vehicles.length} onClick={runAutomaticRuleDrafting} type="button">{automationProgress.total ? `Checking ${automationProgress.current} of ${automationProgress.total}...` : "Create Rules Automatically"}</button>
         </section>
         <form className="maintenance-rule-form" onSubmit={submitRule}>
           <header><div><p className="eyebrow">Versioned rule</p><h3>Create a maintenance rule draft</h3></div><span>Approval required</span></header>
@@ -5527,7 +5558,11 @@ function AdminPortal({ onBack }) {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const error = new Error(result.error || "Could not update Vehicle Intelligence.");
+      const timedOut = [502, 504].includes(response.status);
+      const error = new Error(result.error || (timedOut
+        ? "Maintenance research took too long for this vehicle. Please try it again."
+        : "Could not update Vehicle Intelligence."));
+      error.handledByAdminUi = true;
       setAdminError(error.message);
       throw error;
     }
@@ -5539,7 +5574,7 @@ function AdminPortal({ onBack }) {
       "create-rule-version": "Maintenance rule draft saved as a new version.",
       "update-rule-draft": "Maintenance rule draft updated. It still requires approval.",
       "auto-draft-maintenance-rules": result.result
-        ? `Automatic check complete: ${result.result.draftsCreated} draft${result.result.draftsCreated === 1 ? "" : "s"} created, ${result.result.readyToApprove} ready to approve, ${result.result.needsReview} needing review, and ${result.result.noReliableSource} without a reliable exact source.`
+        ? `Automatic check complete: ${result.result.draftsCreated} draft${result.result.draftsCreated === 1 ? "" : "s"} created, ${result.result.readyToApprove} ready to approve, ${result.result.needsReview} needing review, and ${result.result.noReliableSource} without a reliable exact source.${result.result.errors?.length ? ` Research notice: ${result.result.errors[0]}` : ""}`
         : "Automatic maintenance rule check completed.",
       "approve-rule": "Maintenance rule approved. A recalculation has been queued.",
       "retire-rule": "Maintenance rule retired. A recalculation has been queued.",

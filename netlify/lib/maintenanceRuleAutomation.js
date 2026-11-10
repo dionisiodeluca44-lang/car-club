@@ -48,12 +48,17 @@ async function discoverWithOpenAI(vehicle) {
   if (!apiKey) return null;
   const label = vehicleLabel(vehicle);
   const portal = officialOwnerPortal(vehicle.make);
+  const configuredTimeout = Number.parseInt(process.env.MAINTENANCE_RULE_RESEARCH_TIMEOUT_MS || "20000", 10);
+  const timeoutMs = Math.min(25000, Math.max(5000, Number.isFinite(configuredTimeout) ? configuredTimeout : 20000));
   const response = await fetch(OPENAI_RESPONSES_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(timeoutMs),
     body: JSON.stringify({
-      model: process.env.MAINTENANCE_RULE_AI_MODEL || "gpt-5-mini",
+      model: process.env.MAINTENANCE_RULE_AI_MODEL || "gpt-5.4-mini",
+      reasoning: { effort: "low" },
       tools: [{ type: "web_search" }],
+      tool_choice: "required",
       input: [
         {
           role: "system",
@@ -77,7 +82,6 @@ async function discoverWithOpenAI(vehicle) {
               notes: { type: "string" },
               rules: {
                 type: "array",
-                maxItems: 20,
                 items: {
                   type: "object",
                   additionalProperties: false,
