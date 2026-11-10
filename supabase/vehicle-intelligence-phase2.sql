@@ -250,8 +250,14 @@ create trigger queue_forecast_after_service_change
   for each row execute function public.request_vehicle_maintenance_recalculation();
 
 drop trigger if exists queue_forecast_after_appointment_change on public.service_requests;
-create trigger queue_forecast_after_appointment_change
-  after insert or update of status, preferred_date, service_type, vehicle_id on public.service_requests
+drop trigger if exists queue_forecast_after_appointment_insert on public.service_requests;
+drop trigger if exists queue_forecast_after_appointment_update on public.service_requests;
+create trigger queue_forecast_after_appointment_insert
+  after insert on public.service_requests
+  for each row when (new.vehicle_id is not null)
+  execute function public.request_vehicle_maintenance_recalculation();
+create trigger queue_forecast_after_appointment_update
+  after update of status, preferred_date, service_type, vehicle_id on public.service_requests
   for each row when (coalesce(new.vehicle_id, old.vehicle_id) is not null)
   execute function public.request_vehicle_maintenance_recalculation();
 
