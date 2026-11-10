@@ -268,7 +268,7 @@ export async function handler(event) {
   if (event.httpMethod === "GET") {
     let { data, error } = await supabase
       .from("service_requests")
-      .select("id, user_id, vehicle_label, service_type, preferred_date, preferred_time, transport_date, transport_time, cancelled_at, cancellation_reason, payment_link_url, payment_link_amount_cents, payment_link_label, payment_link_created_at, notes, status, quoted_total_cents, payment_mode, payment_status, created_at")
+      .select("id, user_id, vehicle_id, vehicle_label, service_type, preferred_date, preferred_time, transport_date, transport_time, cancelled_at, cancellation_reason, payment_link_url, payment_link_amount_cents, payment_link_label, payment_link_created_at, notes, status, quoted_total_cents, payment_mode, payment_status, created_at")
       .order("created_at", { ascending: false })
       .limit(100);
 

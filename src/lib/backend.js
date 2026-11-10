@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { normalizeMileageUnit, normalizeOdometer, toKilometres } from "../../shared/vehicleIntelligence.js";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -321,6 +322,7 @@ export async function loadVehicles(userId) {
     .from("vehicles")
     .select("*")
     .eq("user_id", userId)
+    .is("archived_at", null)
     .order("created_at", { ascending: false });
 
   if (error) throw error;
@@ -400,6 +402,24 @@ export async function createVehicle(userId, vehicle) {
   const { data, error } = await supabase.from("vehicles").insert(payload).select("*").single();
   if (error) throw new Error(`Could not save vehicle: ${error.message}`);
 
+  const initialOdometer = normalizeOdometer(vehicle.mileage);
+  if (initialOdometer !== null) {
+    const { error: mileageError } = await supabase.from("vehicle_mileage_readings").insert({
+      vehicle_id: data.id,
+      user_id: userId,
+      odometer_value: initialOdometer,
+      unit: normalizeMileageUnit(vehicle.mileageUnit),
+      recorded_at: new Date().toISOString(),
+      source: "customer",
+      submitted_by: userId,
+      verification_status: "self_reported",
+      note: "Initial Garage odometer reading.",
+    });
+    if (mileageError && !["42P01", "PGRST205"].includes(mileageError.code)) {
+      console.warn("Vehicle saved, but its initial mileage history could not be recorded.", mileageError);
+    }
+  }
+
   const valueCents = currencyValueToCents(vehicle.marketValue);
   if (valueCents > 0) {
     try {
@@ -469,8 +489,167 @@ export async function updateVehicleRecord(vehicleId, updates) {
 export async function deleteVehicleRecord(vehicleId) {
   if (!supabase || !vehicleId) return;
 
-  const { error } = await supabase.from("vehicles").delete().eq("id", vehicleId);
-  if (error) throw new Error(`Could not delete vehicle: ${error.message}`);
+  const { data: authData } = await supabase.auth.getUser();
+  const userId = authData?.user?.id || "";
+  if (!userId) throw new Error("You must be signed in to remove this vehicle.");
+
+  const { error } = await supabase
+    .from("vehicles")
+    .update({ archived_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", vehicleId)
+    .eq("user_id", userId);
+  if (error) throw new Error(`Could not archive vehicle: ${error.message}`);
+}
+
+export async function loadVehicleMileageReadings(vehicleId) {
+  if (!supabase || !vehicleId) return [];
+
+  const { data, error } = await supabase
+    .from("vehicle_mileage_readings")
+    .select("*")
+    .eq("vehicle_id", vehicleId)
+    .order("recorded_at", { ascending: false });
+
+  if (error) {
+    if (["42P01", "PGRST205"].includes(error.code)) return [];
+    throw new Error(`Could not load mileage history: ${error.message}`);
+  }
+  return (data || []).map(fromMileageReadingRow);
+}
+
+export async function createVehicleMileageReading(vehicleId, reading) {
+  if (!vehicleId) throw new Error("Choose a vehicle before recording mileage.");
+  const odometerValue = normalizeOdometer(reading.odometerValue);
+  if (odometerValue === null) {
+    throw new Error("Enter a valid odometer reading.");
+  }
+  const recordedAt = reading.recordedAt || new Date().toISOString();
+  if (Number.isNaN(new Date(recordedAt).getTime()) || new Date(recordedAt).getTime() > Date.now() + (24 * 60 * 60 * 1000)) {
+    throw new Error("Mileage cannot be recorded with a future date.");
+  }
+  if (!supabase) {
+    return {
+      id: crypto.randomUUID(),
+      vehicleId,
+      odometerValue,
+      unit: normalizeMileageUnit(reading.unit),
+      recordedAt,
+      source: "customer",
+      verificationStatus: "self_reported",
+      note: reading.note || "",
+    };
+  }
+
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData?.user?.id) throw new Error("Sign in before recording mileage.");
+  const { data: latestReading, error: latestError } = await supabase
+    .from("vehicle_mileage_readings")
+    .select("odometer_value, unit, recorded_at")
+    .eq("vehicle_id", vehicleId)
+    .order("recorded_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (latestError && !["42P01", "PGRST205"].includes(latestError.code)) {
+    throw new Error(`Could not validate this mileage reading: ${latestError.message}`);
+  }
+  const isCurrentOrNewer = !latestReading || new Date(recordedAt).getTime() >= new Date(latestReading.recorded_at).getTime();
+  const latestKm = latestReading ? toKilometres(latestReading.odometer_value, latestReading.unit) : null;
+  const incomingKm = toKilometres(odometerValue, reading.unit);
+  if (latestReading && isCurrentOrNewer && incomingKm < latestKm) {
+    throw new Error("A lower current odometer must be recorded as an audited correction by an administrator.");
+  }
+  const { data, error } = await supabase
+    .from("vehicle_mileage_readings")
+    .insert({
+      vehicle_id: vehicleId,
+      user_id: authData.user.id,
+      odometer_value: odometerValue,
+      unit: normalizeMileageUnit(reading.unit),
+      recorded_at: recordedAt,
+      source: "customer",
+      submitted_by: authData.user.id,
+      verification_status: "self_reported",
+      note: String(reading.note || "").trim() || null,
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    if (["42P01", "PGRST205"].includes(error.code)) {
+      throw new Error("Run the Vehicle Intelligence Phase 1 migration in Supabase first.");
+    }
+    throw new Error(`Could not record mileage: ${error.message}`);
+  }
+  return fromMileageReadingRow(data);
+}
+
+export async function loadVehicleServiceHistory(vehicleId) {
+  if (!supabase || !vehicleId) return [];
+
+  const { data, error } = await supabase
+    .from("vehicle_service_history")
+    .select("*")
+    .eq("vehicle_id", vehicleId)
+    .order("service_date", { ascending: false });
+
+  if (error) {
+    if (["42P01", "PGRST205"].includes(error.code)) return [];
+    throw new Error(`Could not load service history: ${error.message}`);
+  }
+  return (data || []).map(fromVehicleServiceHistoryRow);
+}
+
+export async function createVehicleServiceHistory(vehicleId, service) {
+  if (!vehicleId) throw new Error("Choose a vehicle before adding a service record.");
+  const serviceType = String(service.serviceType || "").trim();
+  const serviceDate = String(service.serviceDate || "").trim();
+  if (!serviceType || !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
+    throw new Error("Enter the service performed and its date.");
+  }
+  if (serviceDate > new Date().toISOString().slice(0, 10)) {
+    throw new Error("Completed service history cannot use a future date.");
+  }
+  const hasServiceMileage = Boolean(String(service.serviceMileage || "").trim());
+  const serviceMileage = hasServiceMileage
+    ? normalizeOdometer(service.serviceMileage)
+    : null;
+  if (hasServiceMileage && serviceMileage === null) {
+    throw new Error("Enter a valid service mileage.");
+  }
+  if (!supabase) {
+    return {
+      id: crypto.randomUUID(), vehicleId, serviceType, serviceDate, serviceMileage,
+      mileageUnit: normalizeMileageUnit(service.mileageUnit),
+      provider: service.provider || "", description: service.description || "",
+      verificationStatus: "member_reported",
+    };
+  }
+
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData?.user?.id) throw new Error("Sign in before adding service history.");
+  const { data, error } = await supabase
+    .from("vehicle_service_history")
+    .insert({
+      vehicle_id: vehicleId,
+      user_id: authData.user.id,
+      service_type: serviceType,
+      service_date: serviceDate,
+      service_mileage: serviceMileage,
+      mileage_unit: normalizeMileageUnit(service.mileageUnit),
+      provider: String(service.provider || "").trim() || null,
+      service_description: String(service.description || "").trim() || null,
+      verification_status: "member_reported",
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    if (["42P01", "PGRST205"].includes(error.code)) {
+      throw new Error("Run the Vehicle Intelligence Phase 1 migration in Supabase first.");
+    }
+    throw new Error(`Could not save service history: ${error.message}`);
+  }
+  return fromVehicleServiceHistoryRow(data);
 }
 
 export async function loadServiceRequests(userId) {
@@ -536,6 +715,7 @@ export async function createServiceRequest(userId, request) {
     .from("service_requests")
     .insert({
       user_id: userId,
+      vehicle_id: request.vehicleId || null,
       vehicle_label: request.vehicle,
       service_type: request.service,
       preferred_date: request.date || null,
@@ -1183,7 +1363,22 @@ function fromVehicleRow(row) {
     year: row.year || "",
     make: row.make || "",
     model: row.model || "",
+    vin: row.vin || "",
+    trim: row.trim || "",
+    engine: row.engine || "",
+    transmission: row.transmission || "",
+    drivetrain: row.drivetrain || "",
+    fuelType: row.fuel_type || "",
     mileage: row.mileage || "",
+    mileageUnit: row.mileage_unit || "km",
+    registrationDate: row.registration_date || "",
+    lastMileageUpdate: row.last_mileage_update || "",
+    estimatedAnnualMileage: row.estimated_annual_mileage || null,
+    ownershipStatus: row.ownership_status || "owned",
+    archivedAt: row.archived_at || "",
+    servicePreferences: row.service_preferences || {},
+    maintenanceScheduleSource: row.maintenance_schedule_source || "",
+    intelligenceNotes: row.intelligence_notes || "",
     use: row.usage || "Collection",
     status: row.status || "Active",
     marketValue: row.market_value || "Value pending",
@@ -1212,7 +1407,20 @@ function toVehicleRow(userId, vehicle) {
     year: vehicle.year || "",
     make: vehicle.make || "",
     model: vehicle.model || "",
+    vin: vehicle.vin || null,
+    trim: vehicle.trim || null,
+    engine: vehicle.engine || null,
+    transmission: vehicle.transmission || null,
+    drivetrain: vehicle.drivetrain || null,
+    fuel_type: vehicle.fuelType || null,
     mileage: vehicle.mileage || "",
+    mileage_unit: vehicle.mileageUnit === "mi" ? "mi" : "km",
+    registration_date: vehicle.registrationDate || null,
+    estimated_annual_mileage: vehicle.estimatedAnnualMileage || null,
+    ownership_status: vehicle.ownershipStatus || "owned",
+    archived_at: vehicle.archivedAt || null,
+    service_preferences: vehicle.servicePreferences || {},
+    maintenance_schedule_source: vehicle.maintenanceScheduleSource || null,
     usage: vehicle.use || "Collection",
     status: vehicle.status || "Active",
     market_value: vehicle.marketValue || "Value pending",
@@ -1234,7 +1442,20 @@ function toVehicleUpdateRow(updates) {
   if (updates.year !== undefined) row.year = updates.year;
   if (updates.make !== undefined) row.make = updates.make;
   if (updates.model !== undefined) row.model = updates.model;
+  if (updates.vin !== undefined) row.vin = updates.vin || null;
+  if (updates.trim !== undefined) row.trim = updates.trim || null;
+  if (updates.engine !== undefined) row.engine = updates.engine || null;
+  if (updates.transmission !== undefined) row.transmission = updates.transmission || null;
+  if (updates.drivetrain !== undefined) row.drivetrain = updates.drivetrain || null;
+  if (updates.fuelType !== undefined) row.fuel_type = updates.fuelType || null;
   if (updates.mileage !== undefined) row.mileage = updates.mileage;
+  if (updates.mileageUnit !== undefined) row.mileage_unit = updates.mileageUnit === "mi" ? "mi" : "km";
+  if (updates.registrationDate !== undefined) row.registration_date = updates.registrationDate || null;
+  if (updates.estimatedAnnualMileage !== undefined) row.estimated_annual_mileage = updates.estimatedAnnualMileage || null;
+  if (updates.ownershipStatus !== undefined) row.ownership_status = updates.ownershipStatus || "owned";
+  if (updates.archivedAt !== undefined) row.archived_at = updates.archivedAt || null;
+  if (updates.servicePreferences !== undefined) row.service_preferences = updates.servicePreferences || {};
+  if (updates.maintenanceScheduleSource !== undefined) row.maintenance_schedule_source = updates.maintenanceScheduleSource || null;
   if (updates.use !== undefined) row.usage = updates.use;
   if (updates.status !== undefined) row.status = updates.status;
   if (updates.marketValue !== undefined) row.market_value = updates.marketValue;
@@ -1283,6 +1504,7 @@ function serializeVehicleNotes(notes, images) {
 function fromRequestRow(row) {
   return {
     id: row.id,
+    vehicleId: row.vehicle_id || "",
     vehicle: row.vehicle_label,
     service: row.service_type,
     date: row.preferred_date || "",
@@ -1297,6 +1519,39 @@ function fromRequestRow(row) {
     paymentStatus: row.payment_status || "unpaid",
     notes: row.notes || "",
     status: row.status || "Requested",
+  };
+}
+
+function fromMileageReadingRow(row) {
+  return {
+    id: row.id,
+    vehicleId: row.vehicle_id,
+    userId: row.user_id,
+    odometerValue: Number(row.odometer_value) || 0,
+    unit: row.unit || "km",
+    recordedAt: row.recorded_at || row.created_at,
+    source: row.source || "customer",
+    verificationStatus: row.verification_status || "self_reported",
+    note: row.note || "",
+    createdAt: row.created_at,
+  };
+}
+
+function fromVehicleServiceHistoryRow(row) {
+  return {
+    id: row.id,
+    vehicleId: row.vehicle_id,
+    userId: row.user_id,
+    serviceType: row.service_type || "Service",
+    appointmentId: row.appointment_id || "",
+    serviceDate: row.service_date || "",
+    serviceMileage: row.service_mileage == null ? null : Number(row.service_mileage),
+    mileageUnit: row.mileage_unit || "km",
+    provider: row.provider || "",
+    description: row.service_description || "",
+    verificationStatus: row.verification_status || "pending",
+    invoiceReference: row.invoice_reference || "",
+    createdAt: row.created_at,
   };
 }
 

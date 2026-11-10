@@ -5935,6 +5935,393 @@ textarea:focus {
   }
 }
 
+/* Vehicle Intelligence — Phase 1 */
+.admin-intelligence-shell,
+.admin-intelligence-vehicle {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-intelligence-tabs {
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  padding-bottom: 0.2rem;
+  scrollbar-width: none;
+}
+
+.admin-intelligence-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.admin-intelligence-tabs button {
+  min-height: 2.5rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #111;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 850;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.admin-intelligence-tabs button.active {
+  border-color: rgba(229, 200, 121, 0.45);
+  background: rgba(201, 164, 92, 0.12);
+  color: var(--gold-bright);
+}
+
+.admin-intelligence-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.admin-intelligence-metrics article {
+  display: grid;
+  gap: 0.4rem;
+  min-height: 7rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(145deg, #151515, #0d0d0d);
+}
+
+.admin-intelligence-metrics span,
+.admin-intelligence-facts span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.admin-intelligence-metrics strong {
+  align-self: end;
+  color: var(--ink);
+  font-size: clamp(1.35rem, 2vw, 2rem);
+}
+
+.admin-intelligence-phase-note {
+  display: flex;
+  gap: 0.8rem;
+  padding: 1rem;
+  border: 1px solid rgba(229, 200, 121, 0.25);
+  border-radius: var(--radius);
+  background: rgba(201, 164, 92, 0.08);
+}
+
+.admin-intelligence-phase-note svg {
+  flex: 0 0 auto;
+  color: var(--gold-bright);
+}
+
+.admin-intelligence-phase-note p {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.admin-intelligence-search {
+  max-width: none;
+}
+
+.admin-intelligence-table {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #101010;
+}
+
+.admin-intelligence-table-head,
+.admin-intelligence-table > button {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.7fr 0.7fr auto;
+  gap: 0.8rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.85rem 1rem;
+}
+
+.admin-intelligence-table-head {
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-intelligence-table > button {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-intelligence-table > button:hover {
+  background: rgba(201, 164, 92, 0.07);
+}
+
+.admin-intelligence-table > button > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+}
+
+.admin-intelligence-table small {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-intelligence-table > p {
+  margin: 0;
+  padding: 2rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.admin-intelligence-vehicle > .text-button {
+  justify-self: start;
+}
+
+.admin-intelligence-vehicle-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: end;
+  padding: 1.1rem;
+  border: 1px solid rgba(229, 200, 121, 0.26);
+  border-radius: var(--radius);
+  background: linear-gradient(145deg, rgba(201, 164, 92, 0.12), #101010 52%);
+}
+
+.admin-intelligence-vehicle-header h2,
+.admin-intelligence-vehicle-header p {
+  margin: 0;
+}
+
+.admin-intelligence-vehicle-header > span {
+  padding: 0.45rem 0.7rem;
+  border: 1px solid rgba(229, 200, 121, 0.35);
+  border-radius: 999px;
+  color: var(--gold-bright);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.admin-intelligence-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #101010;
+}
+
+.admin-intelligence-facts > div {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.9rem;
+  border-right: 1px solid var(--line);
+}
+
+.admin-intelligence-facts > div:last-child {
+  border-right: 0;
+}
+
+.admin-intelligence-facts small {
+  color: var(--muted);
+}
+
+.admin-intelligence-entry-grid,
+.admin-intelligence-history-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.admin-intelligence-entry-grid form,
+.admin-intelligence-history-grid section {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  align-content: start;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #111;
+}
+
+.admin-intelligence-entry-grid form > div,
+.admin-intelligence-entry-grid .wide,
+.admin-intelligence-history-grid section > h3,
+.admin-intelligence-history-grid section > p,
+.admin-intelligence-history-grid section > div {
+  grid-column: 1 / -1;
+}
+
+.admin-intelligence-entry-grid form > div {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  color: var(--gold-bright);
+}
+
+.admin-intelligence-entry-grid h3,
+.admin-intelligence-history-grid h3 {
+  margin: 0;
+}
+
+.admin-intelligence-entry-grid label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.admin-inline-check {
+  grid-template-columns: auto 1fr !important;
+  align-items: center;
+}
+
+.admin-inline-check input {
+  width: auto;
+}
+
+.admin-intelligence-history-grid section > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--line);
+}
+
+.admin-intelligence-history-grid section span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.vehicle-intelligence-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.9rem;
+}
+
+.vehicle-intelligence-form label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.vehicle-intelligence-form .wide {
+  grid-column: span 2;
+}
+
+.vehicle-intelligence-history {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.vehicle-intelligence-history article {
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) - 4px);
+  background: #111;
+}
+
+.vehicle-intelligence-history article svg {
+  color: var(--gold-bright);
+}
+
+.vehicle-intelligence-history article div {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.vehicle-intelligence-history span,
+.vehicle-service-history-entry > p {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.vehicle-service-history-entry {
+  margin-top: 1rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #101010;
+}
+
+.vehicle-service-history-entry summary {
+  color: var(--gold-bright);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .admin-intelligence-metrics,
+  .admin-intelligence-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-intelligence-facts > div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .admin-intelligence-facts > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .admin-intelligence-table-head {
+    display: none;
+  }
+
+  .admin-intelligence-table > button {
+    grid-template-columns: 1fr 1fr auto;
+  }
+
+  .admin-intelligence-table > button > span:nth-child(3),
+  .admin-intelligence-table > button > span:nth-child(4) {
+    display: none;
+  }
+}
+
+@media (max-width: 680px) {
+  .admin-intelligence-entry-grid,
+  .admin-intelligence-history-grid,
+  .vehicle-intelligence-form {
+    grid-template-columns: 1fr;
+  }
+
+  .vehicle-intelligence-form .wide {
+    grid-column: auto;
+  }
+
+  .admin-intelligence-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-intelligence-metrics article {
+    min-height: 5.8rem;
+  }
+}
+
 /* Compact Garage and Booking refinement */
 .vehicle-card-shell {
   position: relative;

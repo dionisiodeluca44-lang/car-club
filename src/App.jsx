@@ -43,6 +43,8 @@ import {
   createServiceDocumentDownloadUrl,
   createFeedPost,
   createServiceRequest,
+  createVehicleMileageReading,
+  createVehicleServiceHistory,
   createVehicle,
   deleteMemberAccount,
   deleteFeedPostRecord,
@@ -59,6 +61,8 @@ import {
   loadServiceRequests,
   loadServiceDocuments,
   loadVehicleValuations,
+  loadVehicleMileageReadings,
+  loadVehicleServiceHistory,
   loadVehicles,
   requestPasswordReset,
   reportFeedPost,
@@ -4967,6 +4971,139 @@ function AdminConsultationCalendar({ consultations, onStatus }) {
   );
 }
 
+function AdminVehicleIntelligence({ data, onAction }) {
+  const overview = data?.overview || {};
+  const vehicles = ensureList(data?.vehicles);
+  const [section, setSection] = useState("overview");
+  const [query, setQuery] = useState("");
+  const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || null;
+  const filteredVehicles = useMemo(() => {
+    const text = query.trim().toLowerCase();
+    return vehicles.filter((vehicle) => !text || [
+      vehicle.year, vehicle.make, vehicle.model, vehicle.trim, vehicle.vin,
+      vehicle.customer?.full_name, vehicle.customer?.email,
+    ].some((value) => String(value || "").toLowerCase().includes(text)));
+  }, [query, vehicles]);
+  const metrics = [
+    ["Registered vehicles", overview.totalVehicles || 0],
+    ["Active customers", overview.activeCustomers || 0],
+    ["Need mileage", overview.customersNeedingMileage || 0],
+    ["Require attention", overview.vehiclesRequiringAttention || 0],
+    ["Upcoming appointments", overview.upcomingAppointments || 0],
+    ["Completed appointments", overview.completedMaintenanceAppointments || 0],
+    ["Potential booked value", adminMoney(overview.estimatedPotentialRevenueCents || 0)],
+  ];
+
+  async function submitMileage(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    setSaving(true);
+    try {
+      await onAction({
+        action: "record-mileage",
+        vehicleId: selectedVehicle.id,
+        odometerValue: formData.get("odometerValue"),
+        unit: formData.get("unit"),
+        recordedAt: formData.get("recordedAt") ? new Date(`${formData.get("recordedAt")}T12:00:00`).toISOString() : undefined,
+        note: formData.get("note"),
+        isCorrection: formData.get("isCorrection") === "on",
+      });
+      form.reset();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitService(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    setSaving(true);
+    try {
+      await onAction({
+        action: "record-service",
+        vehicleId: selectedVehicle.id,
+        serviceType: formData.get("serviceType"),
+        serviceDate: formData.get("serviceDate"),
+        serviceMileage: formData.get("serviceMileage"),
+        mileageUnit: formData.get("mileageUnit"),
+        provider: formData.get("provider"),
+        description: formData.get("description"),
+        invoiceReference: formData.get("invoiceReference"),
+      });
+      form.reset();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (selectedVehicle) {
+    const vehicleName = `${selectedVehicle.year || ""} ${selectedVehicle.make || ""} ${selectedVehicle.model || ""}`.trim() || "Vehicle";
+    return (
+      <section className="admin-intelligence-vehicle">
+        <button className="text-button" onClick={() => setSelectedVehicleId("")} type="button"><ChevronLeft size={17} /> All vehicles</button>
+        <header className="admin-intelligence-vehicle-header">
+          <div><p className="eyebrow">Vehicle intelligence profile</p><h2>{vehicleName}</h2><p>{selectedVehicle.customer?.full_name || "Member"} · {selectedVehicle.customer?.email || "Email unavailable"}</p></div>
+          <span>{selectedVehicle.archived_at ? "Archived" : selectedVehicle.status || "Active"}</span>
+        </header>
+        <div className="admin-intelligence-facts">
+          <div><span>Current odometer</span><strong>{selectedVehicle.mileage || "Not recorded"} {selectedVehicle.mileage_unit || "km"}</strong><small>{selectedVehicle.last_mileage_update ? new Date(selectedVehicle.last_mileage_update).toLocaleDateString() : "Update required"}</small></div>
+          <div><span>VIN</span><strong>{selectedVehicle.vin || "Not provided"}</strong><small>{selectedVehicle.trim || "Trim not provided"}</small></div>
+          <div><span>Service history</span><strong>{ensureList(selectedVehicle.service_history).length}</strong><small>Normalized records</small></div>
+          <div><span>Appointments</span><strong>{ensureList(selectedVehicle.appointments).length}</strong><small>Linked bookings</small></div>
+        </div>
+        <div className="admin-intelligence-entry-grid">
+          <form onSubmit={submitMileage}>
+            <div><Gauge size={19} /><h3>Record mileage</h3></div>
+            <label>Odometer<input min="0" max="2000000" name="odometerValue" required type="number" /></label>
+            <label>Unit<select defaultValue={selectedVehicle.mileage_unit || "km"} name="unit"><option value="km">Kilometres</option><option value="mi">Miles</option></select></label>
+            <label>Date<input defaultValue={localIsoDate(new Date())} max={localIsoDate(new Date())} name="recordedAt" required type="date" /></label>
+            <label className="wide">Internal note<input name="note" placeholder="Source or supporting detail" /></label>
+            <label className="admin-inline-check wide"><input name="isCorrection" type="checkbox" /> This corrects a previous odometer value</label>
+            <button className="button primary compact-button" disabled={saving} type="submit">{saving ? "Saving..." : "Save Mileage"}</button>
+          </form>
+          <form onSubmit={submitService}>
+            <div><Wrench size={19} /><h3>Record performed service</h3></div>
+            <label>Service performed<input name="serviceType" placeholder="Oil and filter service" required /></label>
+            <label>Date<input max={localIsoDate(new Date())} name="serviceDate" required type="date" /></label>
+            <label>Mileage<input min="0" max="2000000" name="serviceMileage" type="number" /></label>
+            <label>Unit<select defaultValue={selectedVehicle.mileage_unit || "km"} name="mileageUnit"><option value="km">Kilometres</option><option value="mi">Miles</option></select></label>
+            <label>Provider<input name="provider" placeholder="Dealer or service shop" /></label>
+            <label>Invoice reference<input name="invoiceReference" placeholder="Invoice or document reference" /></label>
+            <label className="wide">Description<textarea name="description" placeholder="Only list work confirmed as performed." rows="2" /></label>
+            <button className="button primary compact-button" disabled={saving} type="submit">{saving ? "Saving..." : "Save Service Record"}</button>
+          </form>
+        </div>
+        <div className="admin-intelligence-history-grid">
+          <section><h3>Mileage history</h3>{ensureList(selectedVehicle.mileage_readings).length ? selectedVehicle.mileage_readings.map((reading) => <div key={reading.id}><strong>{Number(reading.odometer_value).toLocaleString()} {reading.unit}</strong><span>{new Date(reading.recorded_at).toLocaleDateString()} · {String(reading.verification_status).replaceAll("_", " ")}</span></div>) : <p>No mileage readings yet.</p>}</section>
+          <section><h3>Service history</h3>{ensureList(selectedVehicle.service_history).length ? selectedVehicle.service_history.map((service) => <div key={service.id}><strong>{service.service_type}</strong><span>{service.service_date}{service.service_mileage != null ? ` · ${Number(service.service_mileage).toLocaleString()} ${service.mileage_unit}` : ""} · {String(service.verification_status).replaceAll("_", " ")}</span></div>) : <p>No normalized service records yet.</p>}</section>
+          <section><h3>Linked appointments</h3>{ensureList(selectedVehicle.appointments).length ? selectedVehicle.appointments.map((appointment) => <div key={appointment.id}><strong>{appointment.service_type}</strong><span>{appointment.preferred_date || "Date pending"} · {appointment.status || "Requested"}</span></div>) : <p>No linked appointments yet.</p>}</section>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="admin-intelligence-shell">
+      <nav className="admin-intelligence-tabs" aria-label="Vehicle Intelligence pages">
+        {["overview", "vehicles", "mileage", "appointments", "service-history"].map((item) => <button className={section === item ? "active" : ""} key={item} onClick={() => setSection(item)} type="button">{item.split("-").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ")}</button>)}
+      </nav>
+      {section === "overview" && <><div className="admin-intelligence-metrics">{metrics.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div><div className="admin-intelligence-phase-note"><Wrench size={20} /><div><strong>Maintenance forecasting is intentionally not estimated yet.</strong><p>Phase 1 records verified mileage, service history, and booking links. Vehicle-specific rules and sourced manufacturer schedules are added in Phase 2.</p></div></div></>}
+      {section !== "overview" && <>
+        <label className="admin-search-field admin-intelligence-search"><Search size={17} /><input onChange={(event) => setQuery(event.target.value)} placeholder="Search customer, vehicle, VIN, or email" type="search" value={query} /></label>
+        <div className="admin-intelligence-table">
+          <div className="admin-intelligence-table-head"><span>Vehicle</span><span>Customer</span><span>Mileage</span><span>{section === "appointments" ? "Appointments" : section === "service-history" ? "Service records" : "Last update"}</span></div>
+          {filteredVehicles.map((vehicle) => <button key={vehicle.id} onClick={() => setSelectedVehicleId(vehicle.id)} type="button"><span><strong>{`${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Vehicle"}</strong><small>{vehicle.vin || "VIN not provided"}</small></span><span><strong>{vehicle.customer?.full_name || "Member"}</strong><small>{vehicle.customer?.email || ""}</small></span><span><strong>{vehicle.mileage || "Needed"} {vehicle.mileage ? vehicle.mileage_unit || "km" : ""}</strong><small>{ensureList(vehicle.mileage_readings).length} readings</small></span><span><strong>{section === "appointments" ? ensureList(vehicle.appointments).length : section === "service-history" ? ensureList(vehicle.service_history).length : vehicle.last_mileage_update ? new Date(vehicle.last_mileage_update).toLocaleDateString() : "Needed"}</strong><small>Open profile</small></span><ChevronRight size={17} /></button>)}
+          {!filteredVehicles.length && <p>No vehicles match this view.</p>}
+        </div>
+      </>}
+    </section>
+  );
+}
+
 function AdminPortal({ onBack }) {
   const [adminToken, setAdminToken] = useState("");
   const [draftToken, setDraftToken] = useState(() => localStorage.getItem("whiteGloveAdminToken") || "");
@@ -4982,6 +5119,7 @@ function AdminPortal({ onBack }) {
   const [servicePricing, setServicePricing] = useState({});
   const [serviceRequests, setServiceRequests] = useState([]);
   const [selectedAdminRequestId, setSelectedAdminRequestId] = useState("");
+  const [vehicleIntelligence, setVehicleIntelligence] = useState({ overview: {}, vehicles: [] });
 
   async function loadAdminRequests(token = adminToken, options = {}) {
     if (!token) return;
@@ -5089,6 +5227,36 @@ function AdminPortal({ onBack }) {
     }
   }
 
+  async function loadVehicleIntelligence(token = adminToken, options = {}) {
+    if (!token) return;
+    try {
+      const response = await fetch("/.netlify/functions/admin-vehicle-intelligence", { headers: { "x-admin-token": token } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Could not load Vehicle Intelligence.");
+      setVehicleIntelligence(payload);
+    } catch (error) {
+      if (options.throwOnError) throw error;
+      setAdminNotice(`${error.message || "Could not load Vehicle Intelligence."} Run the Phase 1 migration in Supabase.`);
+    }
+  }
+
+  async function updateVehicleIntelligence(payload) {
+    setAdminError("");
+    const response = await fetch("/.netlify/functions/admin-vehicle-intelligence", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(result.error || "Could not update Vehicle Intelligence.");
+      setAdminError(error.message);
+      throw error;
+    }
+    await loadVehicleIntelligence(adminToken);
+    setAdminNotice(payload.action === "record-mileage" ? "Mileage reading saved and audited." : "Service history saved and audited.");
+  }
+
   async function submitAdminLogin(event) {
     event.preventDefault();
     setAdminError("");
@@ -5104,6 +5272,7 @@ function AdminPortal({ onBack }) {
       loadAdminMembershipPricing(draftToken, { keepNotice: true });
       loadAdminMembers(draftToken, { keepNotice: true });
       loadAdminConsultations(draftToken, { keepNotice: true });
+      loadVehicleIntelligence(draftToken, { keepNotice: true });
     } catch (error) {
       localStorage.removeItem("whiteGloveAdminToken");
       setAdminToken("");
@@ -5123,6 +5292,7 @@ function AdminPortal({ onBack }) {
     setAdminMembers([]);
     setAdminFeedEvents([]);
     setConsultations([]);
+    setVehicleIntelligence({ overview: {}, vehicles: [] });
     setAdminNotice("");
   }
 
@@ -5415,6 +5585,7 @@ function AdminPortal({ onBack }) {
   }
 
   const adminNavigation = [
+    { id: "vehicle-intelligence", label: "Vehicle Intelligence", icon: Gauge },
     { id: "requests", label: "Bookings", icon: CalendarCheck },
     { id: "consultations", label: "Consultations", icon: MessageCircle },
     { id: "member-activity", label: "Members", icon: Users },
@@ -5424,6 +5595,10 @@ function AdminPortal({ onBack }) {
     { id: "garage-capacity", label: "Garage Capacity" },
   ];
   const adminPageContent = {
+    "vehicle-intelligence": {
+      title: "Vehicle Intelligence",
+      description: "Review every managed vehicle, verified mileage reading, performed service, and linked appointment.",
+    },
     requests: {
       title: "Bookings",
       description: "Review booking status, payment progress, balances, documents, and member details in one place.",
@@ -5494,7 +5669,7 @@ function AdminPortal({ onBack }) {
             <p>{adminPageContent.description}</p>
           </div>
           <div className="admin-header-actions">
-            <button className="button secondary compact-button" type="button" onClick={() => { loadAdminRequests(adminToken); loadAdminPricing(adminToken); loadAdminMembershipPricing(adminToken); loadAdminMembers(adminToken); loadAdminConsultations(adminToken); }} disabled={loadingRequests}>
+            <button className="button secondary compact-button" type="button" onClick={() => { loadAdminRequests(adminToken); loadAdminPricing(adminToken); loadAdminMembershipPricing(adminToken); loadAdminMembers(adminToken); loadAdminConsultations(adminToken); loadVehicleIntelligence(adminToken); }} disabled={loadingRequests}>
               {loadingRequests ? "Loading..." : "Refresh"}
             </button>
             <button className="button secondary compact-button" type="button" onClick={closeAdminPortal}>Log Out</button>
@@ -5539,6 +5714,7 @@ function AdminPortal({ onBack }) {
         {adminMenu === "garage-capacity" && <AdminGarageCapacity members={adminMembers} onSave={updateMemberGarageCapacity} />}
         {adminMenu === "past-events" && <AdminEventArchive events={adminFeedEvents} />}
         {adminMenu === "consultations" && <AdminConsultationCalendar consultations={consultations} onStatus={updateConsultationStatus} />}
+        {adminMenu === "vehicle-intelligence" && <AdminVehicleIntelligence data={vehicleIntelligence} onAction={updateVehicleIntelligence} />}
 
         {adminMenu === "member-activity" && (
           <AdminMemberDirectory
@@ -8904,6 +9080,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         make: formData.get("make"),
         model: formData.get("model"),
         mileage: formData.get("mileage"),
+        mileageUnit: formData.get("mileageUnit") || "km",
         use: formData.get("use"),
         vin: formData.get("vin"),
         location: formData.get("location"),
@@ -9056,11 +9233,15 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
           </datalist>
         </label>
         <label>
-          Current odometer (km)
+          Current odometer
           <input inputMode="numeric" list="vehicle-mileage-options" min="0" name="mileage" step="1" type="number" placeholder="Enter the current odometer reading" />
           <datalist id="vehicle-mileage-options">
             {vehicleMileageSuggestions.map((mileage) => <option key={mileage} value={mileage} />)}
           </datalist>
+        </label>
+        <label>
+          Odometer unit
+          <select defaultValue="km" name="mileageUnit"><option value="km">Kilometres</option><option value="mi">Miles</option></select>
         </label>
         <label>
           VIN
@@ -9937,7 +10118,6 @@ function VehicleQuickEditDialog({ onClose, onUpdateVehicle, vehicle }) {
         make: String(formData.get("make") || "").trim(),
         model: String(formData.get("model") || "").trim(),
         trim: String(formData.get("trim") || "").trim(),
-        mileage: String(formData.get("mileage") || "").trim(),
         color: String(formData.get("color") || "").trim(),
         transmission: String(formData.get("transmission") || "").trim(),
         drivetrain: String(formData.get("drivetrain") || "").trim(),
@@ -9972,7 +10152,7 @@ function VehicleQuickEditDialog({ onClose, onUpdateVehicle, vehicle }) {
             <label>Make<input defaultValue={vehicle.make || ""} name="make" type="text" /></label>
             <label>Model<input defaultValue={vehicle.model || ""} name="model" type="text" /></label>
             <label>Trim<input defaultValue={vehicle.trim || ""} name="trim" type="text" /></label>
-            <label>Odometer (km)<input defaultValue={String(vehicle.mileage || "").replace(/\D/g, "")} min="0" name="mileage" inputMode="numeric" type="number" /></label>
+            <label>Current odometer<input aria-describedby="quick-edit-odometer-help" defaultValue={String(vehicle.mileage || "").replace(/\D/g, "")} inputMode="numeric" readOnly type="number" /><small id="quick-edit-odometer-help">Open the full vehicle profile to record a new reading without overwriting its history.</small></label>
             <label>Exterior colour<input defaultValue={vehicle.color || ""} name="color" type="text" /></label>
             <label>Transmission<select defaultValue={vehicle.transmission || ""} name="transmission"><option value="">Not specified</option><option>Automatic</option><option>Manual</option><option>Dual-clutch</option><option>CVT</option><option>Other</option></select></label>
             <label>Drivetrain<select defaultValue={vehicle.drivetrain || ""} name="drivetrain"><option value="">Not specified</option><option>FWD</option><option>RWD</option><option>AWD</option><option>4WD</option></select></label>
@@ -10123,6 +10303,9 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
   const [savingDetails, setSavingDetails] = useState(false);
   const [offerRequested, setOfferRequested] = useState(false);
   const [savingValuation, setSavingValuation] = useState(false);
+  const [savingIntelligence, setSavingIntelligence] = useState(false);
+  const [mileageReadings, setMileageReadings] = useState([]);
+  const [normalizedServiceHistory, setNormalizedServiceHistory] = useState([]);
   const [editVehicleYear, setEditVehicleYear] = useState(vehicle.year || "");
   const [editVehicleMake, setEditVehicleMake] = useState(vehicle.make || "");
   const [editVehicleModel, setEditVehicleModel] = useState(vehicle.model || "");
@@ -10137,6 +10320,15 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
   const marketValue = latestValuation ? formatCadCents(latestValuation.valueCents) : vehicleMarketValue(vehicle);
   const valuationTrend = vehicleValuationTrend(vehicle, valuations);
   const serviceHistory = serviceHistoryForVehicle(vehicle, appointments);
+  const combinedServiceHistory = [
+    ...normalizedServiceHistory.map((item) => ({
+      id: `normalized-${item.id}`,
+      title: item.serviceType,
+      meta: [item.serviceDate, item.provider, item.serviceMileage == null ? "" : `${Number(item.serviceMileage).toLocaleString()} ${item.mileageUnit}`].filter(Boolean).join(" · "),
+      status: item.verificationStatus === "verified" ? "Verified" : "Submitted",
+    })),
+    ...serviceHistory,
+  ];
   const trackingItems = vehicleTrackingItems(vehicle);
   const ownershipProfile = [
     ["VIN", vehicle.vin || "Needed"],
@@ -10167,6 +10359,67 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
   const handleImageError = (event) => {
     event.currentTarget.src = fallbackVehicleImage;
   };
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([loadVehicleMileageReadings(vehicle.id), loadVehicleServiceHistory(vehicle.id)])
+      .then(([readings, history]) => {
+        if (!active) return;
+        setMileageReadings(readings);
+        setNormalizedServiceHistory(history);
+      })
+      .catch((error) => {
+        if (active) setDetailError(error.message || "Could not load Vehicle Intelligence history.");
+      });
+    return () => { active = false; };
+  }, [vehicle.id]);
+
+  async function recordMileage(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    setDetailError("");
+    setSavingIntelligence(true);
+    try {
+      const reading = await createVehicleMileageReading(vehicle.id, {
+        odometerValue: formData.get("odometerValue"),
+        unit: formData.get("unit"),
+        recordedAt: formData.get("recordedAt") ? new Date(`${formData.get("recordedAt")}T12:00:00`).toISOString() : undefined,
+        note: formData.get("note"),
+      });
+      setMileageReadings((items) => [reading, ...items]);
+      await onUpdateVehicle(vehicle.id, { mileage: String(reading.odometerValue), mileageUnit: reading.unit });
+      form.reset();
+    } catch (error) {
+      setDetailError(error.message || "Could not record mileage.");
+    } finally {
+      setSavingIntelligence(false);
+    }
+  }
+
+  async function recordExternalService(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    setDetailError("");
+    setSavingIntelligence(true);
+    try {
+      const service = await createVehicleServiceHistory(vehicle.id, {
+        serviceType: formData.get("serviceType"),
+        serviceDate: formData.get("serviceDate"),
+        serviceMileage: formData.get("serviceMileage"),
+        mileageUnit: formData.get("mileageUnit"),
+        provider: formData.get("provider"),
+        description: formData.get("description"),
+      });
+      setNormalizedServiceHistory((items) => [service, ...items]);
+      form.reset();
+    } catch (error) {
+      setDetailError(error.message || "Could not save the service record.");
+    } finally {
+      setSavingIntelligence(false);
+    }
+  }
 
   async function handlePhoto(event) {
     try {
@@ -10228,7 +10481,7 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
       year: formData.get("year"),
       make: formData.get("make"),
       model: formData.get("model"),
-      mileage: formData.get("mileage"),
+      mileage: vehicle.mileage,
       condition: formData.get("condition"),
       trim: formData.get("trim"),
       bodyStyle: formData.get("bodyStyle"),
@@ -10252,13 +10505,15 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
         marketValueSource: useModeledEstimate ? "White Glove modeled estimate" : "Member supplied",
         marketValueSourceType: useModeledEstimate ? "estimated" : "manual",
         horsepower: formData.get("horsepower") || "HP pending",
-        mileage: formData.get("mileage") || vehicle.mileage,
+        mileage: vehicle.mileage,
+        mileageUnit: formData.get("mileageUnit") || vehicle.mileageUnit || "km",
         status: formData.get("status") || vehicle.status,
         vin: formData.get("vin") || vehicle.vin,
         plate: formData.get("plate") || vehicle.plate,
         color: formData.get("color") || vehicle.color,
         condition: formData.get("condition") || vehicle.condition,
         trim: formData.get("trim") || vehicle.trim,
+        engine: formData.get("engine") || vehicle.engine,
         postalCode: formData.get("postalCode") || vehicle.postalCode,
         province: formData.get("province") || vehicle.province,
         bodyStyle: formData.get("bodyStyle") || vehicle.bodyStyle,
@@ -10284,6 +10539,10 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
         tireAge: formData.get("tireAge") || vehicle.tireAge,
         batteryAge: formData.get("batteryAge") || vehicle.batteryAge,
         registration: formData.get("registration") || vehicle.registration,
+        registrationDate: formData.get("registrationDate") || vehicle.registrationDate,
+        ownershipStatus: formData.get("ownershipStatus") || vehicle.ownershipStatus || "owned",
+        estimatedAnnualMileage: formData.get("estimatedAnnualMileage") || vehicle.estimatedAnnualMileage,
+        maintenanceScheduleSource: formData.get("maintenanceScheduleSource") || vehicle.maintenanceScheduleSource,
         notes: ownershipNotes,
         image: photoPreviews[0] || vehicleImages[0] || vehicle.image,
         images: photoPreviews.length ? photoPreviews : vehicleImages,
@@ -10386,6 +10645,7 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
     try {
       const savedRequest = await onGetOffer({
         vehicle: vehicleLabel,
+        vehicleId: vehicle.id,
         service: "Vehicle offer request",
         date: "",
         time: "",
@@ -10511,6 +10771,26 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
       <section className="app-section">
         <div className="app-section-title">
           <div>
+            <p className="eyebrow">Vehicle intelligence</p>
+            <h2>Mileage History</h2>
+            <p>Record the current odometer without overwriting earlier readings. Estimates will always remain separate from verified readings.</p>
+          </div>
+        </div>
+        <form className="vehicle-intelligence-form" onSubmit={recordMileage}>
+          <label>Odometer<input defaultValue={String(vehicle.mileage || "").replace(/\D/g, "")} min="0" max="2000000" name="odometerValue" required type="number" /></label>
+          <label>Unit<select defaultValue={vehicle.mileageUnit || "km"} name="unit"><option value="km">Kilometres</option><option value="mi">Miles</option></select></label>
+          <label>Reading date<input defaultValue={localIsoDate(new Date())} max={localIsoDate(new Date())} name="recordedAt" required type="date" /></label>
+          <label className="wide">Note<input name="note" placeholder="Optional context for this reading" /></label>
+          <button className="button primary compact-button" disabled={savingIntelligence} type="submit">{savingIntelligence ? "Saving..." : "Record Mileage"}</button>
+        </form>
+        <div className="vehicle-intelligence-history">
+          {mileageReadings.length ? mileageReadings.slice(0, 8).map((reading) => <article key={reading.id}><Gauge size={18} /><div><strong>{Number(reading.odometerValue).toLocaleString()} {reading.unit}</strong><span>{new Date(reading.recordedAt).toLocaleDateString()} · {String(reading.verificationStatus).replaceAll("_", " ")}</span></div></article>) : <p>No mileage history has been recorded yet.</p>}
+        </div>
+      </section>
+
+      <section className="app-section">
+        <div className="app-section-title">
+          <div>
             <h2>Ownership Profile</h2>
             <p>Core details your concierge needs to manage service, transport, warranty, insurance, and documents.</p>
           </div>
@@ -10554,7 +10834,7 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
           </div>
         </div>
         <div className="service-history-list">
-          {serviceHistory.length === 0 ? (
+          {combinedServiceHistory.length === 0 ? (
             <article>
               <ClipboardCheck size={20} />
               <div>
@@ -10564,7 +10844,7 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
               <span>Ready</span>
             </article>
           ) : (
-            serviceHistory.map((item) => (
+            combinedServiceHistory.map((item) => (
               <article key={item.id}>
                 <ClipboardCheck size={20} />
                 <div>
@@ -10576,6 +10856,19 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
             ))
           )}
         </div>
+        <details className="vehicle-service-history-entry">
+          <summary>Add service completed elsewhere</summary>
+          <p>Member-submitted records remain marked as submitted until White Glove verifies them.</p>
+          <form className="vehicle-intelligence-form" onSubmit={recordExternalService}>
+            <label>Service performed<input name="serviceType" placeholder="Oil and filter service" required /></label>
+            <label>Service date<input max={localIsoDate(new Date())} name="serviceDate" required type="date" /></label>
+            <label>Mileage<input min="0" max="2000000" name="serviceMileage" type="number" /></label>
+            <label>Unit<select defaultValue={vehicle.mileageUnit || "km"} name="mileageUnit"><option value="km">Kilometres</option><option value="mi">Miles</option></select></label>
+            <label>Provider<input name="provider" placeholder="Dealer or service shop" /></label>
+            <label className="wide">Details<textarea name="description" placeholder="Describe only work that was actually completed." rows="2" /></label>
+            <button className="button primary compact-button" disabled={savingIntelligence} type="submit">{savingIntelligence ? "Saving..." : "Save Service Record"}</button>
+          </form>
+        </details>
       </section>
 
       <section className="app-section offer-panel">
@@ -10665,8 +10958,13 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
               <input defaultValue={vehicle.horsepower || ""} name="horsepower" placeholder="Horsepower if known" type="text" />
             </label>
             <label>
-              Current odometer (km)
-              <input defaultValue={String(vehicle.mileage || "").replace(/\D/g, "")} inputMode="numeric" min="0" name="mileage" placeholder="45,000" step="1" type="number" />
+              Current odometer
+              <input aria-describedby="odometer-history-help" defaultValue={String(vehicle.mileage || "").replace(/\D/g, "")} inputMode="numeric" readOnly type="number" />
+              <small id="odometer-history-help">Use Record Mileage above so earlier readings remain in the vehicle history.</small>
+            </label>
+            <label>
+              Odometer unit
+              <select defaultValue={vehicle.mileageUnit || "km"} name="mileageUnit"><option value="km">Kilometres</option><option value="mi">Miles</option></select>
             </label>
             <label>
               Status
@@ -10682,6 +10980,26 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
               <datalist id="edit-vehicle-trim-options">
                 {editTrimSuggestions.map((trim) => <option key={trim} value={trim} />)}
               </datalist>
+            </label>
+            <label>
+              Engine
+              <input defaultValue={vehicle.engine || ""} name="engine" placeholder="Engine configuration if verified" type="text" />
+            </label>
+            <label>
+              Ownership status
+              <select defaultValue={vehicle.ownershipStatus || "owned"} name="ownershipStatus"><option value="owned">Owned</option><option value="financed">Financed</option><option value="leased">Leased</option><option value="sold">Sold</option><option value="stored">Stored</option></select>
+            </label>
+            <label>
+              Vehicle registration date
+              <input defaultValue={dateInputValue(vehicle.registrationDate)} name="registrationDate" type="date" />
+            </label>
+            <label>
+              Estimated annual driving
+              <input defaultValue={vehicle.estimatedAnnualMileage || ""} min="0" max="250000" name="estimatedAnnualMileage" placeholder="Kilometres or miles per year" type="number" />
+            </label>
+            <label>
+              Maintenance schedule source
+              <input defaultValue={vehicle.maintenanceScheduleSource || ""} name="maintenanceScheduleSource" placeholder="Owner's manual or verified provider" type="text" />
             </label>
             <label>
               Canadian postal code

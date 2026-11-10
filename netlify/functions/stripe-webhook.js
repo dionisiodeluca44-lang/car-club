@@ -386,6 +386,7 @@ async function createPaidServiceRequest(session) {
 
   const requestRecord = {
     user_id: userId,
+    vehicle_id: metadata.vehicleId || null,
     vehicle_label: metadata.vehicle || "Vehicle pending",
     service_type: metadata.service || "Concierge service",
     preferred_date: metadata.date || null,
@@ -420,6 +421,7 @@ async function createPaidServiceRequest(session) {
 
   if (error?.code === "42703") {
     const {
+      vehicle_id: ignoredVehicleId,
       payment_mode: ignoredPaymentMode,
       payment_status: ignoredPaymentStatus,
       quoted_total_cents: ignoredQuotedTotal,

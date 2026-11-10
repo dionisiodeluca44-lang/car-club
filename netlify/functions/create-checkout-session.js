@@ -48,6 +48,7 @@ function hasPermanentComplimentaryServiceAccess(...emails) {
 function clientServiceRequest(row) {
   return {
     id: row.id,
+    vehicleId: row.vehicle_id || "",
     vehicle: row.vehicle_label,
     service: row.service_type,
     date: row.preferred_date || "",
@@ -80,10 +81,11 @@ async function createComplimentaryServiceRequest(user, profile, payload) {
   }
 
   const complimentaryNote = "Payment: Permanent complimentary service access - No charge.\n\nPayment method: Complimentary account";
-  const { data: request, error: requestError } = await supabase
+  let { data: request, error: requestError } = await supabase
     .from("service_requests")
     .insert({
       user_id: user.id,
+      vehicle_id: payload.vehicleId || null,
       vehicle_label: vehicle,
       service_type: service,
       preferred_date: clean(payload.date) || null,
@@ -97,6 +99,27 @@ async function createComplimentaryServiceRequest(user, profile, payload) {
     .select("*")
     .single();
 
+  if (requestError?.code === "42703") {
+    const legacyResult = await supabase
+      .from("service_requests")
+      .insert({
+        user_id: user.id,
+        vehicle_label: vehicle,
+        service_type: service,
+        preferred_date: clean(payload.date) || null,
+        preferred_time: clean(payload.time) || null,
+        notes: [clean(payload.notes), complimentaryNote].filter(Boolean).join("\n\n"),
+        payment_mode: "free",
+        payment_status: "paid",
+        quoted_total_cents: 0,
+        status: "Paid / Confirmed",
+      })
+      .select("*")
+      .single();
+    request = legacyResult.data;
+    requestError = legacyResult.error;
+  }
+
   if (requestError || !request) {
     console.error("Could not create complimentary service request", requestError);
     throw Object.assign(new Error("We could not confirm this complimentary service request."), { statusCode: 500 });
@@ -107,6 +130,22 @@ async function createComplimentaryServiceRequest(user, profile, payload) {
     paymentMethod: "Complimentary account",
     request: clientServiceRequest(request),
   });
+}
+
+async function verifiedVehicleId(userId, requestedVehicleId) {
+  const vehicleId = String(requestedVehicleId || "").trim();
+  if (!vehicleId) return null;
+  const { data, error } = await supabase
+    .from("vehicles")
+    .select("id")
+    .eq("id", vehicleId)
+    .eq("user_id", userId)
+    .is("archived_at", null)
+    .maybeSingle();
+  if (error || !data) {
+    throw Object.assign(new Error("The selected Garage vehicle does not belong to this account."), { statusCode: 403 });
+  }
+  return data.id;
 }
 
 async function verifiedMember(event, requestedUserId) {
@@ -160,6 +199,7 @@ export async function handler(event) {
   try {
     const payload = JSON.parse(event.body || "{}");
     const { profile, user } = await verifiedMember(event, payload.userId);
+    payload.vehicleId = await verifiedVehicleId(user.id, payload.vehicleId);
     if (hasPermanentComplimentaryServiceAccess(user.email, profile.email)) {
       return await createComplimentaryServiceRequest(user, profile, payload);
     }
