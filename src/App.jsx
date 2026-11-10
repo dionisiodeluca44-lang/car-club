@@ -4996,14 +4996,18 @@ function AdminConsultationCalendar({ consultations, onStatus }) {
   );
 }
 
-function AdminOperationsCalendar({ events, onOpenVehicle }) {
+function AdminOperationsCalendar({ events, vehicles, onOpenVehicle, onSaveMileage }) {
   const today = localIsoDate(new Date());
   const [selectedDate, setSelectedDate] = useState(today);
+  const [editingMileageEventId, setEditingMileageEventId] = useState("");
+  const [savingMileageEventId, setSavingMileageEventId] = useState("");
+  const [mileageError, setMileageError] = useState("");
   const [visibleMonth, setVisibleMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   const monthCells = useMemo(() => calendarMonthCells(visibleMonth), [visibleMonth]);
+  const vehicleById = useMemo(() => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle])), [vehicles]);
   const eventsByDate = useMemo(() => events.reduce((grouped, event) => {
     const items = grouped.get(event.date) || [];
     items.push(event);
@@ -5016,6 +5020,28 @@ function AdminOperationsCalendar({ events, onOpenVehicle }) {
   const appointmentCount = upcoming.filter((event) => event.type === "appointment").length;
   const mileageCount = upcoming.filter((event) => event.type === "mileage").length;
   const maintenanceCount = upcoming.filter((event) => event.type === "maintenance").length;
+
+  async function submitMileage(event, calendarEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    const formData = new FormData(event.currentTarget);
+    setMileageError("");
+    setSavingMileageEventId(calendarEvent.id);
+    try {
+      await onSaveMileage({
+        vehicleId: calendarEvent.vehicleId,
+        odometerValue: formData.get("odometerValue"),
+        unit: formData.get("unit"),
+        note: formData.get("note"),
+        isCorrection: formData.get("isCorrection") === "on",
+      });
+      setEditingMileageEventId("");
+    } catch (error) {
+      setMileageError(error.message || "Could not save this mileage reading.");
+    } finally {
+      setSavingMileageEventId("");
+    }
+  }
 
   return (
     <section className="admin-operations-calendar">
@@ -5050,7 +5076,46 @@ function AdminOperationsCalendar({ events, onOpenVehicle }) {
           <div className="admin-operations-list">
             {agendaEvents.length ? agendaEvents.map((event) => {
               const EventIcon = event.type === "appointment" ? CalendarCheck : event.type === "mileage" ? Gauge : Wrench;
-              return <article className={`calendar-event-card event-card-${event.type}`} key={event.id}><div className="calendar-event-heading"><EventIcon size={18} /><div><strong>{event.title}</strong><span>{readableConsultationDate(event.date, { short: true })}{event.time ? ` · ${readableConsultationTime(event.time)}` : ""}</span></div><em>{event.status}</em></div><h4>{event.customer}</h4><p>{event.vehicle}</p>{event.detail && <small>{event.detail}</small>}{event.vehicleId && <button className="text-button" onClick={() => onOpenVehicle(event.vehicleId)} type="button">Open vehicle</button>}</article>;
+              const vehicle = vehicleById.get(event.vehicleId);
+              const editingMileage = event.type === "mileage" && editingMileageEventId === event.id;
+              const canUpdateMileage = event.type === "mileage" && Boolean(event.vehicleId);
+              return (
+                <article
+                  className={`calendar-event-card event-card-${event.type}${canUpdateMileage && !editingMileage ? " is-actionable" : ""}`}
+                  key={event.id}
+                  onClick={canUpdateMileage && !editingMileage ? () => { setMileageError(""); setEditingMileageEventId(event.id); } : undefined}
+                  onKeyDown={canUpdateMileage && !editingMileage ? (keyboardEvent) => {
+                    if (["Enter", " "].includes(keyboardEvent.key)) {
+                      keyboardEvent.preventDefault();
+                      setMileageError("");
+                      setEditingMileageEventId(event.id);
+                    }
+                  } : undefined}
+                  role={canUpdateMileage && !editingMileage ? "button" : undefined}
+                  tabIndex={canUpdateMileage && !editingMileage ? 0 : undefined}
+                >
+                  <div className="calendar-event-heading"><EventIcon size={18} /><div><strong>{event.title}</strong><span>{readableConsultationDate(event.date, { short: true })}{event.time ? ` · ${readableConsultationTime(event.time)}` : ""}</span></div><em>{event.status}</em></div>
+                  <h4>{event.customer}</h4>
+                  <p>{event.vehicle}</p>
+                  {event.detail && <small>{event.detail}</small>}
+                  {canUpdateMileage && !editingMileage && <span className="calendar-mileage-prompt">Press to update mileage</span>}
+                  {editingMileage && (
+                    <form className="calendar-mileage-form" onClick={(clickEvent) => clickEvent.stopPropagation()} onSubmit={(submitEvent) => submitMileage(submitEvent, event)}>
+                      <div className="calendar-mileage-current"><span>Current reading</span><strong>{vehicle?.mileage ? `${Number(vehicle.mileage).toLocaleString()} ${vehicle.mileage_unit || "km"}` : "Not recorded"}</strong></div>
+                      <label>New mileage<input autoFocus min="0" max="2000000" name="odometerValue" placeholder="Enter odometer" required type="number" /></label>
+                      <label>Unit<select defaultValue={vehicle?.mileage_unit || "km"} name="unit"><option value="km">Kilometres</option><option value="mi">Miles</option></select></label>
+                      <label className="wide">Note (optional)<input name="note" placeholder="Source or supporting detail" /></label>
+                      <label className="calendar-mileage-correction wide"><input name="isCorrection" type="checkbox" /> This corrects a previous reading</label>
+                      {mileageError && <p className="calendar-mileage-error wide">{mileageError}</p>}
+                      <div className="calendar-mileage-actions wide">
+                        <button className="button secondary compact-button" disabled={savingMileageEventId === event.id} onClick={() => { setMileageError(""); setEditingMileageEventId(""); }} type="button">Cancel</button>
+                        <button className="button primary compact-button" disabled={savingMileageEventId === event.id} type="submit">{savingMileageEventId === event.id ? "Updating timing..." : "Save & Update Timing"}</button>
+                      </div>
+                    </form>
+                  )}
+                  {event.vehicleId && !editingMileage && <button className="text-button" onClick={(clickEvent) => { clickEvent.stopPropagation(); onOpenVehicle(event.vehicleId); }} type="button">Open vehicle</button>}
+                </article>
+              );
             }) : <div className="admin-calendar-empty"><CalendarCheck size={24} /><strong>Nothing scheduled</strong><span>No upcoming appointments, mileage check-ins, or maintenance actions.</span></div>}
           </div>
         </aside>
@@ -5705,6 +5770,12 @@ function AdminPortal({ onBack }) {
     setAdminNotice(notices[payload.action] || "Vehicle Intelligence updated.");
   }
 
+  async function updateCalendarMileage(payload) {
+    await updateVehicleIntelligence({ action: "record-mileage", ...payload });
+    await updateVehicleIntelligence({ action: "recalculate-maintenance", vehicleId: payload.vehicleId });
+    setAdminNotice("Mileage saved. Service timing and maintenance tasks were updated immediately.");
+  }
+
   async function submitAdminLogin(event) {
     event.preventDefault();
     setAdminError("");
@@ -6198,7 +6269,14 @@ function AdminPortal({ onBack }) {
         {adminError && <div className="error-message">{adminError}</div>}
         {adminNotice && <div className="admin-notice">{adminNotice}</div>}
 
-        {adminMenu === "calendar" && <AdminOperationsCalendar events={adminCalendarEvents} onOpenVehicle={() => setAdminMenu("vehicle-intelligence")} />}
+        {adminMenu === "calendar" && (
+          <AdminOperationsCalendar
+            events={adminCalendarEvents}
+            onOpenVehicle={() => setAdminMenu("vehicle-intelligence")}
+            onSaveMileage={updateCalendarMileage}
+            vehicles={ensureList(vehicleIntelligence?.vehicles)}
+          />
+        )}
         {adminMenu === "pricing" && <AdminServicePricingEditor onSave={updateServicePrice} pricing={servicePricing} />}
         {adminMenu === "memberships" && <AdminMembershipPricingEditor membershipPricing={membershipPricing} onSave={updateMembershipPrice} />}
         {adminMenu === "garage-capacity" && <AdminGarageCapacity members={adminMembers} onSave={updateMemberGarageCapacity} />}
