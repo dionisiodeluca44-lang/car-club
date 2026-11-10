@@ -5978,6 +5978,357 @@ textarea:focus {
   color: var(--gold-bright);
 }
 
+.admin-operations-calendar {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.admin-operations-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #111;
+}
+
+.admin-operations-summary > div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 1rem 1.1rem;
+  border-right: 1px solid var(--line);
+}
+
+.admin-operations-summary > div:last-child {
+  border-right: 0;
+}
+
+.admin-operations-summary span,
+.admin-operations-summary small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.admin-operations-summary strong {
+  color: var(--gold-bright);
+  font-size: 1.8rem;
+}
+
+.admin-operations-layout {
+  display: grid;
+  grid-template-columns: minmax(520px, 1.35fr) minmax(340px, 0.65fr);
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.admin-operations-month,
+.admin-operations-agenda {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #111;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.22);
+}
+
+.admin-operations-month {
+  padding: clamp(1rem, 3vw, 1.5rem);
+}
+
+.admin-operations-month > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-operations-month > header h2,
+.admin-operations-agenda h2 {
+  margin: 0.15rem 0 0;
+  font-size: clamp(1.4rem, 3vw, 2rem);
+}
+
+.admin-operations-month > header > div:last-child {
+  display: flex;
+  gap: 0.45rem;
+}
+
+.admin-operations-month > header button {
+  display: grid;
+  place-items: center;
+  min-width: 2.55rem;
+  height: 2.55rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.admin-operations-weekdays,
+.admin-operations-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.admin-operations-weekdays {
+  margin-top: 1.2rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-operations-weekdays span {
+  padding: 0.45rem;
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.admin-operations-days {
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.admin-operations-days > span,
+.admin-operations-days > button {
+  min-height: 6.2rem;
+}
+
+.admin-operations-days > button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-content: start;
+  gap: 0.35rem;
+  padding: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.018);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-operations-days > button > span {
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
+.admin-operations-days > button > strong {
+  display: grid;
+  place-items: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 50%;
+  background: var(--gold);
+  color: #080808;
+  font-size: 0.68rem;
+}
+
+.admin-operations-days > button > div {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.admin-operations-days > button > small {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: #777;
+  font-size: 0.61rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-operations-days > button:hover,
+.admin-operations-days > button.selected {
+  border-color: rgba(229, 200, 121, 0.52);
+  background: rgba(201, 164, 92, 0.09);
+}
+
+.admin-operations-days > button.today::after {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  width: 0.3rem;
+  height: 0.3rem;
+  border-radius: 50%;
+  background: var(--gold-bright);
+  content: "";
+}
+
+.event-dot {
+  display: inline-block;
+  width: 0.44rem;
+  height: 0.44rem;
+  border-radius: 50%;
+  background: #aaa;
+}
+
+.event-appointment { background: #d7b45d; }
+.event-mileage { background: #62b7ff; }
+.event-maintenance { background: #ef826f; }
+
+.admin-operations-month > footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.admin-operations-month > footer span {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.admin-operations-agenda {
+  overflow: hidden;
+}
+
+.admin-operations-agenda > header {
+  padding: 1.2rem;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(145deg, rgba(201, 164, 92, 0.1), transparent);
+}
+
+.admin-operations-agenda > header > span {
+  display: inline-block;
+  margin-top: 0.55rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.admin-operations-list {
+  display: grid;
+  gap: 0.7rem;
+  max-height: 690px;
+  overflow-y: auto;
+  padding: 0.8rem;
+}
+
+.calendar-event-card {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-left: 3px solid #aaa;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.calendar-event-card.event-card-appointment { border-left-color: #d7b45d; }
+.calendar-event-card.event-card-mileage { border-left-color: #62b7ff; }
+.calendar-event-card.event-card-maintenance { border-left-color: #ef826f; }
+
+.calendar-event-heading {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 0.55rem;
+}
+
+.calendar-event-heading > svg {
+  color: var(--gold-bright);
+}
+
+.calendar-event-heading > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.calendar-event-heading span,
+.calendar-event-card > small,
+.calendar-event-card > p {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.calendar-event-heading em {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.calendar-event-card h4,
+.calendar-event-card p {
+  margin: 0;
+}
+
+.calendar-event-card .text-button {
+  justify-self: start;
+}
+
+.admin-calendar-empty {
+  display: grid;
+  justify-items: center;
+  gap: 0.45rem;
+  padding: 2rem 1rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.admin-calendar-empty strong {
+  color: var(--ink);
+}
+
+@media (max-width: 1050px) {
+  .admin-operations-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .admin-operations-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-operations-summary > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .admin-operations-summary > div:last-child {
+    border-bottom: 0;
+  }
+
+  .admin-operations-month {
+    padding: 0.7rem;
+  }
+
+  .admin-operations-month > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-operations-days {
+    gap: 0.2rem;
+  }
+
+  .admin-operations-days > span,
+  .admin-operations-days > button {
+    min-height: 4.2rem;
+  }
+
+  .admin-operations-days > button {
+    padding: 0.35rem;
+  }
+
+  .admin-operations-days > button > small {
+    display: none;
+  }
+}
+
 .admin-intelligence-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

@@ -85,6 +85,7 @@ import {
   summarizeMembershipBenefits,
 } from "../shared/membershipBenefits";
 import { automationStatusForRule, unresolvedAutomaticRule, vehicleRuleSignature } from "../shared/maintenanceRuleAutomation";
+import { buildAdminCalendarEvents } from "../shared/adminCalendar";
 
 const services = [
   {
@@ -4977,6 +4978,69 @@ function AdminConsultationCalendar({ consultations, onStatus }) {
   );
 }
 
+function AdminOperationsCalendar({ events, onOpenVehicle }) {
+  const today = localIsoDate(new Date());
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [visibleMonth, setVisibleMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const monthCells = useMemo(() => calendarMonthCells(visibleMonth), [visibleMonth]);
+  const eventsByDate = useMemo(() => events.reduce((grouped, event) => {
+    const items = grouped.get(event.date) || [];
+    items.push(event);
+    grouped.set(event.date, items);
+    return grouped;
+  }, new Map()), [events]);
+  const upcoming = events.filter((event) => event.date >= today);
+  const selectedEvents = eventsByDate.get(selectedDate) || [];
+  const agendaEvents = selectedEvents.length ? selectedEvents : upcoming.slice(0, 6);
+  const appointmentCount = upcoming.filter((event) => event.type === "appointment").length;
+  const mileageCount = upcoming.filter((event) => event.type === "mileage").length;
+  const maintenanceCount = upcoming.filter((event) => event.type === "maintenance").length;
+
+  return (
+    <section className="admin-operations-calendar">
+      <div className="admin-operations-summary">
+        <div><span>Appointments</span><strong>{appointmentCount}</strong><small>Coming up</small></div>
+        <div><span>Mileage check-ins</span><strong>{mileageCount}</strong><small>Member follow-ups</small></div>
+        <div><span>Maintenance actions</span><strong>{maintenanceCount}</strong><small>Forecasts and tasks</small></div>
+      </div>
+      <div className="admin-operations-layout">
+        <article className="admin-operations-month">
+          <header>
+            <div><p className="eyebrow">Upcoming work</p><h2>{visibleMonth.toLocaleDateString("en-CA", { month: "long", year: "numeric" })}</h2></div>
+            <div>
+              <button aria-label="Previous month" onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1))} type="button"><ChevronLeft size={19} /></button>
+              <button className="calendar-today-button" onClick={() => { const now = new Date(); setVisibleMonth(new Date(now.getFullYear(), now.getMonth(), 1)); setSelectedDate(today); }} type="button">Today</button>
+              <button aria-label="Next month" onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1))} type="button"><ChevronRight size={19} /></button>
+            </div>
+          </header>
+          <div className="admin-operations-weekdays">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span key={day}>{day}</span>)}</div>
+          <div className="admin-operations-days">
+            {monthCells.map((date, index) => {
+              if (!date) return <span key={`empty-${index}`} />;
+              const isoDate = localIsoDate(date);
+              const dayEvents = eventsByDate.get(isoDate) || [];
+              return <button className={`${selectedDate === isoDate ? "selected" : ""}${isoDate === today ? " today" : ""}`} key={isoDate} onClick={() => setSelectedDate(isoDate)} type="button"><span>{date.getDate()}</span>{dayEvents.length > 0 && <strong>{dayEvents.length}</strong>}<div>{[...new Set(dayEvents.map((event) => event.type))].map((type) => <i className={`event-dot event-${type}`} key={type} />)}</div><small>{dayEvents[0]?.title || ""}</small></button>;
+            })}
+          </div>
+          <footer><span><i className="event-dot event-appointment" /> Appointment</span><span><i className="event-dot event-mileage" /> Mileage</span><span><i className="event-dot event-maintenance" /> Maintenance</span></footer>
+        </article>
+        <aside className="admin-operations-agenda">
+          <header><p className="eyebrow">{selectedEvents.length ? "Selected day" : "Next up"}</p><h2>{selectedEvents.length ? readableConsultationDate(selectedDate) : "Upcoming schedule"}</h2><span>{agendaEvents.length} {agendaEvents.length === 1 ? "item" : "items"}</span></header>
+          <div className="admin-operations-list">
+            {agendaEvents.length ? agendaEvents.map((event) => {
+              const EventIcon = event.type === "appointment" ? CalendarCheck : event.type === "mileage" ? Gauge : Wrench;
+              return <article className={`calendar-event-card event-card-${event.type}`} key={event.id}><div className="calendar-event-heading"><EventIcon size={18} /><div><strong>{event.title}</strong><span>{readableConsultationDate(event.date, { short: true })}{event.time ? ` · ${readableConsultationTime(event.time)}` : ""}</span></div><em>{event.status}</em></div><h4>{event.customer}</h4><p>{event.vehicle}</p>{event.detail && <small>{event.detail}</small>}{event.vehicleId && <button className="text-button" onClick={() => onOpenVehicle(event.vehicleId)} type="button">Open vehicle</button>}</article>;
+            }) : <div className="admin-calendar-empty"><CalendarCheck size={24} /><strong>Nothing scheduled</strong><span>No upcoming appointments, mileage check-ins, or maintenance actions.</span></div>}
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
 function AdminVehicleIntelligence({ data, onAction }) {
   const overview = data?.overview || {};
   const vehicles = ensureList(data?.vehicles);
@@ -5025,6 +5089,7 @@ function AdminVehicleIntelligence({ data, onAction }) {
   const customerById = new Map(vehicles.filter((vehicle) => vehicle.customer).map((vehicle) => [vehicle.user_id, vehicle.customer]));
   const vehicleById = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
   const preferenceByCustomer = new Map(communicationPreferences.map((item) => [item.customer_id, item]));
+  const calendarEvents = useMemo(() => buildAdminCalendarEvents({ vehicles, rules, forecasts, tasks }), [vehicles, rules, forecasts, tasks]);
 
   async function runAutomaticRuleDrafting() {
     const signatures = new Set();
@@ -5268,9 +5333,10 @@ function AdminVehicleIntelligence({ data, onAction }) {
   return (
     <section className="admin-intelligence-shell">
       <nav className="admin-intelligence-tabs" aria-label="Vehicle Intelligence pages">
-        {["overview", "vehicles", "mileage", "appointments", "service-history", "rules", "forecasts", "tasks", "opportunities", "outreach", "preferences", "settings"].map((item) => <button className={section === item ? "active" : ""} key={item} onClick={() => setSection(item)} type="button">{item.split("-").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ")}</button>)}
+        {["overview", "calendar", "vehicles", "mileage", "appointments", "service-history", "rules", "forecasts", "tasks", "opportunities", "outreach", "preferences", "settings"].map((item) => <button className={section === item ? "active" : ""} key={item} onClick={() => setSection(item)} type="button">{item.split("-").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ")}</button>)}
       </nav>
       {section === "overview" && <><div className="admin-intelligence-metrics">{metrics.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div><div className="admin-intelligence-phase-note"><Wrench size={20} /><div><strong>{outreach.available ? "CRM and Outreach Phase 3 is active." : maintenance.available ? "Maintenance Intelligence Phase 2 is active. Phase 3 migration required." : "Vehicle Intelligence database migration required."}</strong><p>{outreach.available ? "Opportunities use verified evidence and existing pricing only. Drafts require recorded consent and explicit administrator approval; no background process sends customer messages." : "Run the next numbered Supabase migration before using the corresponding intelligence controls."}</p></div>{maintenance.available && <div className="maintenance-task-actions"><button className="button secondary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "recalculate-maintenance", includeAll: true }); } finally { setSaving(false); } }} type="button">Recalculate Maintenance</button>{outreach.available && <button className="button primary compact-button" disabled={saving} onClick={async () => { setSaving(true); try { await onAction({ action: "run-outreach-intelligence", includeAll: true }); } finally { setSaving(false); } }} type="button">Build Opportunities & Drafts</button>}</div>}</div></>}
+      {section === "calendar" && <AdminOperationsCalendar events={calendarEvents} onOpenVehicle={setSelectedVehicleId} />}
       {["vehicles", "mileage", "appointments", "service-history"].includes(section) && <>
         <label className="admin-search-field admin-intelligence-search"><Search size={17} /><input onChange={(event) => setQuery(event.target.value)} placeholder="Search customer, vehicle, VIN, or email" type="search" value={query} /></label>
         <div className="admin-intelligence-table">
