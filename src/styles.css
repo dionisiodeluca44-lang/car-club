@@ -7642,6 +7642,12 @@ textarea:focus {
   cursor: default;
 }
 
+.phase4-draft-hold {
+  color: #f1b4a7;
+  font-size: 0.7rem;
+  font-weight: 850;
+}
+
 .phase4-service-actions details {
   flex: 1 0 100%;
   padding: 0.65rem 0;

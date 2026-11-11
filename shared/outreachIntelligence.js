@@ -101,6 +101,36 @@ export function buildOutreachDraft({ customerName, vehicle, serviceName, forecas
   };
 }
 
+export function vehiclePlanningGaps(vehicle = {}) {
+  const fields = [
+    ["year", "model year"],
+    ["make", "make"],
+    ["model", "model"],
+    ["vin", "VIN"],
+    ["mileage", "current mileage"],
+  ];
+  return fields.filter(([key]) => vehicle[key] == null || String(vehicle[key]).trim() === "").map(([, label]) => label);
+}
+
+export function buildBestEffortReviewDraft({ customerName, vehicle, language = "en-CA", bookingUrl = "" }) {
+  const preferredLanguage = normalizePreferredLanguage(language);
+  const vehicleLabel = [vehicle?.year, vehicle?.make, vehicle?.model].filter(Boolean).join(" ") || "your vehicle";
+  const gaps = vehiclePlanningGaps(vehicle);
+  const missingEnglish = gaps.length ? ` We still need to confirm: ${gaps.join(", ")}.` : " We would like to confirm its current maintenance needs and recent service history.";
+  const missingFrench = gaps.length ? ` Il nous reste à confirmer : ${gaps.join(", ")}.` : " Nous aimerions confirmer ses besoins d’entretien actuels et son historique de service récent.";
+  const link = bookingUrl ? ` ${bookingUrl}` : "";
+  if (preferredLanguage === "fr-CA") {
+    return {
+      subject: `Vérification du dossier d’entretien — ${vehicleLabel}`,
+      body: `Bonjour ${firstName(customerName)}, ici White Glove Concierge. Nous préparons la planification d’entretien de votre ${vehicleLabel} avec les renseignements actuellement au dossier.${missingFrench} Cette vérification sert à compléter le dossier; ce n’est ni un diagnostic ni un calendrier d’entretien du fabricant vérifié. Souhaitez-vous que nous fassions cette mise à jour avec vous?${link}`,
+    };
+  }
+  return {
+    subject: `Maintenance information review — ${vehicleLabel}`,
+    body: `Hi ${firstName(customerName)}, it’s White Glove Concierge. We’re preparing the maintenance plan for your ${vehicleLabel} using the information currently on file.${missingEnglish} This is an information-gathering review, not a diagnosis or a verified manufacturer maintenance schedule. Would you like us to complete this update with you?${link}`,
+  };
+}
+
 export function isMaterialMessageChange(message, nextSubject, nextBody) {
   return String(message?.subject || "").trim() !== String(nextSubject || "").trim()
     || String(message?.message_body || "").trim() !== String(nextBody || "").trim();

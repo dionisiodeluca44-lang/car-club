@@ -2,11 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildOutreachDraft,
+  buildBestEffortReviewDraft,
   communicationEligibility,
   hasMatchingActiveAppointment,
   isMaterialMessageChange,
   outreachFrequencyAllowed,
   resolveServicePrice,
+  vehiclePlanningGaps,
 } from "../shared/outreachIntelligence.js";
 
 test("outreach is blocked when consent has not been recorded", () => {
@@ -64,6 +66,15 @@ test("verified template avoids diagnosis and supports Quebec French", () => {
   assert.match(draft.body, /Bonjour Jean/);
   assert.match(draft.body, /recommandation/);
   assert.match(draft.body, /non d’un diagnostic/);
+});
+
+test("best-effort drafts disclose missing information without inventing a schedule", () => {
+  const incompleteVehicle = { year: 2019, make: "Mercedes-Benz", model: "AMG GT", mileage: 18000 };
+  assert.deepEqual(vehiclePlanningGaps(incompleteVehicle), ["VIN"]);
+  const draft = buildBestEffortReviewDraft({ customerName: "Alex", vehicle: incompleteVehicle });
+  assert.match(draft.body, /confirm: VIN/);
+  assert.match(draft.body, /not a diagnosis or a verified manufacturer maintenance schedule/);
+  assert.doesNotMatch(draft.body, /due|overdue|every \d/i);
 });
 
 test("material edits require reapproval", () => {

@@ -5386,7 +5386,8 @@ function AdminPhase4Crm({ data, onAction }) {
                 <small>{[row.forecast?.next_due_mileage_km ? `Due near ${Number(row.forecast.next_due_mileage_km).toLocaleString()} km` : "", row.forecast?.confidence ? `${row.forecast.confidence} confidence` : "", opportunity?.priority ? `${opportunity.priority} priority` : ""].filter(Boolean).join(" · ")}</small>
                 <div className="phase4-service-actions">
                   {opportunity ? <button className={`phase4-contact-check ${contacted ? "done" : ""}`} disabled={saving || contacted || suppressed} onClick={() => markContacted(opportunity.id)} type="button"><Check size={16} />{contacted ? "Contact made" : suppressed ? "Contact suppressed" : "Mark contact made"}</button> : <button className="button secondary compact-button" disabled={saving} onClick={runForVehicle} type="button">Build opportunity</button>}
-                  {message && ["draft", "pending_approval", "rejected"].includes(message.approval_status) && <button className="button secondary compact-button" disabled={saving} onClick={() => approveDraft(message.id)} type="button"><ShieldCheck size={16} />Approve draft</button>}
+                  {message && !suppressed && ["draft", "pending_approval", "rejected"].includes(message.approval_status) && <button className="button secondary compact-button" disabled={saving} onClick={() => approveDraft(message.id)} type="button"><ShieldCheck size={16} />Approve draft</button>}
+                  {message && suppressed && <span className="phase4-draft-hold">Draft saved · contact permission required before approval</span>}
                   {message && <details><summary>View message draft</summary><strong>{message.subject || "Message"}</strong><p>{message.message_body}</p><small>{String(message.approval_status || "draft").replaceAll("_", " ")}</small></details>}
                 </div>
               </article>;
