@@ -5276,15 +5276,16 @@ function AdminPhase4Crm({ data, onAction }) {
   }, [filteredVehicles, selectedVehicleId]);
 
   const selectedVehicle = filteredVehicles.find((vehicle) => vehicle.id === selectedVehicleId) || null;
-  const vehicleOpportunities = useMemo(() => opportunities.filter((item) => item.vehicle_id === selectedVehicleId), [opportunities, selectedVehicleId]);
+  const vehicleOpportunities = useMemo(() => opportunities.filter((item) => item.vehicle_id === selectedVehicleId && !["dismissed", "lost", "expired"].includes(item.status)), [opportunities, selectedVehicleId]);
+  const activeOpportunityIds = useMemo(() => new Set(vehicleOpportunities.map((item) => item.id)), [vehicleOpportunities]);
   const opportunityByForecast = useMemo(() => new Map(vehicleOpportunities.map((item) => [item.forecast_id, item])), [vehicleOpportunities]);
   const messageByOpportunity = useMemo(() => {
     const result = new Map();
     messages.forEach((message) => {
-      if (message.vehicle_id === selectedVehicleId && message.opportunity_id && !result.has(message.opportunity_id)) result.set(message.opportunity_id, message);
+      if (message.vehicle_id === selectedVehicleId && activeOpportunityIds.has(message.opportunity_id) && !result.has(message.opportunity_id)) result.set(message.opportunity_id, message);
     });
     return result;
-  }, [messages, selectedVehicleId]);
+  }, [messages, selectedVehicleId, activeOpportunityIds]);
   const serviceRows = useMemo(() => {
     if (!selectedVehicle) return [];
     const excluded = new Set(["Completed", "Dismissed", "Not Applicable"]);
@@ -5301,7 +5302,7 @@ function AdminPhase4Crm({ data, onAction }) {
     const forecastIds = new Set(rows.map((row) => row.id));
     vehicleOpportunities.forEach((opportunity) => {
       if (!forecastIds.has(opportunity.forecast_id) && !["dismissed", "lost", "expired"].includes(opportunity.status)) {
-        rows.push({ id: `opportunity-${opportunity.id}`, forecast: null, opportunity, title: opportunity.service_type || "Service opportunity", date: opportunity.estimated_due_date || "", status: opportunity.status || "open" });
+        rows.push({ id: `opportunity-${opportunity.id}`, forecast: null, opportunity, title: opportunity.service_type || "Service opportunity", date: opportunity.estimated_due_date || "", status: opportunity.evidence_source?.estimatedPlan ? "Estimated" : opportunity.status || "open" });
       }
     });
     const priority = { Overdue: 0, Due: 1, "Inspection Required": 2, Approaching: 3, Upcoming: 4, "Awaiting Mileage": 5, "Not Yet Due": 6 };
@@ -5374,7 +5375,7 @@ function AdminPhase4Crm({ data, onAction }) {
           <div className="phase4-summary-strip"><div><span>Coming up</span><strong>{serviceRows.length}</strong></div><div><span>Opportunities</span><strong>{vehicleOpportunities.length}</strong></div><div><span>Contacted</span><strong>{contactedCount}</strong></div><div><span>Drafts</span><strong>{[...messageByOpportunity.values()].filter((item) => ["draft", "pending_approval"].includes(item.approval_status)).length}</strong></div></div>
 
           <section className="phase4-service-list">
-            <header><div><p className="eyebrow">What should be booked</p><h3>Upcoming services</h3></div><span>Verified rules activate schedules automatically. Customer messages still require your approval.</span></header>
+            <header><div><p className="eyebrow">What should be coming up</p><h3>Upcoming maintenance</h3></div><span>Estimated items use vehicle age, mileage, and available history. Verified rules replace estimates automatically. Messages still require your approval.</span></header>
             {serviceRows.length ? serviceRows.map((row) => {
               const opportunity = row.opportunity;
               const message = opportunity ? messageByOpportunity.get(opportunity.id) : null;

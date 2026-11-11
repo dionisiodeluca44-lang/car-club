@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildOutreachDraft,
-  buildBestEffortReviewDraft,
+  buildEstimatedMaintenanceDraft,
   communicationEligibility,
+  estimatedMaintenancePlan,
   hasMatchingActiveAppointment,
   isMaterialMessageChange,
   outreachFrequencyAllowed,
@@ -68,13 +69,41 @@ test("verified template avoids diagnosis and supports Quebec French", () => {
   assert.match(draft.body, /non d’un diagnostic/);
 });
 
-test("best-effort drafts disclose missing information without inventing a schedule", () => {
+test("estimated maintenance plan creates cautious upcoming review windows", () => {
   const incompleteVehicle = { year: 2019, make: "Mercedes-Benz", model: "AMG GT", mileage: 18000 };
   assert.deepEqual(vehiclePlanningGaps(incompleteVehicle), ["VIN"]);
-  const draft = buildBestEffortReviewDraft({ customerName: "Alex", vehicle: incompleteVehicle });
+  const plan = estimatedMaintenancePlan(incompleteVehicle, [], new Date("2026-11-11T12:00:00Z"));
+  assert.deepEqual(plan.map((item) => item.title), [
+    "Oil and filter service review",
+    "Tire and brake condition review",
+    "Battery and fluid condition review",
+  ]);
+  assert.equal(plan[0].dueDate, "2026-12-11");
+  assert.match(plan[0].reason, /Estimated planning window/);
+  assert.match(plan[0].reason, /Confirm the vehicle's condition/);
+});
+
+test("recent recorded maintenance moves an estimated review later without claiming an interval", () => {
+  const plan = estimatedMaintenancePlan(
+    { year: 2019, make: "Mercedes-Benz", model: "AMG GT", mileage: 18000 },
+    [{ service_type: "Oil change", service_date: "2026-09-01", verification_status: "verified" }],
+    new Date("2026-11-11T12:00:00Z"),
+  );
+  assert.equal(plan[0].dueDate, "2027-03-11");
+  assert.match(plan[0].reason, /oil-related service was recorded/);
+  assert.match(plan[0].reason, /confirm the applicable next interval/i);
+});
+
+test("estimated maintenance draft sounds professional and clearly discloses estimates", () => {
+  const vehicle = { year: 2019, make: "Mercedes-Benz", model: "AMG GT", mileage: 18000 };
+  const plan = estimatedMaintenancePlan(vehicle, [], new Date("2026-11-11T12:00:00Z"));
+  const draft = buildEstimatedMaintenanceDraft({ customerName: "Alex", vehicle, items: plan, gaps: ["VIN"] });
+  assert.match(draft.body, /We’ve reviewed the information currently on file/);
+  assert.match(draft.body, /• Oil and filter service review/);
+  assert.match(draft.body, /planning estimates/);
   assert.match(draft.body, /confirm: VIN/);
-  assert.match(draft.body, /not a diagnosis or a verified manufacturer maintenance schedule/);
-  assert.doesNotMatch(draft.body, /due|overdue|every \d/i);
+  assert.match(draft.body, /White Glove Concierge$/);
+  assert.doesNotMatch(draft.body, /it’s White Glove|I'm an AI|bot/i);
 });
 
 test("material edits require reapproval", () => {

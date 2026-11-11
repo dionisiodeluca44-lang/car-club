@@ -1,7 +1,8 @@
 import {
-  buildBestEffortReviewDraft,
+  buildEstimatedMaintenanceDraft,
   buildOutreachDraft,
   communicationEligibility,
+  estimatedMaintenancePlan,
   hasMatchingActiveAppointment,
   normalizeOutreachChannel,
   normalizePreferredLanguage,
@@ -144,7 +145,7 @@ export async function runOutreachIntelligence(supabase, options = {}) {
       await supabase.from("outreach_job_runs").update({ status: "completed", completed_at: new Date().toISOString(), stats }).eq("id", started.run.id);
       return stats;
     }
-    const [profiles, forecasts, rules, appointments, pricing, preferences, messages] = await Promise.all([
+    const [profiles, forecasts, rules, appointments, pricing, preferences, messages, serviceHistory] = await Promise.all([
       resultData(supabase.from("profiles").select("id, full_name, email, phone").in("id", customerIds)),
       resultData(supabase.from("vehicle_maintenance_forecasts").select("*").in("vehicle_id", vehicleIds).is("archived_at", null)),
       resultData(supabase.from("vehicle_maintenance_rules").select("*").eq("approval_status", "approved").eq("active", true).is("archived_at", null)),
@@ -152,6 +153,7 @@ export async function runOutreachIntelligence(supabase, options = {}) {
       resultData(supabase.from("service_pricing").select("service_label, payment_mode, amount_cents")),
       resultData(supabase.from("communication_preferences").select("*").in("customer_id", customerIds)),
       resultData(supabase.from("outreach_messages").select("*").in("customer_id", customerIds)),
+      resultData(supabase.from("vehicle_service_history").select("*").in("vehicle_id", vehicleIds).order("service_date", { ascending: false })),
     ]);
     const profileById = new Map(profiles.map((item) => [item.id, item]));
     const ruleById = new Map(rules.map((item) => [item.id, item]));
@@ -258,44 +260,66 @@ export async function runOutreachIntelligence(supabase, options = {}) {
           await supabase.from("service_opportunities")
             .update({ status: "expired", updated_at: new Date().toISOString() })
             .eq("idempotency_key", `best-effort-review:${vehicle.id}:v1`)
-            .in("status", ["open", "qualified"]);
+            .in("status", ["open", "qualified", "contacted"]);
+          await supabase.from("service_opportunities")
+            .update({ status: "expired", updated_at: new Date().toISOString() })
+            .like("idempotency_key", `estimated-maintenance:${vehicle.id}:%`)
+            .in("status", ["open", "qualified", "contacted"]);
         } else {
           const profile = profileById.get(vehicle.user_id) || {};
           const gaps = vehiclePlanningGaps(vehicle);
-          const reason = gaps.length
-            ? `A verified service schedule is not available yet. Confirm ${gaps.join(", ")} and review recent service history before making a service-specific recommendation.`
-            : "No actionable verified maintenance forecast is currently available. Review the vehicle's recent service history and maintenance needs with the owner.";
-          const opportunityKey = `best-effort-review:${vehicle.id}:v1`;
-          const opportunityRecord = {
-            customer_id: vehicle.user_id,
-            vehicle_id: vehicle.id,
-            forecast_id: null,
-            service_type: "Vehicle maintenance planning review",
-            service_category: "preventative",
-            reason,
-            evidence_source: { sourceType: "best_effort_profile_review", verifiedSchedule: false, missingInformation: gaps },
-            priority: "normal",
-            estimated_due_date: null,
-            estimated_revenue_cents: null,
-            quote_required: true,
-            pricing_source: null,
-            confidence: "Low",
-            idempotency_key: opportunityKey,
-            updated_at: new Date().toISOString(),
-          };
-          const { data: opportunity, error: opportunityError } = await supabase.from("service_opportunities").upsert(opportunityRecord, { onConflict: "idempotency_key" }).select("*").single();
-          if (opportunityError) throw opportunityError;
-          stats.opportunities += 1;
-          stats.bestEffortOpportunities += 1;
+          const estimates = estimatedMaintenancePlan(vehicle, serviceHistory.filter((item) => item.vehicle_id === vehicle.id), asOf);
+          const estimateOpportunities = [];
+          await supabase.from("service_opportunities")
+            .update({ status: "expired", updated_at: new Date().toISOString() })
+            .eq("idempotency_key", `best-effort-review:${vehicle.id}:v1`)
+            .in("status", ["open", "qualified", "contacted"]);
+          for (const estimate of estimates) {
+            const opportunityKey = `estimated-maintenance:${vehicle.id}:${estimate.key}:v1`;
+            const opportunityRecord = {
+              customer_id: vehicle.user_id,
+              vehicle_id: vehicle.id,
+              forecast_id: null,
+              service_type: estimate.title,
+              service_category: estimate.category,
+              reason: estimate.reason,
+              evidence_source: {
+                sourceType: "estimated_maintenance_plan",
+                estimatedPlan: true,
+                verifiedSchedule: false,
+                method: "vehicle_age_mileage_and_available_history",
+                assumptions: estimate.assumptions,
+                missingInformation: gaps,
+              },
+              priority: estimate.key === "odometer-check-in" ? "high" : "normal",
+              estimated_due_date: estimate.dueDate,
+              estimated_revenue_cents: null,
+              quote_required: true,
+              pricing_source: null,
+              confidence: "Low",
+              idempotency_key: opportunityKey,
+              updated_at: new Date().toISOString(),
+            };
+            let { data: opportunity, error: opportunityError } = await supabase.from("service_opportunities").upsert(opportunityRecord, { onConflict: "idempotency_key" }).select("*").single();
+            if (opportunityError) throw opportunityError;
+            if (opportunity.status === "expired") {
+              const { data: reopened, error: reopenError } = await supabase.from("service_opportunities").update({ status: "open", contact_status: "not_contacted", updated_at: new Date().toISOString() }).eq("id", opportunity.id).select("*").single();
+              if (reopenError) throw reopenError;
+              opportunity = reopened;
+            }
+            estimateOpportunities.push(opportunity);
+            stats.opportunities += 1;
+            stats.bestEffortOpportunities += 1;
+          }
 
-          if (settings.draft_generation_enabled) {
+          if (settings.draft_generation_enabled && estimateOpportunities.length) {
             const preferencesForCustomer = preferenceByCustomer.get(vehicle.user_id);
             const channel = normalizeOutreachChannel(settings.default_channel);
             const eligibility = communicationEligibility(preferencesForCustomer, { channel, purpose: "transactional" });
             const customerMessages = messages.filter((item) => item.customer_id === vehicle.user_id);
             const frequency = outreachFrequencyAllowed(customerMessages, settings, asOf);
             const sendable = eligibility.eligible && frequency.allowed;
-            const draftKey = `best-effort-outreach:${vehicle.id}:${channel}:${weekBucket(asOf)}`;
+            const draftKey = `estimated-maintenance-outreach:${vehicle.id}:${channel}:${weekBucket(asOf)}`;
             const { data: existingDraft, error: draftLoadError } = await supabase.from("outreach_messages").select("*").eq("idempotency_key", draftKey).maybeSingle();
             if (draftLoadError) throw draftLoadError;
             if (existingDraft) {
@@ -306,41 +330,43 @@ export async function runOutreachIntelligence(supabase, options = {}) {
                   updated_at: new Date().toISOString(),
                 }).eq("id", existingDraft.id).select("*").single();
                 if (refreshError) throw refreshError;
-                await createApprovalTask(supabase, refreshedDraft, opportunity);
+                await createApprovalTask(supabase, refreshedDraft, estimateOpportunities[0]);
               }
-              await supabase.from("service_opportunities").update({ contact_status: sendable ? "drafted" : "suppressed", updated_at: new Date().toISOString() }).eq("id", opportunity.id);
+              await supabase.from("service_opportunities").update({ contact_status: sendable ? "drafted" : "suppressed", updated_at: new Date().toISOString() }).in("id", estimateOpportunities.map((item) => item.id));
               if (!sendable) stats.suppressed += 1;
             } else {
-              const draft = buildBestEffortReviewDraft({
+              const draft = buildEstimatedMaintenanceDraft({
                 customerName: profile.full_name,
                 vehicle,
+                items: estimates,
+                gaps,
                 language: preferencesForCustomer?.preferred_language,
                 bookingUrl: settings.booking_url,
               });
               const { data: message, error: messageError } = await supabase.from("outreach_messages").insert({
                 customer_id: vehicle.user_id,
                 vehicle_id: vehicle.id,
-                opportunity_id: opportunity.id,
+                opportunity_id: estimateOpportunities[0].id,
                 forecast_id: null,
-                outreach_type: "vehicle_information_review",
+                outreach_type: "estimated_maintenance_plan_review",
                 purpose: "transactional",
                 channel,
                 language: normalizePreferredLanguage(preferencesForCustomer?.preferred_language),
-                trigger_reason: reason,
+                trigger_reason: `Estimated maintenance review for ${estimates.map((item) => item.title).join(", ")}.`,
                 subject: draft.subject,
                 message_body: draft.body,
                 generated_by_ai: false,
                 draft_method: "verified_template",
-                generation_metadata: { bestEffort: true, verifiedSchedule: false, missingInformation: gaps, consentReason: eligibility.reason, sendable },
+                generation_metadata: { bestEffort: true, estimatedPlan: true, verifiedSchedule: false, estimatedItems: estimates.map((item) => ({ key: item.key, title: item.title, dueDate: item.dueDate })), missingInformation: gaps, consentReason: eligibility.reason, sendable },
                 approval_status: sendable ? "pending_approval" : "draft",
                 idempotency_key: draftKey,
               }).select("*").single();
               if (messageError) throw messageError;
-              if (sendable) await createApprovalTask(supabase, message, opportunity);
+              if (sendable) await createApprovalTask(supabase, message, estimateOpportunities[0]);
               else stats.suppressed += 1;
-              await supabase.from("service_opportunities").update({ contact_status: sendable ? "drafted" : "suppressed", updated_at: new Date().toISOString() }).eq("id", opportunity.id);
-              await supabase.from("outreach_events").insert({ outreach_message_id: message.id, actor_type: "system", event_type: "best_effort_draft_created", detail: { missingInformation: gaps, sendable } });
-              await audit(supabase, "create_best_effort_outreach_draft", "outreach_message", message.id, { approvalStatus: message.approval_status, missingInformation: gaps, sendable });
+              await supabase.from("service_opportunities").update({ contact_status: sendable ? "drafted" : "suppressed", updated_at: new Date().toISOString() }).in("id", estimateOpportunities.map((item) => item.id));
+              await supabase.from("outreach_events").insert({ outreach_message_id: message.id, actor_type: "system", event_type: "estimated_maintenance_draft_created", detail: { estimatedItems: estimates.map((item) => item.key), missingInformation: gaps, sendable } });
+              await audit(supabase, "create_estimated_maintenance_draft", "outreach_message", message.id, { approvalStatus: message.approval_status, estimatedItems: estimates.map((item) => item.key), missingInformation: gaps, sendable });
               stats.drafts += 1;
               stats.bestEffortDrafts += 1;
             }
