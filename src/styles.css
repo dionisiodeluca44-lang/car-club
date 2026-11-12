@@ -7517,6 +7517,23 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.phase4-owner-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.phase4-owner-actions > span {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgba(229, 200, 121, 0.32);
+  border-radius: 999px;
+  color: var(--gold-bright);
+  font-size: 0.68rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .phase4-owner-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -7874,6 +7891,10 @@ textarea:focus {
     flex-direction: column;
   }
 
+  .phase4-owner-actions {
+    justify-content: space-between;
+  }
+
   .phase4-owner-grid {
     grid-template-columns: 1fr;
   }
@@ -8166,6 +8187,46 @@ textarea:focus {
   margin-top: 1rem;
   padding-top: 1rem;
   border-top: 1px solid var(--line);
+}
+
+.admin-vehicle-edit-dialog {
+  width: min(820px, 100%);
+}
+
+.admin-vin-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.65rem;
+  margin-bottom: 0.45rem;
+}
+
+.admin-vin-editor label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--soft);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.admin-vin-editor input {
+  width: 100%;
+  min-height: 2.65rem;
+  padding: 0.65rem 0.72rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.32);
+  color: var(--ink);
+  font: inherit;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-vehicle-edit-note {
+  margin: 0.85rem 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
 }
 
 .compact-booking-section {
@@ -8462,6 +8523,10 @@ textarea:focus {
   .vehicle-quick-edit-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.6rem;
+  }
+
+  .admin-vin-editor {
+    grid-template-columns: 1fr;
   }
 
   .vehicle-quick-edit-dialog footer {

@@ -5284,6 +5284,110 @@ function AdminVehicleServiceCalendars({ vehicles }) {
   );
 }
 
+function adminVehicleForm(vehicle = {}) {
+  return {
+    year: vehicle.year || "",
+    make: vehicle.make || "",
+    model: vehicle.model || "",
+    vin: vehicle.vin || "",
+    trim: vehicle.trim || "",
+    engine: vehicle.engine || "",
+    transmission: vehicle.transmission || "",
+    drivetrain: vehicle.drivetrain || "",
+    fuelType: vehicle.fuel_type || "",
+    horsepower: vehicle.horsepower || "",
+    usage: vehicle.usage || "",
+    ownershipStatus: vehicle.ownership_status || "owned",
+  };
+}
+
+function AdminVehicleEditDialog({ onClose, onSave, saving, vehicle }) {
+  const [details, setDetails] = useState(() => adminVehicleForm(vehicle));
+  const [lookupState, setLookupState] = useState({ status: "", message: "" });
+  const [saveError, setSaveError] = useState("");
+  const lastLookedUpVin = useRef("");
+
+  function updateField(field, value) {
+    setDetails((current) => ({ ...current, [field]: value }));
+  }
+
+  async function lookupVin(value = details.vin) {
+    const vin = normalizeVin(value);
+    if (!isValidVin(vin) || lastLookedUpVin.current === vin) return;
+    lastLookedUpVin.current = vin;
+    setLookupState({ status: "loading", message: "Looking up this VIN…" });
+    try {
+      const result = await decodeVehicleVin(vin);
+      setDetails((current) => {
+        const { vehicle: filledVehicle, filled } = mergeDecodedVehicleDetails(current, result.vehicle);
+        const supported = filled.filter((field) => Object.hasOwn(current, field));
+        setLookupState({
+          status: "success",
+          message: supported.length
+            ? `Added ${supported.length} detail${supported.length === 1 ? "" : "s"} from the VIN. Existing information was kept.`
+            : "VIN confirmed. The information already entered was kept.",
+        });
+        return Object.fromEntries(Object.keys(current).map((field) => [field, filledVehicle[field] ?? current[field]]));
+      });
+    } catch (error) {
+      lastLookedUpVin.current = "";
+      setLookupState({ status: "error", message: error.message || "Vehicle details could not be loaded." });
+    }
+  }
+
+  function changeVin(value) {
+    const vin = normalizeVin(value);
+    updateField("vin", vin);
+    if (vin.length < 17) {
+      lastLookedUpVin.current = "";
+      setLookupState({ status: "", message: "" });
+      return;
+    }
+    void lookupVin(vin);
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaveError("");
+    try {
+      await onSave(details);
+    } catch (error) {
+      setSaveError(error.message || "Could not save this vehicle.");
+    }
+  }
+
+  const title = `${details.year || ""} ${details.make || ""} ${details.model || ""}`.trim() || "Member vehicle";
+  return <div className="vehicle-quick-edit-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}>
+    <section aria-labelledby="admin-vehicle-edit-title" aria-modal="true" className="vehicle-quick-edit-dialog admin-vehicle-edit-dialog" role="dialog">
+      <header><div><span>Edit for member</span><h2 id="admin-vehicle-edit-title">{title}</h2></div><button aria-label="Close vehicle editor" disabled={saving} onClick={onClose} type="button"><X size={20} /></button></header>
+      <form onSubmit={submit}>
+        {saveError && <div className="error-message" role="alert">{saveError}</div>}
+        <div className="admin-vin-editor">
+          <label>VIN<input autoCapitalize="characters" maxLength={17} onChange={(event) => changeVin(event.target.value)} placeholder="17-character VIN" value={details.vin} /></label>
+          <button className="button secondary compact-button" disabled={!isValidVin(details.vin) || lookupState.status === "loading"} onClick={() => void lookupVin()} type="button"><Search size={15} />{lookupState.status === "loading" ? "Checking…" : "Look up VIN"}</button>
+        </div>
+        {lookupState.message && <p className={`vin-lookup-status ${lookupState.status}`} role="status">{lookupState.message}</p>}
+        <div className="vehicle-quick-edit-grid">
+          <label>Year<input inputMode="numeric" max={new Date().getFullYear() + 2} min="1886" onChange={(event) => updateField("year", event.target.value)} type="number" value={details.year} /></label>
+          <label>Make<input onChange={(event) => updateField("make", event.target.value)} type="text" value={details.make} /></label>
+          <label>Model<input onChange={(event) => updateField("model", event.target.value)} type="text" value={details.model} /></label>
+          <label>Trim<input onChange={(event) => updateField("trim", event.target.value)} type="text" value={details.trim} /></label>
+          <label>Engine<input onChange={(event) => updateField("engine", event.target.value)} type="text" value={details.engine} /></label>
+          <label>Horsepower<input inputMode="numeric" onChange={(event) => updateField("horsepower", event.target.value)} type="text" value={details.horsepower} /></label>
+          <label>Transmission<input onChange={(event) => updateField("transmission", event.target.value)} type="text" value={details.transmission} /></label>
+          <label>Drivetrain<select onChange={(event) => updateField("drivetrain", event.target.value)} value={details.drivetrain}><option value="">Not recorded</option><option>FWD</option><option>RWD</option><option>AWD</option><option>4WD</option></select></label>
+          <label>Fuel type<input onChange={(event) => updateField("fuelType", event.target.value)} type="text" value={details.fuelType} /></label>
+          <label>Primary use<input onChange={(event) => updateField("usage", event.target.value)} placeholder="Daily, seasonal, collection…" type="text" value={details.usage} /></label>
+          <label>Ownership<select onChange={(event) => updateField("ownershipStatus", event.target.value)} value={details.ownershipStatus}><option value="owned">Owned</option><option value="leased">Leased</option><option value="financed">Financed</option><option value="consigned">Consigned</option><option value="other">Other</option></select></label>
+          <label>Current odometer<input aria-describedby="admin-edit-odometer-help" readOnly value={vehicle.mileage ? `${Number(vehicle.mileage).toLocaleString()} ${vehicle.mileage_unit || "km"}` : "No reading recorded"} /><small id="admin-edit-odometer-help">Update mileage from the calendar or vehicle profile so its history stays accurate.</small></label>
+        </div>
+        <p className="admin-vehicle-edit-note">Saving queues the maintenance schedule for recalculation. VIN lookup only fills blank fields and never replaces details already recorded.</p>
+        <footer><button className="button secondary" disabled={saving} onClick={onClose} type="button">Cancel</button><button className="button primary" disabled={saving} type="submit">{saving ? "Saving…" : "Save vehicle"}</button></footer>
+      </form>
+    </section>
+  </div>;
+}
+
 function AdminPhase4Crm({ data, onAction }) {
   const vehicles = useMemo(() => ensureList(data?.vehicles).filter((vehicle) => !vehicle.archived_at), [data]);
   const opportunities = ensureList(data?.outreach?.opportunities);
@@ -5291,6 +5395,7 @@ function AdminPhase4Crm({ data, onAction }) {
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
+  const [editingVehicle, setEditingVehicle] = useState(false);
 
   const filteredVehicles = useMemo(() => {
     const text = query.trim().toLowerCase();
@@ -5370,6 +5475,17 @@ function AdminPhase4Crm({ data, onAction }) {
     }
   }
 
+  async function saveVehicleDetails(details) {
+    if (!selectedVehicle) return;
+    setSaving(true);
+    try {
+      await onAction({ action: "admin-update-vehicle", vehicleId: selectedVehicle.id, ...details });
+      setEditingVehicle(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (!vehicles.length) return <div className="admin-calendar-empty"><Car size={25} /><strong>No vehicles yet</strong><span>Member vehicles will appear here with their CRM schedule.</span></div>;
 
   const owner = selectedVehicle?.customer || {};
@@ -5394,7 +5510,7 @@ function AdminPhase4Crm({ data, onAction }) {
 
         {selectedVehicle && <div className="phase4-crm-detail">
           <article className="phase4-owner-card">
-            <header><div><p className="eyebrow">Owner and vehicle</p><h3>{vehicleName}</h3></div><span>{selectedVehicle.status || "Active"}</span></header>
+            <header><div><p className="eyebrow">Owner and vehicle</p><h3>{vehicleName}</h3></div><div className="phase4-owner-actions"><span>{selectedVehicle.status || "Active"}</span><button className="button secondary compact-button" disabled={saving} onClick={() => setEditingVehicle(true)} type="button"><Wrench size={15} />Edit vehicle</button></div></header>
             <div className="phase4-owner-grid">
               <div><small>Owner</small><strong>{owner.full_name || "Name unavailable"}</strong></div>
               <div><small>Email</small>{owner.email ? <a href={`mailto:${owner.email}`}>{owner.email}</a> : <strong>Unavailable</strong>}</div>
@@ -5429,6 +5545,7 @@ function AdminPhase4Crm({ data, onAction }) {
           </section>
         </div>}
       </div>
+      {editingVehicle && selectedVehicle && <AdminVehicleEditDialog onClose={() => setEditingVehicle(false)} onSave={saveVehicleDetails} saving={saving} vehicle={selectedVehicle} />}
     </section>
   );
 }
@@ -6053,7 +6170,7 @@ function AdminPortal({ onBack }) {
 
   async function updateVehicleIntelligence(payload) {
     const result = await requestVehicleIntelligenceAction(payload);
-    if (payload.action === "record-mileage") {
+    if (["record-mileage", "admin-update-vehicle"].includes(payload.action)) {
       const recalculation = await requestVehicleIntelligenceAction({ action: "recalculate-maintenance", vehicleId: payload.vehicleId });
       if (Number(recalculation.result?.errors) > 0) {
         const error = new Error("Mileage was saved, but the service schedule could not be recalculated. Please try Recalculate Maintenance.");
@@ -6064,6 +6181,7 @@ function AdminPortal({ onBack }) {
     await loadVehicleIntelligence(adminToken);
     const notices = {
       "record-mileage": "Mileage reading saved and audited.",
+      "admin-update-vehicle": "Vehicle details saved for the member and the maintenance schedule was recalculated.",
       "record-service": "Service history saved and audited.",
       "update-vehicle-maintenance-profile": "Vehicle maintenance profile saved and queued for recalculation.",
       "create-rule-version": "Maintenance rule draft saved as a new version.",

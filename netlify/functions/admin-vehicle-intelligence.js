@@ -5,6 +5,7 @@ import { getMaintenanceIntelligence, runMaintenanceRecalculation } from "../lib/
 import { discoverVehicleMaintenanceRules } from "../lib/maintenanceRuleAutomation.js";
 import { getOutreachIntelligence, runOutreachIntelligence } from "../lib/outreachIntelligence.js";
 import { unresolvedAutomaticRule, vehicleRuleSignature, verifiedRuleCanAutoActivate } from "../../shared/maintenanceRuleAutomation.js";
+import { isValidVin, normalizeVin } from "../../shared/vinDecoder.js";
 
 const adminPassword = process.env.ADMIN_PORTAL_PASSWORD;
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -216,6 +217,49 @@ async function recordMileage(payload) {
     entityId: vehicle.id,
     entityType: "vehicle",
     previousValue: latest || null,
+    nextValue: data,
+  });
+  return data;
+}
+
+async function adminUpdateVehicle(payload) {
+  const vehicle = await loadVehicle(clean(payload.vehicleId, 80));
+  const vin = normalizeVin(payload.vin);
+  const year = clean(payload.year, 4);
+  if (vin && !isValidVin(vin)) {
+    throw Object.assign(new Error("Enter a valid 17-character VIN or leave it blank."), { statusCode: 400 });
+  }
+  if (year && (!/^\d{4}$/.test(year) || Number(year) < 1886 || Number(year) > new Date().getFullYear() + 2)) {
+    throw Object.assign(new Error("Enter a valid vehicle year."), { statusCode: 400 });
+  }
+
+  const now = new Date().toISOString();
+  const update = {
+    year: year || null,
+    make: clean(payload.make, 120) || null,
+    model: clean(payload.model, 160) || null,
+    vin: vin || null,
+    trim: clean(payload.trim, 160) || null,
+    engine: clean(payload.engine, 240) || null,
+    transmission: clean(payload.transmission, 120) || null,
+    drivetrain: clean(payload.drivetrain, 80) || null,
+    fuel_type: clean(payload.fuelType, 80) || null,
+    horsepower: clean(payload.horsepower, 40) || null,
+    usage: clean(payload.usage, 160) || null,
+    ownership_status: clean(payload.ownershipStatus, 80) || "owned",
+    maintenance_recalculation_required: true,
+    maintenance_recalculation_requested_at: now,
+    outreach_recalculation_required: true,
+    outreach_recalculation_requested_at: now,
+    updated_at: now,
+  };
+  const { data, error } = await supabase.from("vehicles").update(update).eq("id", vehicle.id).select("*").single();
+  if (error) throw error;
+  await audit({
+    action: "admin_update_vehicle",
+    entityId: vehicle.id,
+    entityType: "vehicle",
+    previousValue: vehicle,
     nextValue: data,
   });
   return data;
@@ -881,6 +925,7 @@ export async function handler(event) {
     if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
     const payload = JSON.parse(event.body || "{}");
     if (payload.action === "record-mileage") return json(200, { reading: await recordMileage(payload) });
+    if (payload.action === "admin-update-vehicle") return json(200, { vehicle: await adminUpdateVehicle(payload) });
     if (payload.action === "record-service") return json(200, { service: await recordService(payload) });
     if (payload.action === "update-vehicle-maintenance-profile") return json(200, { vehicle: await updateVehicleMaintenanceProfile(payload) });
     if (payload.action === "create-rule-version") return json(200, { rule: await createRuleVersion(payload) });
