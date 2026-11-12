@@ -87,6 +87,7 @@ import {
 import { automationStatusForRule, unresolvedAutomaticRule, vehicleRuleSignature } from "../shared/maintenanceRuleAutomation";
 import { buildAdminCalendarEvents } from "../shared/adminCalendar";
 import { canArchivePastBooking } from "../shared/adminBooking";
+import { decodedVehicleFields, isValidVin, mergeDecodedVehicleDetails, normalizeVin } from "../shared/vinDecoder";
 
 const services = [
   {
@@ -141,7 +142,7 @@ const services = [
   },
 ];
 
-const publicSiteUrl = import.meta.env.VITE_PUBLIC_SITE_URL || "https://vocal-pie-c034af.netlify.app";
+const publicSiteUrl = import.meta.env.VITE_PUBLIC_SITE_URL || "https://wgconcierge.com";
 const appStoreUrl = import.meta.env.VITE_APP_STORE_URL || "https://apps.apple.com/search?term=White%20Glove%20Concierge";
 
 const consultationTimeSlots = ["09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00", "17:00"];
@@ -1777,6 +1778,35 @@ async function fetchVehicleModels({ make, year }) {
   if (!response.ok) throw new Error("Vehicle models could not load.");
   const payload = await response.json();
   return uniqueSortedStrings((payload.Results || []).map((item) => item.Model_Name));
+}
+
+async function decodeVehicleVin(vin) {
+  const response = await fetch(netlifyFunctionUrl("/.netlify/functions/decode-vin"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ vin }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || "Vehicle details could not be loaded.");
+  return payload;
+}
+
+function autofillVehicleForm(form, decoded, controlled, setters) {
+  const current = {};
+  decodedVehicleFields.forEach((fieldName) => {
+    const field = form?.elements?.namedItem(fieldName);
+    current[fieldName] = controlled[fieldName] ?? field?.value ?? "";
+  });
+  const { vehicle, filled } = mergeDecodedVehicleDetails(current, decoded);
+  filled.forEach((fieldName) => {
+    if (setters[fieldName]) {
+      setters[fieldName](vehicle[fieldName]);
+      return;
+    }
+    const field = form?.elements?.namedItem(fieldName);
+    if (field) field.value = vehicle[fieldName];
+  });
+  return filled;
 }
 
 function fallbackModelsForMake(make) {
@@ -4081,7 +4111,7 @@ function PrivacyPolicy({ onBack }) {
         <button className="text-button" type="button" onClick={onBack}>Back to site</button>
         <p className="eyebrow">Privacy Policy</p>
         <h1>White Glove Concierge Privacy Policy</h1>
-        <p>Last updated: October 29, 2026</p>
+        <p>Last updated: November 11, 2026</p>
 
         <h2>Information We Collect</h2>
         <p>
@@ -4096,6 +4126,9 @@ function PrivacyPolicy({ onBack }) {
         <h2>Storage and Service Providers</h2>
         <p>
           Member account, vehicle, photo, and service request information may be processed through service providers such as Supabase and Netlify so the website and member app can operate securely.
+        </p>
+        <p>
+          When a member enters a complete VIN, White Glove may send that VIN to the United States National Highway Traffic Safety Administration's public vPIC vehicle database to retrieve available vehicle specifications. The returned information is used only to fill blank vehicle profile fields and can be reviewed or corrected before it is saved.
         </p>
 
         <h2>Optional AI Valuation</h2>
@@ -9837,6 +9870,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
   const [vehicleModel, setVehicleModel] = useState("");
   const [vehicleYear, setVehicleYear] = useState("");
   const [vehicleLookupStatus, setVehicleLookupStatus] = useState("");
+  const [vinLookup, setVinLookup] = useState({ message: "", tone: "" });
   const [savingVehicle, setSavingVehicle] = useState(false);
   const [vehicleError, setVehicleError] = useState("");
   const trimSuggestions = useMemo(() => smartTrimSuggestions(vehicleMake, vehicleModel), [vehicleMake, vehicleModel]);
@@ -9912,6 +9946,44 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
     }
   }
 
+  async function handleVinChange(event) {
+    const input = event.currentTarget;
+    const vin = normalizeVin(input.value);
+    input.value = vin;
+    if (vin.length < 17) {
+      setVinLookup({ message: vin ? "Enter all 17 characters to look up the vehicle." : "", tone: "" });
+      return;
+    }
+    if (!isValidVin(vin)) {
+      setVinLookup({ message: "Check the VIN. Standard VINs do not use I, O, or Q.", tone: "error" });
+      return;
+    }
+    const form = input.form;
+    setVinLookup({ message: "Looking up vehicle details...", tone: "loading" });
+    try {
+      const result = await decodeVehicleVin(vin);
+      if (normalizeVin(form?.elements?.namedItem("vin")?.value) !== vin) return;
+      const filled = autofillVehicleForm(form, result.vehicle, {
+        year: vehicleYear,
+        make: vehicleMake,
+        model: vehicleModel,
+      }, {
+        year: setVehicleYear,
+        make: setVehicleMake,
+        model: setVehicleModel,
+      });
+      setVinLookup({
+        message: filled.length
+          ? `Vehicle found. ${filled.length} blank field${filled.length === 1 ? " was" : "s were"} filled automatically—please review them.`
+          : "Vehicle found. Your existing information was preserved.",
+        tone: "success",
+      });
+    } catch (error) {
+      if (normalizeVin(form?.elements?.namedItem("vin")?.value) !== vin) return;
+      setVinLookup({ message: error.message || "Vehicle details could not be loaded. You can still enter them manually.", tone: "error" });
+    }
+  }
+
   async function submitVehicle(event) {
     event.preventDefault();
     if (savingVehicle) return;
@@ -9962,6 +10034,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         mileageUnit: formData.get("mileageUnit") || "km",
         use: formData.get("use"),
         vin: formData.get("vin"),
+        engine: formData.get("engine"),
         location: formData.get("location"),
         insurance: formData.get("insurance"),
         warranty: formData.get("warranty"),
@@ -10112,6 +10185,10 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
           </datalist>
         </label>
         <label>
+          Engine
+          <input autoComplete="off" name="engine" type="text" placeholder="Filled from VIN when available" />
+        </label>
+        <label>
           Current odometer
           <input inputMode="numeric" list="vehicle-mileage-options" min="0" name="mileage" step="1" type="number" placeholder="Enter the current odometer reading" />
           <datalist id="vehicle-mileage-options">
@@ -10124,7 +10201,8 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         </label>
         <label>
           VIN
-          <input autoCapitalize="characters" maxLength="17" minLength="17" name="vin" pattern="[A-HJ-NPR-Za-hj-npr-z0-9]{17}" type="text" placeholder="17-character VIN" title="Enter a valid 17-character VIN (letters I, O, and Q are not used)." />
+          <input aria-describedby="add-vin-lookup-status" autoCapitalize="characters" maxLength="17" minLength="17" name="vin" onChange={handleVinChange} pattern="[A-HJ-NPR-Za-hj-npr-z0-9]{17}" type="text" placeholder="17-character VIN" title="Enter a valid 17-character VIN (letters I, O, and Q are not used)." />
+          <small className={`field-hint vin-lookup-status ${vinLookup.tone}`} id="add-vin-lookup-status" aria-live="polite">{vinLookup.message || "Completing the VIN fills blank vehicle details using the NHTSA vehicle database."}</small>
         </label>
         <label>
           Canadian postal code
@@ -11188,6 +11266,7 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
   const [editVehicleYear, setEditVehicleYear] = useState(vehicle.year || "");
   const [editVehicleMake, setEditVehicleMake] = useState(vehicle.make || "");
   const [editVehicleModel, setEditVehicleModel] = useState(vehicle.model || "");
+  const [editVinLookup, setEditVinLookup] = useState({ message: "", tone: "" });
   const editModelSuggestions = useMemo(() => fallbackModelsForMake(editVehicleMake), [editVehicleMake]);
   const editTrimSuggestions = useMemo(() => smartTrimSuggestions(editVehicleMake, editVehicleModel), [editVehicleMake, editVehicleModel]);
   const vehicleImages = vehicleImageGallery(vehicle);
@@ -11314,6 +11393,44 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
       setWindowStickerDraft(await readVehicleDocument(event.target.files));
     } catch (error) {
       setDetailError(error.message || "Could not read the window sticker.");
+    }
+  }
+
+  async function handleEditVinChange(event) {
+    const input = event.currentTarget;
+    const vin = normalizeVin(input.value);
+    input.value = vin;
+    if (vin.length < 17) {
+      setEditVinLookup({ message: vin ? "Enter all 17 characters to look up the vehicle." : "", tone: "" });
+      return;
+    }
+    if (!isValidVin(vin)) {
+      setEditVinLookup({ message: "Check the VIN. Standard VINs do not use I, O, or Q.", tone: "error" });
+      return;
+    }
+    const form = input.form;
+    setEditVinLookup({ message: "Looking up vehicle details...", tone: "loading" });
+    try {
+      const result = await decodeVehicleVin(vin);
+      if (normalizeVin(form?.elements?.namedItem("vin")?.value) !== vin) return;
+      const filled = autofillVehicleForm(form, result.vehicle, {
+        year: editVehicleYear,
+        make: editVehicleMake,
+        model: editVehicleModel,
+      }, {
+        year: setEditVehicleYear,
+        make: setEditVehicleMake,
+        model: setEditVehicleModel,
+      });
+      setEditVinLookup({
+        message: filled.length
+          ? `Vehicle found. ${filled.length} blank field${filled.length === 1 ? " was" : "s were"} filled automatically—please review them.`
+          : "Vehicle found. Existing vehicle information was preserved.",
+        tone: "success",
+      });
+    } catch (error) {
+      if (normalizeVin(form?.elements?.namedItem("vin")?.value) !== vin) return;
+      setEditVinLookup({ message: error.message || "Vehicle details could not be loaded. You can still enter them manually.", tone: "error" });
     }
   }
 
@@ -11851,7 +11968,8 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
             </label>
             <label>
               VIN
-              <input autoCapitalize="characters" defaultValue={vehicle.vin || ""} maxLength="17" name="vin" placeholder="17-character VIN" title="A standard VIN has 17 characters; letters I, O, and Q are not used." type="text" />
+              <input aria-describedby="edit-vin-lookup-status" autoCapitalize="characters" defaultValue={vehicle.vin || ""} maxLength="17" name="vin" onChange={handleEditVinChange} placeholder="17-character VIN" title="A standard VIN has 17 characters; letters I, O, and Q are not used." type="text" />
+              <small className={`field-hint vin-lookup-status ${editVinLookup.tone}`} id="edit-vin-lookup-status" aria-live="polite">{editVinLookup.message || "Completing the VIN fills only vehicle fields that are still blank."}</small>
             </label>
             <label>
               Trim

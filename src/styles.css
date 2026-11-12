@@ -3196,6 +3196,18 @@ textarea:focus {
   font-weight: 800;
 }
 
+.vin-lookup-status.success {
+  color: #7fca91;
+}
+
+.vin-lookup-status.error {
+  color: #ff9c8f;
+}
+
+.vin-lookup-status.loading {
+  color: var(--gold);
+}
+
 .app-section-title {
   display: flex;
   align-items: flex-start;

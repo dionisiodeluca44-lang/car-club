@@ -3,7 +3,7 @@ import { normalizeMileageUnit, normalizeOdometer, toKilometres } from "../../sha
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const productionSiteUrl = import.meta.env.VITE_PUBLIC_SITE_URL || "https://vocal-pie-c034af.netlify.app";
+const productionSiteUrl = import.meta.env.VITE_PUBLIC_SITE_URL || "https://wgconcierge.com";
 
 export const isBackendConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
