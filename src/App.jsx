@@ -37,6 +37,7 @@ import Warehouse from "lucide-react/dist/esm/icons/warehouse.js";
 import Wrench from "lucide-react/dist/esm/icons/wrench.js";
 import X from "lucide-react/dist/esm/icons/x.js";
 import {
+  askVehicleAssistant,
   createAccount,
   blockFeedUser,
   createFeedComment,
@@ -1928,20 +1929,20 @@ function readFilesAsDataUrls(fileList, limit = 10) {
   })));
 }
 
-function readVehicleDocument(fileList) {
+function readVehicleDocument(fileList, label = "vehicle document") {
   const file = Array.from(fileList || [])[0];
   if (!file) return Promise.resolve(null);
   if (file.type !== "application/pdf" && !file.type?.startsWith("image/")) {
-    return Promise.reject(new Error("Choose a PDF or image for the window sticker."));
+    return Promise.reject(new Error(`Choose a PDF, JPG, JPEG, or PNG for the ${label}.`));
   }
   if (file.size > 15 * 1024 * 1024) {
-    return Promise.reject(new Error("The window sticker must be smaller than 15 MB."));
+    return Promise.reject(new Error(`The ${label} must be smaller than 15 MB.`));
   }
 
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve({ dataUrl: reader.result, name: file.name, type: file.type });
-    reader.onerror = () => reject(new Error("Could not read the window sticker."));
+    reader.onerror = () => reject(new Error(`Could not read the ${label}.`));
     reader.readAsDataURL(file);
   });
 }
@@ -3545,6 +3546,9 @@ function App() {
       id: crypto.randomUUID(),
       status: "New vehicle added",
       windowStickerUrl: vehicle.windowStickerData || "",
+      buildSheetUrl: vehicle.buildSheetData || "",
+      buildSheetName: vehicle.buildSheetName || "",
+      buildSheetType: vehicle.buildSheetType || "",
       workDone: vehicle.workDone || [],
     }, ...garage];
     const startingValueCents = marketValueCents(vehicle.marketValue);
@@ -3578,6 +3582,9 @@ function App() {
       ...vehicle,
       ...updates,
       windowStickerUrl: updates.windowStickerData || vehicle.windowStickerUrl || "",
+      buildSheetUrl: updates.buildSheetData || vehicle.buildSheetUrl || "",
+      buildSheetName: updates.buildSheetName || vehicle.buildSheetName || "",
+      buildSheetType: updates.buildSheetType || vehicle.buildSheetType || "",
     } : vehicle));
     let nextValuations = vehicleValuations;
     const nextValueCents = marketValueCents(updates.marketValue);
@@ -7682,7 +7689,7 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
         </div>
         <div className="member-tab-panel" hidden={Boolean(completion) || activeTab !== "garage"}>
           <MemberPanelErrorBoundary resetKey={`garage-${tabRefreshKeys.garage}`} onRecover={() => navigateToTab("home")}>
-            <GarageScreen key={`garage-${tabRefreshKeys.garage}`} activeVehicleId={activeVehicleId} appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onSelectVehicle={selectActiveVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={showCompletion} vehicleValuations={vehicleValuations} />
+            <GarageScreen key={`garage-${tabRefreshKeys.garage}`} activeVehicleId={activeVehicleId} appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onSelectVehicle={selectActiveVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={showCompletion} serviceDocuments={serviceDocuments} vehicleValuations={vehicleValuations} />
           </MemberPanelErrorBoundary>
         </div>
         <div className="member-tab-panel" hidden={Boolean(completion) || activeTab !== "schedule"}>
@@ -8194,7 +8201,229 @@ function DocumentedServices({ appointments, documents }) {
   );
 }
 
-function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppointment, onAddVehicle, onDeleteVehicle, onSelectVehicle, onUpdateVehicle, onComplete, vehicleValuations }) {
+function VehicleRecordsDialog({ appointments, documents, initialVehicleId, onClose, vehicles }) {
+  const vehicleList = ensureList(vehicles);
+  const [vehicleFilter, setVehicleFilter] = useState(initialVehicleId || vehicleList[0]?.id || "all");
+  const [serviceFilter, setServiceFilter] = useState("all");
+  const [sortOrder, setSortOrder] = useState("newest");
+  const [histories, setHistories] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [downloadingId, setDownloadingId] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    Promise.all(vehicleList.map(async (vehicle) => [vehicle.id, await loadVehicleServiceHistory(vehicle.id)]))
+      .then((entries) => {
+        if (active) setHistories(Object.fromEntries(entries));
+      })
+      .catch((loadError) => {
+        if (active) setError(loadError.message || "Vehicle records could not be loaded.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, [vehicleList.map((vehicle) => vehicle.id).join("|")]);
+
+  const records = useMemo(() => {
+    const requestedVehicles = vehicleFilter === "all" ? vehicleList : vehicleList.filter((vehicle) => vehicle.id === vehicleFilter);
+    const documentList = ensureList(documents);
+    const appointmentList = ensureList(appointments);
+    const nextRecords = [];
+
+    requestedVehicles.forEach((vehicle) => {
+      const vehicleName = vehicleLabel(vehicle);
+      const vehicleRequests = appointmentList.filter((appointment) => appointment.vehicleId === vehicle.id || (!appointment.vehicleId && appointment.vehicle === vehicleName));
+      const requestsById = new Map(vehicleRequests.map((appointment) => [appointment.id, appointment]));
+
+      ensureList(histories[vehicle.id]).forEach((service) => {
+        const request = service.appointmentId ? requestsById.get(service.appointmentId) : null;
+        nextRecords.push({
+          id: `history-${service.id}`,
+          vehicle,
+          vehicleName,
+          date: service.serviceDate || service.createdAt || "",
+          category: service.serviceType || "Maintenance",
+          title: service.serviceType || "Service record",
+          mileage: service.serviceMileage == null ? "" : `${Number(service.serviceMileage).toLocaleString()} ${service.mileageUnit || vehicle.mileageUnit || "km"}`,
+          description: [service.provider, service.description].filter(Boolean).join(" · "),
+          files: request ? documentList.filter((document) => document.requestId === request.id) : [],
+          status: service.verificationStatus === "verified" ? "Verified" : "Recorded",
+        });
+      });
+
+      vehicleRequests
+        .filter((request) => {
+          const status = normalizeRequestValue(request.status);
+          return status === "completed" || documentList.some((document) => document.requestId === request.id);
+        })
+        .filter((request) => !ensureList(histories[vehicle.id]).some((service) => service.appointmentId === request.id))
+        .forEach((request) => nextRecords.push({
+          id: `request-${request.id}`,
+          vehicle,
+          vehicleName,
+          date: request.date || "",
+          category: request.service || "Concierge service",
+          title: request.service || "Concierge service",
+          mileage: "",
+          description: request.notes || "White Glove service record",
+          files: documentList.filter((document) => document.requestId === request.id),
+          status: request.status || "Completed",
+        }));
+
+      [
+        ["window-sticker", "Window Sticker", vehicle.windowStickerName, vehicle.windowStickerUrl, vehicle.windowStickerPath],
+        ["build-sheet", "Factory Build Sheet", vehicle.buildSheetName, vehicle.buildSheetUrl, vehicle.buildSheetPath],
+      ].forEach(([kind, title, name, url, storagePath]) => {
+        if (!url) return;
+        nextRecords.push({
+          id: `${kind}-${vehicle.id}`,
+          vehicle,
+          vehicleName,
+          date: "",
+          category: "Vehicle documents",
+          title,
+          mileage: "",
+          description: "Saved securely with this vehicle.",
+          files: [{ id: `${kind}-${vehicle.id}`, fileName: name || title, directUrl: url, storagePath }],
+          status: "On file",
+        });
+      });
+    });
+
+    return nextRecords
+      .filter((record) => serviceFilter === "all" || record.category === serviceFilter)
+      .sort((left, right) => {
+        const leftTime = left.date ? new Date(left.date).getTime() : 0;
+        const rightTime = right.date ? new Date(right.date).getTime() : 0;
+        return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+      });
+  }, [appointments, documents, histories, serviceFilter, sortOrder, vehicleFilter, vehicleList]);
+
+  const serviceOptions = useMemo(() => {
+    const requestedVehicles = vehicleFilter === "all" ? vehicleList : vehicleList.filter((vehicle) => vehicle.id === vehicleFilter);
+    const requestedIds = new Set(requestedVehicles.map((vehicle) => vehicle.id));
+    const categories = new Set();
+    requestedVehicles.forEach((vehicle) => {
+      ensureList(histories[vehicle.id]).forEach((service) => categories.add(service.serviceType || "Maintenance"));
+      if (vehicle.windowStickerUrl || vehicle.buildSheetUrl) categories.add("Vehicle documents");
+    });
+    ensureList(appointments)
+      .filter((appointment) => requestedIds.has(appointment.vehicleId))
+      .filter((appointment) => normalizeRequestValue(appointment.status) === "completed" || ensureList(documents).some((document) => document.requestId === appointment.id))
+      .forEach((appointment) => categories.add(appointment.service || "Concierge service"));
+    return [...categories].sort();
+  }, [appointments, documents, histories, vehicleFilter, vehicleList]);
+
+  async function downloadRecordFile(file) {
+    if (file.directUrl && !file.storagePath) {
+      window.open(file.directUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    setDownloadingId(file.id);
+    setError("");
+    try {
+      const url = await createServiceDocumentDownloadUrl(file);
+      if (!url) throw new Error("The document link could not be prepared.");
+      const link = window.document.createElement("a");
+      link.href = url;
+      link.download = file.fileName || "vehicle-record";
+      link.rel = "noreferrer";
+      link.target = "_blank";
+      window.document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (downloadError) {
+      setError(downloadError.message || "The document could not be downloaded.");
+    } finally {
+      setDownloadingId("");
+    }
+  }
+
+  return (
+    <div className="garage-modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section className="garage-modal vehicle-records-dialog" role="dialog" aria-modal="true" aria-label="Vehicle Records" onMouseDown={(event) => event.stopPropagation()}>
+        <header><div><p className="eyebrow">Private Garage archive</p><h2>Vehicle Records</h2><p>Maintenance history and documents attached to your vehicles.</p></div><button className="icon-button" aria-label="Close Vehicle Records" type="button" onClick={onClose}><X size={20} /></button></header>
+        <div className="vehicle-record-filters">
+          <label>Vehicle<select value={vehicleFilter} onChange={(event) => setVehicleFilter(event.target.value)}><option value="all">All vehicles</option>{vehicleList.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicleLabel(vehicle)}</option>)}</select></label>
+          <label>Service type<select value={serviceFilter} onChange={(event) => setServiceFilter(event.target.value)}><option value="all">All records</option>{serviceOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
+          <label>Sort<select value={sortOrder} onChange={(event) => setSortOrder(event.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label>
+        </div>
+        {error && <div className="error-message" role="alert">{error}</div>}
+        <div className="vehicle-record-list">
+          {loading ? <div className="empty-state compact-empty"><RefreshCw className="spin" size={22} /><h3>Loading vehicle records</h3></div> : records.length ? records.map((record) => (
+            <article className="vehicle-record-entry" key={record.id}>
+              <div className="vehicle-record-date"><strong>{record.date ? new Date(`${record.date}T12:00:00`).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "Document"}</strong><span>{record.category}</span></div>
+              <div className="vehicle-record-copy"><small>{record.vehicleName}</small><h3>{record.title}</h3><p>{[record.mileage, record.description].filter(Boolean).join(" · ") || "Vehicle record"}</p></div>
+              <div className="vehicle-record-files"><span>{record.status}</span>{record.files.map((file) => <button aria-label={`Open ${file.fileName}`} disabled={downloadingId === file.id} key={file.id} type="button" onClick={() => downloadRecordFile(file)}><Download size={16} /> {downloadingId === file.id ? "Preparing…" : file.fileName}</button>)}</div>
+            </article>
+          )) : <div className="empty-state compact-empty"><FolderOpen size={24} /><h3>No matching records</h3><p>Maintenance history and uploaded documents will appear here.</p></div>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+const vehicleAssistantQuestions = [
+  ["Vehicle Value", ["What’s my car worth today?", "How has my vehicle’s value changed?", "What’s my car likely to be worth in one year?"]],
+  ["Maintenance", ["What maintenance should I do next?", "Is my vehicle overdue for any services?", "What common problems should I watch for?"]],
+  ["Vehicle Information", ["What are my vehicle’s factory specifications?", "What features and options does my car have?", "What are the common issues with my model?"]],
+  ["Ownership & Recommendations", ["Should I keep or sell my vehicle?", "How can I maintain my vehicle’s resale value?", "What services do you recommend for my car?"]],
+];
+
+function VehicleAssistantDialog({ initialVehicleId, onClose, onSelectVehicle, vehicles }) {
+  const vehicleList = ensureList(vehicles);
+  const [vehicleId, setVehicleId] = useState(initialVehicleId || vehicleList[0]?.id || "");
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [error, setError] = useState("");
+  const [asking, setAsking] = useState(false);
+  const selectedVehicle = vehicleList.find((vehicle) => vehicle.id === vehicleId);
+
+  function chooseVehicle(nextId) {
+    setVehicleId(nextId);
+    onSelectVehicle?.(nextId);
+    setAnswer("");
+    setError("");
+  }
+
+  async function submitQuestion(event, suggestedQuestion = "") {
+    event?.preventDefault?.();
+    const nextQuestion = String(suggestedQuestion || question).trim();
+    if (!vehicleId || !nextQuestion || asking) return;
+    setQuestion(nextQuestion);
+    setError("");
+    setAnswer("");
+    setAsking(true);
+    try {
+      const result = await askVehicleAssistant(vehicleId, nextQuestion);
+      setAnswer(result.answer || "No answer was returned.");
+    } catch (assistantError) {
+      setError(assistantError.message || "Ask AI could not answer right now.");
+    } finally {
+      setAsking(false);
+    }
+  }
+
+  return (
+    <div className="garage-modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section className="garage-modal vehicle-assistant-dialog" role="dialog" aria-modal="true" aria-label="Ask AI vehicle assistant" onMouseDown={(event) => event.stopPropagation()}>
+        <header><div><p className="eyebrow">AI Vehicle Assistant</p><h2>Ask AI</h2><p>Personalized answers using your selected vehicle, saved history, and available documents.</p></div><button className="icon-button" aria-label="Close Ask AI" type="button" onClick={onClose}><X size={20} /></button></header>
+        <label className="assistant-vehicle-select">Vehicle<select value={vehicleId} onChange={(event) => chooseVehicle(event.target.value)}>{vehicleList.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicleLabel(vehicle)}</option>)}</select></label>
+        {selectedVehicle && <div className="assistant-context"><Car size={20} /><div><strong>{vehicleLabel(selectedVehicle)}</strong><span>{formatVehicleMileage(selectedVehicle.mileage)} · {[selectedVehicle.windowStickerUrl && "window sticker", selectedVehicle.buildSheetUrl && "build sheet"].filter(Boolean).join(" + ") || "no factory documents uploaded"}</span></div></div>}
+        <div className="assistant-suggestions">{vehicleAssistantQuestions.map(([category, questions]) => <section key={category}><h3>{category}</h3><div>{questions.map((item) => <button disabled={asking} key={item} type="button" onClick={(event) => submitQuestion(event, item)}>{item}</button>)}</div></section>)}</div>
+        <form className="assistant-question-form" onSubmit={submitQuestion}><label>Ask your own question<textarea maxLength="800" onChange={(event) => setQuestion(event.target.value)} placeholder="Ask about this vehicle’s maintenance, history, equipment, value, or ownership…" rows="3" value={question} /></label><button className="button primary" disabled={!question.trim() || !vehicleId || asking} type="submit">{asking ? "Reviewing vehicle…" : <><Sparkles size={18} /> Ask AI</>}</button></form>
+        <p className="assistant-disclaimer">Confirmed records, estimates, and general recommendations are identified separately. Always verify safety-critical work with a qualified technician.</p>
+        {error && <div className="error-message" role="alert">{error}</div>}
+        {answer && <article className="assistant-answer" aria-live="polite"><span>White Glove AI Vehicle Assistant</span><div>{answer}</div></article>}
+      </section>
+    </div>
+  );
+}
+
+function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppointment, onAddVehicle, onDeleteVehicle, onSelectVehicle, onUpdateVehicle, onComplete, serviceDocuments, vehicleValuations }) {
   const garageList = ensureList(garage);
   const valuationList = ensureList(vehicleValuations);
   const serviceReminders = useMemo(() => buildServiceReminders(garageList, member.plan), [garageList, member.plan]);
@@ -8209,6 +8438,8 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [editingVehicleId, setEditingVehicleId] = useState("");
   const [chartVehicleId, setChartVehicleId] = useState(activeVehicleId || garageList[0]?.id || "");
+  const [recordsOpen, setRecordsOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [requestError, setRequestError] = useState("");
   const garageListRef = useRef(null);
   const valueHistoryRef = useRef(null);
@@ -8299,11 +8530,28 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
           vehicle={editingVehicle}
         />
       )}
+      {recordsOpen && (
+        <VehicleRecordsDialog
+          appointments={appointments}
+          documents={serviceDocuments}
+          initialVehicleId={chartVehicle?.id || "all"}
+          onClose={() => setRecordsOpen(false)}
+          vehicles={garageList}
+        />
+      )}
+      {assistantOpen && (
+        <VehicleAssistantDialog
+          initialVehicleId={chartVehicle?.id}
+          onClose={() => setAssistantOpen(false)}
+          onSelectVehicle={selectChartVehicle}
+          vehicles={garageList}
+        />
+      )}
       <nav className="garage-feature-dock" aria-label="Garage features">
-        <button type="button" onClick={() => garageListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}><Car size={18} /><span>Your Garage</span></button>
         <button type="button" disabled={!chartVehicle} onClick={() => valueHistoryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}><Gauge size={18} /><span>Canadian Value History</span></button>
-        <button type="button" disabled={!chartVehicle} onClick={() => valueHistoryRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })}><Sparkles size={18} /><span>Ask AI</span></button>
+        <button type="button" disabled={!chartVehicle} onClick={() => setAssistantOpen(true)}><Sparkles size={18} /><span>Ask AI</span></button>
         <button type="button" disabled={!garageList.length} onClick={() => garageValueRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}><CreditCard size={18} /><span>Garage Value</span></button>
+        <button type="button" disabled={!garageList.length} onClick={() => setRecordsOpen(true)}><FolderOpen size={18} /><span>Vehicle Records</span></button>
       </nav>
 
       <section className="app-section" ref={garageListRef}>
@@ -8362,6 +8610,7 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
         <div ref={valueHistoryRef}>
           <GarageVehicleValueChart
             member={member}
+            onOpenAssistant={() => setAssistantOpen(true)}
             onSelect={() => openVehicle(chartVehicle.id)}
             vehicle={chartVehicle}
             valuations={valuationList.filter((valuation) => valuation.vehicleId === chartVehicle.id)}
@@ -9982,6 +10231,7 @@ function AccountScreen({ garageCount, member, onDeleteAccount, onLogout, onUpdat
 function VehicleForm({ onAddVehicle, onClose, onComplete }) {
   const [imagePreviews, setImagePreviews] = useState([]);
   const [windowSticker, setWindowSticker] = useState(null);
+  const [buildSheet, setBuildSheet] = useState(null);
   const [makeSuggestions, setMakeSuggestions] = useState(fallbackVehicleMakes);
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [vehicleMake, setVehicleMake] = useState("");
@@ -10058,9 +10308,17 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
 
   async function handleWindowSticker(event) {
     try {
-      setWindowSticker(await readVehicleDocument(event.target.files));
+      setWindowSticker(await readVehicleDocument(event.target.files, "window sticker"));
     } catch (error) {
       setVehicleError(error.message || "Could not read the window sticker.");
+    }
+  }
+
+  async function handleBuildSheet(event) {
+    try {
+      setBuildSheet(await readVehicleDocument(event.target.files, "factory build sheet"));
+    } catch (error) {
+      setVehicleError(error.message || "Could not read the factory build sheet.");
     }
   }
 
@@ -10206,6 +10464,9 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         windowStickerData: windowSticker?.dataUrl || "",
         windowStickerName: windowSticker?.name || "",
         windowStickerType: windowSticker?.type || "",
+        buildSheetData: buildSheet?.dataUrl || "",
+        buildSheetName: buildSheet?.name || "",
+        buildSheetType: buildSheet?.type || "",
       });
       form.reset();
       setVehicleMake("");
@@ -10215,6 +10476,7 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
       setVehicleLookupStatus("");
       setImagePreviews([]);
       setWindowSticker(null);
+      setBuildSheet(null);
       setSavingVehicle(false);
       onClose();
       onComplete?.({
@@ -10267,6 +10529,12 @@ function VehicleForm({ onAddVehicle, onClose, onComplete }) {
         <span>{windowSticker?.name || "Upload window sticker"}</span>
         <small>PDF or image, up to 15 MB</small>
         <input accept="application/pdf,image/*" disabled={savingVehicle} name="windowSticker" onChange={handleWindowSticker} type="file" />
+      </label>
+      <label className={savingVehicle ? "document-upload-tile disabled-upload" : "document-upload-tile"}>
+        <FileText size={24} />
+        <span>{buildSheet?.name || "Upload factory build sheet"}</span>
+        <small>Optional · PDF, JPG, JPEG, or PNG up to 15 MB</small>
+        <input accept="application/pdf,image/jpeg,image/png" disabled={savingVehicle} name="buildSheet" onChange={handleBuildSheet} type="file" />
       </label>
       <div className="app-form-grid">
         <label>
@@ -11246,46 +11514,31 @@ function VehicleQuickEditDialog({ onClose, onUpdateVehicle, vehicle }) {
   );
 }
 
-function AiVehicleValuationAction({ member, vehicle, valuations }) {
-  const [copyStatus, setCopyStatus] = useState("");
-  const prompt = buildAiVehicleValuationPrompt(vehicle, valuations, member);
-  const chatGptUrl = `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`;
+function AiVehicleValuationAction({ onOpenAssistant, vehicle }) {
   const canAsk = Boolean(String(vehicle?.year || "").trim() && String(vehicle?.make || "").trim() && String(vehicle?.model || "").trim());
-
-  function prepareAiValuation() {
-    setCopyStatus("Opening ChatGPT with this vehicle's valuation request...");
-    void copyAiValuationPrompt(prompt).then((copied) => {
-      setCopyStatus(copied
-        ? "The request was copied too. If ChatGPT does not prefill it, paste and send."
-        : "ChatGPT opened. Review the prefilled request before sending.");
-    });
-  }
 
   return (
     <div className="ai-valuation-action">
       <div className="ai-valuation-copy">
         <Sparkles size={20} />
         <div>
-          <strong>Ask AI what this car is worth today</strong>
-          <small>Uses the car details, recorded values, and broad Canadian location saved in your profile.</small>
+          <strong>Ask AI about this vehicle</strong>
+          <small>Use saved vehicle details, maintenance history, values, and available factory documents.</small>
         </div>
       </div>
       {canAsk ? (
-        <a className="button primary ai-valuation-button" href={chatGptUrl} target="_blank" rel="noreferrer" onClick={prepareAiValuation}>
-          Ask ChatGPT <ArrowRight size={17} />
-        </a>
+        <button className="button primary ai-valuation-button" type="button" onClick={onOpenAssistant}>Ask AI <ArrowRight size={17} /></button>
       ) : (
         <button className="button primary ai-valuation-button" type="button" disabled>
           Add year, make &amp; model
         </button>
       )}
-      <small className="ai-valuation-privacy">ChatGPT opens with a draft you can review before submitting. Full address, full postal code, VIN, plate, insurance, and account identity are excluded.</small>
-      {copyStatus && <small className="ai-valuation-status" role="status">{copyStatus}</small>}
+      <small className="ai-valuation-privacy">Answers separate confirmed records from estimates and general recommendations.</small>
     </div>
   );
 }
 
-function GarageVehicleValueChart({ member, onSelect, vehicle, valuations }) {
+function GarageVehicleValueChart({ onOpenAssistant, onSelect, vehicle, valuations }) {
   const latestValuation = latestVehicleValuation(vehicle, valuations);
   const currentValueCents = latestValuation?.valueCents || marketValueCents(vehicleMarketValue(vehicle));
   const trend = vehicleValuationTrend(vehicle, valuations);
@@ -11304,7 +11557,7 @@ function GarageVehicleValueChart({ member, onSelect, vehicle, valuations }) {
           </div>
           <button className="text-button" type="button" onClick={onSelect}>Add details</button>
         </div>
-        <AiVehicleValuationAction member={member} vehicle={vehicle} valuations={valuations} />
+        <AiVehicleValuationAction onOpenAssistant={onOpenAssistant} vehicle={vehicle} />
       </section>
     );
   }
@@ -11364,7 +11617,7 @@ function GarageVehicleValueChart({ member, onSelect, vehicle, valuations }) {
         <span><i className="recorded-dot" /> Recorded</span>
         <span><i className="modeled-dot" /> Modeled history</span>
       </div>
-      <AiVehicleValuationAction member={member} vehicle={vehicle} valuations={valuations} />
+      <AiVehicleValuationAction onOpenAssistant={onOpenAssistant} vehicle={vehicle} />
     </section>
   );
 }
@@ -11372,6 +11625,7 @@ function GarageVehicleValueChart({ member, onSelect, vehicle, valuations }) {
 function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle, onGetOffer, onUpdateVehicle, vehicle, valuations }) {
   const [photoPreviews, setPhotoPreviews] = useState([]);
   const [windowStickerDraft, setWindowStickerDraft] = useState(null);
+  const [buildSheetDraft, setBuildSheetDraft] = useState(null);
   const [detailError, setDetailError] = useState("");
   const [valuationNotice, setValuationNotice] = useState("");
   const [deletingVehicle, setDeletingVehicle] = useState(false);
@@ -11508,9 +11762,17 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
 
   async function handleWindowSticker(event) {
     try {
-      setWindowStickerDraft(await readVehicleDocument(event.target.files));
+      setWindowStickerDraft(await readVehicleDocument(event.target.files, "window sticker"));
     } catch (error) {
       setDetailError(error.message || "Could not read the window sticker.");
+    }
+  }
+
+  async function handleBuildSheet(event) {
+    try {
+      setBuildSheetDraft(await readVehicleDocument(event.target.files, "factory build sheet"));
+    } catch (error) {
+      setDetailError(error.message || "Could not read the factory build sheet.");
     }
   }
 
@@ -11663,9 +11925,14 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
         windowStickerData: windowStickerDraft?.dataUrl,
         windowStickerName: windowStickerDraft?.name,
         windowStickerType: windowStickerDraft?.type,
+        buildSheetData: buildSheetDraft?.dataUrl,
+        buildSheetPath: vehicle.buildSheetPath,
+        buildSheetName: buildSheetDraft?.name || vehicle.buildSheetName,
+        buildSheetType: buildSheetDraft?.type || vehicle.buildSheetType,
       });
       setPhotoPreviews([]);
       setWindowStickerDraft(null);
+      setBuildSheetDraft(null);
       onComplete?.({
         actionLabel: "View Garage",
         actionTab: "garage",
@@ -11837,23 +12104,16 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
         </section>
       )}
 
-      <section className="vehicle-document-panel">
-        <div>
-          <FileText size={22} />
-          <div>
-            <span>Vehicle document</span>
-            <h3>Window Sticker</h3>
-            <p>{vehicle.windowStickerName || "Add the original window sticker as a PDF or image."}</p>
-          </div>
-        </div>
-        {vehicle.windowStickerUrl ? (
-          <a className="button secondary compact-button" href={vehicle.windowStickerUrl} target="_blank" rel="noreferrer">
-            View Sticker
-          </a>
-        ) : (
-          <button className="button secondary compact-button" type="button" onClick={openVehicleEditor}>Upload Sticker</button>
-        )}
-      </section>
+      <div className="vehicle-document-panels">
+        <section className="vehicle-document-panel">
+          <div><FileText size={22} /><div><span>Vehicle document</span><h3>Window Sticker</h3><p>{vehicle.windowStickerName || "Add the original window sticker as a PDF or image."}</p></div></div>
+          {vehicle.windowStickerUrl ? <a className="button secondary compact-button" href={vehicle.windowStickerUrl} target="_blank" rel="noreferrer">View Sticker</a> : <button className="button secondary compact-button" type="button" onClick={openVehicleEditor}>Upload Sticker</button>}
+        </section>
+        <section className="vehicle-document-panel">
+          <div><FileText size={22} /><div><span>Vehicle document</span><h3>Factory Build Sheet</h3><p>{vehicle.buildSheetName || "Add the factory build sheet as a PDF or image."}</p></div></div>
+          {vehicle.buildSheetUrl ? <a className="button secondary compact-button" href={vehicle.buildSheetUrl} target="_blank" rel="noreferrer">View Build Sheet</a> : <button className="button secondary compact-button" type="button" onClick={openVehicleEditor}>Upload Build Sheet</button>}
+        </section>
+      </div>
 
       <section className="vehicle-stat-grid">
         <article>
@@ -12034,6 +12294,12 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
             <span>{windowStickerDraft?.name || vehicle.windowStickerName || "Upload window sticker"}</span>
             <small>{vehicle.windowStickerName && !windowStickerDraft ? "Choose a new file to replace the saved sticker" : "PDF or image, up to 15 MB"}</small>
             <input accept="application/pdf,image/*" name="windowSticker" onChange={handleWindowSticker} type="file" />
+          </label>
+          <label className="document-upload-tile">
+            <FileText size={24} />
+            <span>{buildSheetDraft?.name || vehicle.buildSheetName || "Upload factory build sheet"}</span>
+            <small>{vehicle.buildSheetName && !buildSheetDraft ? "Choose a new file to replace the saved build sheet" : "PDF, JPG, JPEG, or PNG up to 15 MB"}</small>
+            <input accept="application/pdf,image/jpeg,image/png" name="buildSheet" onChange={handleBuildSheet} type="file" />
           </label>
           <div className="app-form-grid">
             <label>

@@ -1,5 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 import { normalizeMileageUnit, normalizeOdometer, toKilometres } from "../../shared/vehicleIntelligence.js";
+import {
+  parseVehicleDocumentMetadata,
+  serializeVehicleDocumentMetadata,
+  stripVehicleDocumentMetadata,
+} from "../../shared/vehicleDocuments.js";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -387,7 +392,10 @@ export async function createVehicle(userId, vehicle) {
   if (!supabase || !userId) return vehicle;
 
   const windowStickerPath = vehicle.windowStickerData
-    ? await uploadVehicleDocument(userId, vehicle.windowStickerData, vehicle.windowStickerName, vehicle.windowStickerType)
+    ? await uploadVehicleDocument(userId, vehicle.windowStickerData, vehicle.windowStickerName, vehicle.windowStickerType, "window-stickers", "window sticker")
+    : "";
+  const buildSheetPath = vehicle.buildSheetData
+    ? await uploadVehicleDocument(userId, vehicle.buildSheetData, vehicle.buildSheetName, vehicle.buildSheetType, "build-sheets", "factory build sheet")
     : "";
   const imageUrls = await safeUploadVehicleImages(userId, vehicle.images?.length ? vehicle.images : [vehicle.image]);
   const fallbackImages = ensureImageList(vehicle.images?.length ? vehicle.images : [vehicle.image]).map(reusableImageUrl).filter(Boolean);
@@ -397,6 +405,7 @@ export async function createVehicle(userId, vehicle) {
     image: images[0] || reusableImageUrl(vehicle.image),
     images,
     windowStickerPath,
+    buildSheetPath,
   });
 
   const { data, error } = await supabase.from("vehicles").insert(payload).select("*").single();
@@ -443,8 +452,12 @@ export async function updateVehicleRecord(vehicleId, updates) {
   const userId = authData?.user?.id || "";
   if (!userId) throw new Error("You must be signed in to update this vehicle.");
   const windowStickerPath = updates.windowStickerData
-    ? await uploadVehicleDocument(userId, updates.windowStickerData, updates.windowStickerName, updates.windowStickerType)
+    ? await uploadVehicleDocument(userId, updates.windowStickerData, updates.windowStickerName, updates.windowStickerType, "window-stickers", "window sticker")
     : undefined;
+  const buildSheetPath = updates.buildSheetData
+    ? await uploadVehicleDocument(userId, updates.buildSheetData, updates.buildSheetName, updates.buildSheetType, "build-sheets", "factory build sheet")
+    : undefined;
+  const effectiveBuildSheetPath = buildSheetPath ?? updates.buildSheetPath;
   const updateImages = updates.images?.length ? updates.images : updates.image ? [updates.image] : [];
   const imageUrls = await safeUploadVehicleImages(userId || "vehicle-updates", updateImages);
   const fallbackImages = ensureImageList(updateImages).map(reusableImageUrl).filter(Boolean);
@@ -454,6 +467,7 @@ export async function updateVehicleRecord(vehicleId, updates) {
     image: images[0] || reusableImageUrl(updates.image),
     images: images.length ? images : updates.images,
     windowStickerPath,
+    buildSheetPath: effectiveBuildSheetPath,
   });
 
   const { data, error } = await supabase
@@ -692,6 +706,28 @@ export async function createServiceDocumentDownloadUrl(document) {
 
   if (error) throw new Error(`Could not prepare ${document.fileName || "the document"} for download.`);
   return data?.signedUrl || "";
+}
+
+export async function askVehicleAssistant(vehicleId, question) {
+  if (!vehicleId) throw new Error("Choose a vehicle before asking a question.");
+  const prompt = String(question || "").trim();
+  if (!prompt) throw new Error("Enter a question about your vehicle.");
+  const accessToken = await getCurrentAccessToken();
+  if (!accessToken) throw new Error("Sign in before using Ask AI.");
+
+  const response = await fetch(`${productionSiteUrl}/.netlify/functions/vehicle-assistant`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ vehicleId, question: prompt.slice(0, 800) }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || "The vehicle assistant could not answer right now.");
+  }
+  return payload;
 }
 
 export async function uploadServiceDocumentToSignedUrl(upload, file) {
@@ -1285,27 +1321,27 @@ async function uploadStorageImage(bucket, folder, image) {
   return data.publicUrl;
 }
 
-async function uploadVehicleDocument(userId, dataUrl, fileName = "window-sticker", fileType = "") {
+async function uploadVehicleDocument(userId, dataUrl, fileName = "vehicle-document", fileType = "", folder = "records", label = "vehicle document") {
   if (!supabase || !userId || !dataUrl || !String(dataUrl).startsWith("data:")) return "";
 
   const response = await fetch(dataUrl);
   const blob = await response.blob();
   const mimeType = fileType || blob.type || "application/pdf";
   if (mimeType !== "application/pdf" && !mimeType.startsWith("image/")) {
-    throw new Error("The window sticker must be a PDF or image file.");
+    throw new Error(`The ${label} must be a PDF or image file.`);
   }
 
   const suppliedExtension = String(fileName).split(".").pop()?.toLowerCase();
   const mimeExtension = mimeType === "application/pdf" ? "pdf" : mimeType.split("/")[1] || "jpg";
   const extension = /^[a-z0-9]+$/.test(suppliedExtension || "") ? suppliedExtension : mimeExtension;
-  const path = `${userId}/window-stickers/${crypto.randomUUID()}.${extension}`;
+  const path = `${userId}/${folder}/${crypto.randomUUID()}.${extension}`;
   const { error } = await supabase.storage.from("vehicle-documents").upload(path, blob, {
     contentType: mimeType,
     upsert: false,
   });
 
   if (error) {
-    throw new Error(`Could not upload the window sticker: ${error.message}. Run the Garage capacity and window sticker SQL migration in Supabase first.`);
+    throw new Error(`Could not upload the ${label}: ${error.message}. Confirm the private vehicle document storage is available.`);
   }
 
   return path;
@@ -1315,7 +1351,7 @@ async function signedVehicleDocumentUrl(path) {
   if (!supabase || !path) return "";
   const { data, error } = await supabase.storage.from("vehicle-documents").createSignedUrl(path, 60 * 60);
   if (error) {
-    console.warn("Could not create a window sticker link.", error);
+    console.warn("Could not create a private vehicle document link.", error);
     return "";
   }
   return data?.signedUrl || "";
@@ -1357,6 +1393,7 @@ function fromVehicleValuationRow(row) {
 
 function fromVehicleRow(row) {
   const galleryImages = parseVehicleGallery(row.notes);
+  const documentMetadata = parseVehicleDocumentMetadata(row.notes);
   const images = ensureImageList([row.image_url, ...galleryImages]);
 
   return {
@@ -1385,12 +1422,15 @@ function fromVehicleRow(row) {
     marketValue: row.market_value || "Value pending",
     horsepower: row.horsepower || "HP pending",
     workDone: row.work_done || [],
-    notes: stripVehicleGallery(row.notes),
+    notes: stripVehicleDocumentMetadata(stripVehicleGallery(row.notes)),
     image: images[0] || "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=85",
     images,
     windowStickerPath: row.window_sticker_path || "",
     windowStickerName: row.window_sticker_name || "",
     windowStickerType: row.window_sticker_type || "",
+    buildSheetPath: documentMetadata.buildSheetPath,
+    buildSheetName: documentMetadata.buildSheetName,
+    buildSheetType: documentMetadata.buildSheetType,
   };
 }
 
@@ -1399,6 +1439,7 @@ async function fromVehicleRowWithDocument(row) {
   return {
     ...vehicle,
     windowStickerUrl: await signedVehicleDocumentUrl(vehicle.windowStickerPath),
+    buildSheetUrl: await signedVehicleDocumentUrl(vehicle.buildSheetPath),
   };
 }
 
@@ -1427,7 +1468,11 @@ function toVehicleRow(userId, vehicle) {
     market_value: vehicle.marketValue || "Value pending",
     horsepower: vehicle.horsepower || "HP pending",
     work_done: vehicle.workDone || [],
-    notes: serializeVehicleNotes(vehicle.notes, vehicle.images?.length ? vehicle.images : [vehicle.image]),
+    notes: serializeVehicleNotes(vehicle.notes, vehicle.images?.length ? vehicle.images : [vehicle.image], {
+      buildSheetPath: vehicle.buildSheetPath,
+      buildSheetName: vehicle.buildSheetName,
+      buildSheetType: vehicle.buildSheetType,
+    }),
     image_url: vehicle.image || "",
   };
   if (vehicle.windowStickerPath) {
@@ -1463,7 +1508,13 @@ function toVehicleUpdateRow(updates) {
   if (updates.horsepower !== undefined) row.horsepower = updates.horsepower;
   if (updates.workDone !== undefined) row.work_done = updates.workDone;
   if (updates.image !== undefined) row.image_url = updates.image;
-  if (updates.notes !== undefined || updates.images !== undefined) row.notes = serializeVehicleNotes(updates.notes, updates.images);
+  if (updates.notes !== undefined || updates.images !== undefined || updates.buildSheetPath !== undefined) {
+    row.notes = serializeVehicleNotes(updates.notes, updates.images, {
+      buildSheetPath: updates.buildSheetPath,
+      buildSheetName: updates.buildSheetName,
+      buildSheetType: updates.buildSheetType,
+    });
+  }
   if (updates.windowStickerPath !== undefined) row.window_sticker_path = updates.windowStickerPath;
   if (updates.windowStickerName !== undefined) row.window_sticker_name = updates.windowStickerName;
   if (updates.windowStickerType !== undefined) row.window_sticker_type = updates.windowStickerType;
@@ -1495,11 +1546,11 @@ function stripVehicleGallery(notes) {
     .trim();
 }
 
-function serializeVehicleNotes(notes, images) {
-  const cleanNotes = stripVehicleGallery(notes);
+function serializeVehicleNotes(notes, images, documentMetadata = {}) {
+  const cleanNotes = stripVehicleDocumentMetadata(stripVehicleGallery(notes));
   const galleryImages = ensureImageList(images);
-  if (!galleryImages.length) return cleanNotes;
-  return [cleanNotes, `${vehicleGalleryPrefix} ${JSON.stringify(galleryImages)}`].filter(Boolean).join("\n");
+  const notesWithGallery = [cleanNotes, galleryImages.length ? `${vehicleGalleryPrefix} ${JSON.stringify(galleryImages)}` : ""].filter(Boolean).join("\n");
+  return serializeVehicleDocumentMetadata(notesWithGallery, documentMetadata);
 }
 
 function fromRequestRow(row) {
