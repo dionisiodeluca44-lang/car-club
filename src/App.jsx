@@ -8560,7 +8560,7 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
             <h2>Your Garage</h2>
             <p>{showHomeVehicleSelection
               ? `Select a vehicle to tailor Home recommendations, bookings, reminders, and offers to that car. Your package allows ${vehicleLimitText.toLowerCase()}.`
-              : `Your only garage vehicle automatically tailors Home. Select it to see market value, service history, photos, and details.`}</p>
+              : `This vehicle personalizes your Home experience with relevant recommendations, bookings, and reminders. Select it to view its market value, service history, photos, and details.`}</p>
           </div>
           {canAddVehicle && (
             <button className="button primary compact-button" type="button" onClick={() => setShowForm((open) => !open)}>
@@ -9074,7 +9074,7 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
           <div>
             <p className="eyebrow">Step 1 of 3</p>
             <h2>Our Services</h2>
-            <p>Choose a service to continue to its separate booking details page.</p>
+            <p>Explore our comprehensive range of services and select the one that best fits your vehicle’s needs.</p>
           </div>
           <span className="section-count" aria-label={`${serviceOptions.length} services available`}>
             <Wrench aria-hidden="true" size={16} />

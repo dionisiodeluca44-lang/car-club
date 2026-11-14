@@ -13,6 +13,9 @@
   --steel: #8d99a6;
   --white: #ffffff;
   --radius: 8px;
+  --app-section-title-size: clamp(1.35rem, 3vw, 2rem);
+  --app-section-subtitle-size: 0.95rem;
+  --app-section-subtitle-line-height: 1.55;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -2148,12 +2151,12 @@ textarea:focus {
 }
 
 .home-priority .app-section-title h2 {
-  font-size: clamp(1.15rem, 2.5vw, 1.5rem);
+  font-size: var(--app-section-title-size);
 }
 
 .home-priority .app-section-title p {
-  font-size: 0.9rem;
-  line-height: 1.45;
+  font-size: var(--app-section-subtitle-size);
+  line-height: var(--app-section-subtitle-line-height);
 }
 
 .home-priority-heading {
@@ -3481,7 +3484,16 @@ textarea:focus {
 .app-section-title h2,
 .app-section h2 {
   margin-bottom: 0.4rem;
-  font-size: clamp(1.35rem, 3vw, 2rem);
+  font-size: var(--app-section-title-size);
+  line-height: 1.12;
+}
+
+.app-section-title > div > p:not(.eyebrow) {
+  max-width: 64ch;
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: var(--app-section-subtitle-size);
+  line-height: var(--app-section-subtitle-line-height);
 }
 
 .app-section-title button {
@@ -11935,7 +11947,7 @@ textarea:focus {
 
   .app-section-title h2,
   .app-section h2 {
-    font-size: clamp(1.2rem, 7vw, 1.65rem);
+    font-size: var(--app-section-title-size);
   }
 
   .instant-book-card {
