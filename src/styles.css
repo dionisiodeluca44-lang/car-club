@@ -46,6 +46,24 @@ body {
   touch-action: manipulation;
 }
 
+html.native-ios,
+html.native-ios body,
+html.native-ios #root {
+  background: #000000;
+}
+
+html.native-ios body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 10000;
+  height: env(safe-area-inset-top, 0px);
+  background: #000000;
+  pointer-events: none;
+}
+
 html::-webkit-scrollbar,
 body::-webkit-scrollbar {
   display: none;

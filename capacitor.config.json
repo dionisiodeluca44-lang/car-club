@@ -6,6 +6,7 @@
     "iosScheme": "https"
   },
   "ios": {
+    "backgroundColor": "#000000",
     "contentInset": "automatic"
   }
 }
