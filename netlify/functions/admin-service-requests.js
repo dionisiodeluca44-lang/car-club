@@ -1,10 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
-import {
-  benefitAllowancesForPlan,
-  membershipBenefitPeriod,
-  summarizeMembershipBenefits,
-} from "../../shared/membershipBenefits.js";
+import { summarizeMembershipBenefits } from "../../shared/membershipBenefits.js";
 import { canArchivePastBooking } from "../../shared/adminBooking.js";
 
 const adminPassword = process.env.ADMIN_PORTAL_PASSWORD;
@@ -12,7 +8,6 @@ const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const supabase = supabaseUrl && supabaseServiceRoleKey ? createClient(supabaseUrl, supabaseServiceRoleKey) : null;
-const activeMembershipStatuses = new Set(["active", "trialing"]);
 const permanentComplimentaryServiceEmailHashes = new Set([
   "ecf6c1345e7c2faeb9f39fc7797e731d78c61831461b6310f22dfa938ec37089",
   ...String(process.env.COMPLIMENTARY_SERVICE_EMAIL_SHA256 || "")
@@ -53,16 +48,6 @@ async function requestHasPermanentComplimentaryServiceAccess(requestId) {
     .eq("id", request.user_id)
     .maybeSingle();
   return hasPermanentComplimentaryServiceAccess(profile?.email);
-}
-
-function dateOnly(value) {
-  return new Date(value).toISOString().slice(0, 10);
-}
-
-function benefitPeriodForProfile(profile) {
-  return membershipBenefitPeriod(
-    profile?.stripe_subscription_created_at || profile?.subscription_activated_at || profile?.created_at,
-  );
 }
 
 function effectiveProfilePlan(profile) {
@@ -153,19 +138,6 @@ async function updateMembershipBenefit({ action, benefitKey, requestId }) {
     return { statusCode: 404, body: { error: "Could not find the member profile." } };
   }
 
-  const effectivePlan = effectiveProfilePlan(profile);
-  if (action !== "restore-benefit" && !activeMembershipStatuses.has(String(profile.subscription_status || "").toLowerCase())) {
-    return { statusCode: 409, body: { error: "Benefits can only be applied while the membership is active." } };
-  }
-  const allowance = benefitAllowancesForPlan(effectivePlan).find((item) => item.key === benefitKey);
-  if (!allowance) {
-    return { statusCode: 400, body: { error: `${effectivePlan} does not include that benefit.` } };
-  }
-
-  const period = benefitPeriodForProfile(profile);
-  const periodStart = dateOnly(period.start);
-  const periodEnd = dateOnly(period.end);
-
   const { data: existing, error: existingError } = await supabase
     .from("membership_benefit_usage")
     .select("*")
@@ -181,7 +153,16 @@ async function updateMembershipBenefit({ action, benefitKey, requestId }) {
     if (!existing) {
       return { statusCode: 404, body: { error: "That request has no matching benefit redemption." } };
     }
+    if (existing.status === "reversed") {
+      return { statusCode: 200, body: { usage: existing } };
+    }
 
+    const { data: audit } = await supabase
+      .from("membership_benefit_audit_logs")
+      .select("assignment_id")
+      .eq("service_request_id", requestId)
+      .eq("action", "redeemed")
+      .maybeSingle();
     const { data, error } = await supabase
       .from("membership_benefit_usage")
       .update({ status: "reversed", updated_at: new Date().toISOString() })
@@ -190,6 +171,13 @@ async function updateMembershipBenefit({ action, benefitKey, requestId }) {
       .single();
 
     if (error) return { statusCode: 500, body: { error: "Could not restore the member benefit." } };
+    if (audit?.assignment_id) {
+      const { data: assignment } = await supabase.from("membership_benefit_assignments").select("quantity_redeemed").eq("id", audit.assignment_id).maybeSingle();
+      if (assignment) {
+        await supabase.from("membership_benefit_assignments").update({ quantity_redeemed: Math.max(0, Number(assignment.quantity_redeemed) - 1), updated_at: new Date().toISOString() }).eq("id", audit.assignment_id);
+        await supabase.from("membership_benefit_audit_logs").upsert({ assignment_id: audit.assignment_id, user_id: request.user_id, service_request_id: requestId, action: "restored", quantity_delta: 1, actor: "admin-portal" }, { onConflict: "service_request_id,assignment_id,action", ignoreDuplicates: true });
+      }
+    }
     return { statusCode: 200, body: { usage: data } };
   }
 
@@ -197,48 +185,25 @@ async function updateMembershipBenefit({ action, benefitKey, requestId }) {
     return { statusCode: 200, body: { usage: existing } };
   }
 
-  const { data: periodUsage, error: usageError } = await supabase
-    .from("membership_benefit_usage")
-    .select("id, benefit_key, status, period_start, period_end")
+  const now = new Date().toISOString();
+  const { data: assignments, error: assignmentError } = await supabase
+    .from("membership_benefit_assignments")
+    .select("*")
     .eq("user_id", request.user_id)
-    .eq("period_start", periodStart)
-    .eq("period_end", periodEnd);
+    .eq("benefit_key", benefitKey)
+    .eq("status", "active")
+    .order("expires_at", { ascending: true, nullsFirst: false });
+  if (assignmentError) return { statusCode: 500, body: { error: "Could not verify the assigned benefit ledger." } };
+  const assignment = (assignments || []).find((item) => (!item.expires_at || item.expires_at > now) && Number(item.quantity_redeemed) < Number(item.quantity_total));
+  if (!assignment) return { statusCode: 409, body: { error: "No active administrator-assigned benefit is available for this service." } };
 
-  if (usageError) {
-    return { statusCode: 500, body: { error: "Could not verify the member's remaining benefits." } };
-  }
-
-  const { data: revenueEvents, error: revenueError } = await supabase
-    .from("membership_revenue_events")
-    .select("amount_paid_cents, amount_refunded_cents, paid_at")
-    .eq("user_id", request.user_id)
-    .gte("paid_at", period.start.toISOString())
-    .lt("paid_at", period.end.toISOString());
-
-  if (revenueError) {
-    return { statusCode: 500, body: { error: "Could not verify paid membership revenue. Run the membership benefit unlock migration." } };
-  }
-
-  const balances = summarizeMembershipBenefits(effectivePlan, periodUsage || [], {
-    activationDate: profile.stripe_subscription_created_at || profile.subscription_activated_at || profile.created_at,
-    revenueEvents: revenueEvents || [],
-  });
-  const balance = balances.find((item) => item.key === benefitKey);
-
-  if (!balance || balance.remaining <= 0) {
-    const nextDate = balance?.nextUnlockAt && new Date(balance.nextUnlockAt) > new Date()
-      ? new Date(balance.nextUnlockAt).toLocaleDateString("en-CA", { dateStyle: "medium", timeZone: "America/Toronto" })
-      : "after additional successful membership payments";
-    return {
-      statusCode: 409,
-      body: { error: `No earned ${allowance.label.toLowerCase()} credit is available yet. Its earliest unlock is ${nextDate}; the paid-revenue reserve must also be able to cover it.` },
-    };
-  }
+  const periodStart = now.slice(0, 10);
+  const periodEnd = assignment.expires_at ? assignment.expires_at.slice(0, 10) : "9999-12-31";
 
   const benefitRecord = {
-    benefit_key: allowance.key,
-    credit_cents: allowance.creditCents,
-    description: `${allowance.label} applied to ${request.service_type}`,
+    benefit_key: assignment.benefit_key,
+    credit_cents: assignment.credit_cents,
+    description: `${assignment.label} applied to ${request.service_type}`,
     period_end: periodEnd,
     period_start: periodStart,
     service_request_id: requestId,
@@ -254,6 +219,18 @@ async function updateMembershipBenefit({ action, benefitKey, requestId }) {
   const { data, error } = await query.select("*").single();
 
   if (error) return { statusCode: 500, body: { error: "Could not record the member benefit." } };
+  const { data: incremented, error: incrementError } = await supabase
+    .from("membership_benefit_assignments")
+    .update({ quantity_redeemed: Number(assignment.quantity_redeemed) + 1, updated_at: now })
+    .eq("id", assignment.id)
+    .eq("quantity_redeemed", assignment.quantity_redeemed)
+    .select("id")
+    .maybeSingle();
+  if (incrementError || !incremented) {
+    await supabase.from("membership_benefit_usage").update({ status: "reversed", updated_at: now }).eq("id", data.id);
+    return { statusCode: 409, body: { error: "That benefit changed while it was being applied. Refresh and try again." } };
+  }
+  await supabase.from("membership_benefit_audit_logs").upsert({ assignment_id: assignment.id, user_id: request.user_id, service_request_id: requestId, action: "redeemed", quantity_delta: -1, actor: "admin-portal" }, { onConflict: "service_request_id,assignment_id,action", ignoreDuplicates: true });
   return { statusCode: 200, body: { usage: data } };
 }
 
@@ -309,6 +286,7 @@ export async function handler(event) {
     }
 
     let benefitUsage = [];
+    let benefitAssignments = [];
     if (userIds.length) {
       const { data: usageRows, error: usageError } = await supabase
         .from("membership_benefit_usage")
@@ -320,19 +298,15 @@ export async function handler(event) {
       } else {
         benefitUsage = usageRows || [];
       }
-    }
 
-    let membershipRevenueEvents = [];
-    if (userIds.length) {
-      const { data: revenueRows, error: revenueError } = await supabase
-        .from("membership_revenue_events")
-        .select("user_id, amount_paid_cents, amount_refunded_cents, paid_at")
+      const { data: assignmentRows, error: assignmentError } = await supabase
+        .from("membership_benefit_assignments")
+        .select("*")
         .in("user_id", userIds);
-
-      if (revenueError) {
-        console.warn("Could not attach paid membership revenue. Run the membership benefit unlock migration.", revenueError);
+      if (assignmentError) {
+        console.warn("Could not attach administrator-assigned benefits. Run the complete platform update migration.", assignmentError);
       } else {
-        membershipRevenueEvents = revenueRows || [];
+        benefitAssignments = assignmentRows || [];
       }
     }
 
@@ -393,14 +367,7 @@ export async function handler(event) {
       events: feedEvents,
       requests: (data || []).map((request) => {
         const profile = profileMap.get(request.user_id) || null;
-        const period = benefitPeriodForProfile(profile);
-        const periodStart = dateOnly(period.start);
-        const periodEnd = dateOnly(period.end);
-        const currentUsage = benefitUsage.filter((usage) => (
-          usage.user_id === request.user_id
-          && usage.period_start === periodStart
-          && usage.period_end === periodEnd
-        ));
+        const assignments = benefitAssignments.filter((assignment) => assignment.user_id === request.user_id);
 
         const payments = servicePayments.filter((payment) => payment.service_request_id === request.id);
         return {
@@ -410,10 +377,7 @@ export async function handler(event) {
           payment_summary: paymentSummary(request, payments),
           payments,
           member: profile,
-          member_benefits: summarizeMembershipBenefits(profile?.plan, currentUsage, {
-            activationDate: profile?.stripe_subscription_created_at || profile?.subscription_activated_at || profile?.created_at,
-            revenueEvents: membershipRevenueEvents.filter((entry) => entry.user_id === request.user_id),
-          }),
+          member_benefits: summarizeMembershipBenefits(profile?.plan, assignments),
         };
       }),
     });

@@ -16,8 +16,11 @@ export const supabase = isBackendConfigured ? createClient(supabaseUrl, supabase
 
 const defaultNotifications = {
   bookingUpdates: true,
+  benefitUpdates: true,
   feedActivity: true,
+  mileageReminders: true,
   offers: true,
+  recommendationUpdates: true,
   serviceReminders: true,
 };
 
@@ -28,7 +31,10 @@ function ensureList(value) {
 
 function effectiveMemberPlan(profile, user) {
   if (profile?.collector_access_override) return "Collector";
-  return profile?.plan || user?.user_metadata?.plan || "Club Drive";
+  const plan = profile?.plan || user?.user_metadata?.plan || "Essential";
+  if (["Silver", "Club Drive", "Gold"].includes(plan)) return "Essential";
+  if (plan === "Platinum") return "Premium";
+  return plan;
 }
 
 function friendlyAuthError(error, fallback = "Could not complete authentication.") {
@@ -185,7 +191,7 @@ export async function requestPasswordReset(email) {
 
 export async function signIn({ email, password }) {
   if (!supabase) {
-    return { avatarUrl: "", email, name: email.split("@")[0] || "Member", phone: "", plan: "Club Drive", subscriptionStatus: "active", username: "", notifications: defaultNotifications };
+    return { avatarUrl: "", email, name: email.split("@")[0] || "Member", phone: "", plan: "Essential", subscriptionStatus: "active", username: "", notifications: defaultNotifications };
   }
 
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -594,7 +600,18 @@ export async function createVehicleMileageReading(vehicleId, reading) {
     }
     throw new Error(`Could not record mileage: ${error.message}`);
   }
-  return fromMileageReadingRow(data);
+  const savedReading = fromMileageReadingRow(data);
+  try {
+    const accessToken = await getCurrentAccessToken();
+    const response = await fetch(`${productionSiteUrl}/.netlify/functions/member-maintenance-recalculate`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ vehicleId }),
+    });
+    return { ...savedReading, maintenanceRecalculated: response.ok };
+  } catch {
+    return { ...savedReading, maintenanceRecalculated: false };
+  }
 }
 
 export async function loadVehicleServiceHistory(vehicleId) {
@@ -878,6 +895,29 @@ export async function loadMembershipPricing() {
 export async function loadMembershipBenefitUsage(userId) {
   if (!supabase || !userId) return [];
 
+  const { data: assignments, error: assignmentError } = await supabase
+    .from("membership_benefit_assignments")
+    .select("id, benefit_key, label, description, quantity_total, quantity_redeemed, credit_cents, expires_at, status, created_at, updated_at")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .order("created_at", { ascending: false });
+
+  if (!assignmentError) {
+    return (assignments || []).map((row) => ({
+      assignmentId: row.id,
+      benefitKey: row.benefit_key,
+      label: row.label,
+      description: row.description || "",
+      quantityTotal: Number(row.quantity_total || 0),
+      quantityRedeemed: Number(row.quantity_redeemed || 0),
+      creditCents: Number(row.credit_cents || 0),
+      expiresAt: row.expires_at || "",
+      status: row.status || "active",
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
   const today = new Date().toISOString().slice(0, 10);
   const { data, error } = await supabase
     .from("membership_benefit_usage")
@@ -888,7 +928,7 @@ export async function loadMembershipBenefitUsage(userId) {
     .order("used_at", { ascending: false });
 
   if (error) {
-    console.warn("Could not load membership benefit usage. Run the membership benefits migration.", error);
+    console.warn("Could not load assigned membership benefits. Run the complete platform update migration.", assignmentError || error);
     return [];
   }
 
@@ -930,6 +970,44 @@ export async function loadMembershipRevenueEvents(userId) {
     servicePeriodStart: row.service_period_start,
     servicePeriodEnd: row.service_period_end,
   }));
+}
+
+export async function loadMemberNotifications(userId) {
+  if (!supabase || !userId) return [];
+  const { data, error } = await supabase
+    .from("member_notifications")
+    .select("id, vehicle_id, category, title, body, deep_link, delivery_status, sent_at, read_at, dismissed_at, metadata, created_at")
+    .eq("user_id", userId)
+    .is("dismissed_at", null)
+    .lte("scheduled_for", new Date().toISOString())
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) {
+    if (["42P01", "PGRST205"].includes(error.code)) return [];
+    throw new Error(`Could not load notifications: ${error.message}`);
+  }
+  return (data || []).map((row) => ({
+    id: row.id,
+    vehicleId: row.vehicle_id || "",
+    category: row.category,
+    title: row.title,
+    body: row.body,
+    deepLink: row.deep_link || "",
+    deliveryStatus: row.delivery_status,
+    sentAt: row.sent_at,
+    readAt: row.read_at,
+    dismissedAt: row.dismissed_at,
+    metadata: row.metadata || {},
+    createdAt: row.created_at,
+  }));
+}
+
+export async function updateMemberNotification(notificationId, action = "read") {
+  if (!supabase || !notificationId) return;
+  const timestamp = new Date().toISOString();
+  const update = action === "dismiss" ? { dismissed_at: timestamp, read_at: timestamp } : { read_at: timestamp };
+  const { error } = await supabase.from("member_notifications").update(update).eq("id", notificationId);
+  if (error) throw new Error(`Could not update notification: ${error.message}`);
 }
 
 export function subscribeToFeedPosts(onPostCreated, onFeedChanged) {

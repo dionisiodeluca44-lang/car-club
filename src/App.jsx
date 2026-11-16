@@ -1,6 +1,7 @@
 import React, { Component, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right.js";
 import CalendarCheck from "lucide-react/dist/esm/icons/calendar-check.js";
+import Bell from "lucide-react/dist/esm/icons/bell.js";
 import Car from "lucide-react/dist/esm/icons/car.js";
 import Check from "lucide-react/dist/esm/icons/check.js";
 import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left.js";
@@ -37,7 +38,6 @@ import Warehouse from "lucide-react/dist/esm/icons/warehouse.js";
 import Wrench from "lucide-react/dist/esm/icons/wrench.js";
 import X from "lucide-react/dist/esm/icons/x.js";
 import {
-  askVehicleAssistant,
   createAccount,
   blockFeedUser,
   createFeedComment,
@@ -58,6 +58,7 @@ import {
   loadMembershipPricing,
   loadMembershipBenefitUsage,
   loadMembershipRevenueEvents,
+  loadMemberNotifications,
   loadServicePricing,
   loadServiceRequests,
   loadServiceDocuments,
@@ -78,6 +79,7 @@ import {
   uploadServiceDocumentToSignedUrl,
   updateMemberPassword,
   updateMemberProfile,
+  updateMemberNotification,
   updateVehicleRecord,
 } from "./lib/backend";
 import {
@@ -233,49 +235,33 @@ function readableError(error, fallback = "Something went wrong. Please try again
 
 const plans = [
   {
-    name: "Silver",
-    price: "$99",
-    cadence: "/month",
-    intro: "For owners who want the essentials managed with priority support.",
-    features: ["Up to 1 concierge-arranged maintenance wash per membership year", "Service reminders", "Priority booking", "Basic vehicle health report", "Digital vehicle records"],
+    name: "Essential",
+    price: "$149.99",
+    cadence: "",
+    intro: "Complete concierge coordination and members-app access for one vehicle.",
+    features: ["One vehicle", "All standard concierge services", "Complete members app", "Maintenance planning and reminders", "Digital vehicle records"],
   },
   {
-    name: "Club Drive",
-    price: "$149",
-    cadence: "/month",
-    intro: "For owners who want pickup, delivery, and regular care coordination handled.",
-    features: ["Up to 2 concierge-arranged maintenance washes per membership year", "Up to 1 Montreal concierge vehicle transport per membership year", "Pickup and delivery coordination", "Monthly vehicle check-in", "Priority service updates"],
-  },
-  {
-    name: "Gold",
-    price: "$199",
-    cadence: "/month",
-    intro: "For daily drivers and seasonal vehicles that need consistent care.",
+    name: "Premium",
+    price: "$199.99",
+    cadence: "",
+    intro: "Essential membership with 24/7 concierge support for one vehicle.",
     featured: true,
-    features: ["Up to 4 concierge-arranged maintenance washes per membership year", "Up to 1 complete detailing session per membership year", "Up to 1 Montreal concierge vehicle transport per membership year", "Seasonal tire coordination", "Maintenance concierge"],
-  },
-  {
-    name: "Platinum",
-    price: "$399",
-    cadence: "/month",
-    intro: "For owners who want complete white-glove vehicle management.",
-    features: ["Up to 6 concierge-arranged maintenance washes per membership year", "Up to 2 complete detailing sessions per membership year", "Up to 3 Montreal concierge vehicle transports per membership year", "1 annual vehicle-protection benefit for ceramic coating, PPF, wrap, or tint", "Complete maintenance concierge"],
+    features: ["One vehicle", "Everything in Essential", "24/7 concierge support", "Priority ownership coordination", "Complete members app"],
   },
   {
     name: "Collector",
-    price: "$699",
-    cadence: "/month",
-    intro: "For collections of up to 10 vehicles, with additional vehicle spots available through your concierge.",
-    features: ["Up to 10 garage vehicles", "Up to 12 concierge-arranged maintenance washes per membership year", "Up to 4 complete detailing sessions per membership year", "Up to 6 Montreal concierge vehicle transports per membership year", "1 enhanced annual vehicle-protection benefit for ceramic coating, PPF, wrap, or tint", "Dedicated collection manager"],
+    price: "Pricing on Request",
+    cadence: "",
+    intro: "A private package configured for collections of 2 to 100 vehicles.",
+    features: ["2–100 vehicles", "Custom vehicle allowance", "Custom included services", "24/7 concierge support", "Fleet and collection management"],
   },
 ];
 
 const membershipUnlockSchedule = {
-  Silver: "Wash: day 45.",
-  "Club Drive": "Washes: days 30 and 90. Montreal transport: day 180.",
-  Gold: "Washes: days 14, 45, 75, and 105. Full detail: day 180. Montreal transport: day 270.",
-  Platinum: "Washes: days 14, 45, 75, 105, 135, and 165. Full details: days 180 and 240. Montreal transport: days 210, 270, and 300. Protection: day 330.",
-  Collector: "Washes: days 14, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, and 180. Full details: days 90, 150, 210, and 270. Montreal transport: days 120, 180, 210, 240, 300, and 330. Protection: day 330.",
+  Essential: "Benefits are added only when assigned by your concierge.",
+  Premium: "Benefits are added only when assigned by your concierge.",
+  Collector: "Benefits are configured privately by your concierge.",
 };
 
 const membershipAccessStatuses = new Set(["active", "trialing"]);
@@ -1041,10 +1027,10 @@ function planAmountCents(plan) {
 }
 
 function defaultMembershipPricingForPlan(planName) {
-  const plan = plans.find((item) => item.name === planName) || plans.find((item) => item.name === "Club Drive");
+  const plan = plans.find((item) => item.name === planName) || plans.find((item) => item.name === "Essential");
   return {
     amountCents: planAmountCents(plan),
-    cadence: plan?.cadence || "/month",
+    cadence: plan?.cadence || "",
     note: plan?.intro || "",
     planName: plan?.name || planName,
   };
@@ -1059,7 +1045,7 @@ function normalizeMembershipPricingRows(rows = []) {
 
     pricing[planName] = {
       amountCents: row.amountCents ?? row.amount_cents ?? null,
-      cadence: row.cadence || "/month",
+      cadence: row.cadence || "",
       note: row.note || "",
       planName,
       updatedAt: row.updatedAt || row.updated_at,
@@ -1070,6 +1056,9 @@ function normalizeMembershipPricingRows(rows = []) {
 
 function membershipPricingForPlan(planName, membershipPricing = {}) {
   const fallback = defaultMembershipPricingForPlan(planName);
+  if (planName === "Collector") {
+    return { ...fallback, amountCents: null, cadence: "" };
+  }
   const saved = membershipPricing?.[planName] || {};
 
   return {
@@ -1081,7 +1070,7 @@ function membershipPricingForPlan(planName, membershipPricing = {}) {
 
 function membershipPriceLabel(planName, membershipPricing = {}) {
   const pricing = membershipPricingForPlan(planName, membershipPricing);
-  if (pricing.amountCents === null || pricing.amountCents === undefined) return "Custom";
+  if (pricing.amountCents === null || pricing.amountCents === undefined) return planName === "Collector" ? "Pricing on Request" : "Not configured";
   return formatCad(pricing.amountCents / 100).replace(" CAD", "");
 }
 
@@ -1410,7 +1399,27 @@ function vehicleMeta(vehicle = {}) {
 }
 
 function getAvailableServices(plan) {
-  return serviceOptions.filter((service) => service.allowedPlans.includes(plan));
+  return serviceOptions.filter((service) => planCanAccessService(plan, service));
+}
+
+function normalizedMembershipPlan(plan) {
+  if (["Silver", "Club Drive", "Gold"].includes(plan)) return "Essential";
+  if (plan === "Platinum") return "Premium";
+  return plan || "Essential";
+}
+
+function planCanAccessService(plan, service) {
+  const normalizedPlan = normalizedMembershipPlan(plan);
+  if (normalizedPlan === "Collector") return true;
+  if (["Collection management", "Fleet management"].includes(service.label)) return false;
+  if (normalizedPlan === "Essential" && ["Emergency concierge", "Roadside assistance"].includes(service.label)) return false;
+  return ["Essential", "Premium"].includes(normalizedPlan);
+}
+
+function serviceRequirementLabel(service) {
+  if (["Collection management", "Fleet management"].includes(service.label)) return "Collector";
+  if (["Emergency concierge", "Roadside assistance"].includes(service.label)) return "Premium";
+  return "Essential";
 }
 
 function canBookService(plan, serviceLabel) {
@@ -1418,11 +1427,11 @@ function canBookService(plan, serviceLabel) {
 }
 
 function hasCollectionPackage(plan) {
-  return plan === "Collector";
+  return normalizedMembershipPlan(plan) === "Collector";
 }
 
 function garageVehicleLimit(plan, extraVehicleSlots = 0) {
-  const includedVehicles = hasCollectionPackage(plan) ? 10 : 1;
+  const includedVehicles = hasCollectionPackage(plan) ? 2 : 1;
   return includedVehicles + Math.max(0, Number(extraVehicleSlots) || 0);
 }
 
@@ -1490,8 +1499,11 @@ function serviceRequestMatchesBooking(request, booking) {
 
 const defaultNotificationSettings = {
   bookingUpdates: true,
+  benefitUpdates: true,
   feedActivity: true,
+  mileageReminders: true,
   offers: true,
+  recommendationUpdates: true,
   serviceReminders: true,
 };
 
@@ -3485,7 +3497,7 @@ function App() {
   }, []);
 
   async function handleUpdateMember(settings) {
-    const nextPlan = member?.plan || "Club Drive";
+    const nextPlan = normalizedMembershipPlan(member?.plan || "Essential");
 
     const nextMember = {
       ...member,
@@ -4016,7 +4028,7 @@ function App() {
         <section className="section split" id="memberships">
           <div className="section-heading compact">
             <p className="eyebrow">Memberships</p>
-            <h2>Simple monthly membership, with concierge coordination and partner services as needed.</h2>
+            <h2>Three clear membership options, with concierge coordination and partner services as needed.</h2>
           </div>
           <div className="plan-grid">
             {plans.map((plan) => (
@@ -4041,17 +4053,15 @@ function App() {
               </article>
             ))}
           </div>
-          <p className="membership-benefit-disclosure">
-            Listed service allowances are earned membership benefits, not an immediate sign-up bonus. They become available gradually during an active membership after successful, non-refunded membership payments support the benefit program. Benefits are non-transferable, do not roll over, and remain subject to vehicle and service eligibility.
-          </p>
+          <p className="membership-benefit-disclosure">Memberships begin with no automatic benefits. Your concierge can assign a service benefit to your account when one is available, and its quantity, use, and expiry will appear in the member app.</p>
           <details className="membership-unlock-details">
-            <summary>See the earliest benefit availability schedule</summary>
+            <summary>How assigned benefits work</summary>
             <div>
               {plans.map((plan) => (
                 <p key={plan.name}><strong>{plan.name}:</strong> {membershipUnlockSchedule[plan.name]}</p>
               ))}
             </div>
-            <small>Days are measured from membership activation. Reaching a date does not make a benefit available unless the active membership has also supported its release.</small>
+            <small>Assigned benefits are non-transferable and remain subject to the service eligibility shown in your account.</small>
           </details>
         </section>
 
@@ -4272,7 +4282,7 @@ function AdminMembershipPricingEditor({ membershipPricing, onSave }) {
         <div>
           <p className="eyebrow">Membership price settings</p>
           <h2>Subscription prices</h2>
-          <p>Change the monthly membership price once here. New member checkouts and website membership cards will use the updated price.</p>
+          <p>Set the amount and confirm monthly or annual billing. Checkout remains disabled until a billing cadence is selected.</p>
         </div>
         <span>{plans.length} plans</span>
       </div>
@@ -4286,10 +4296,13 @@ function AdminMembershipPricingEditor({ membershipPricing, onSave }) {
 }
 
 function AdminMembershipPriceRow({ membershipPricing, onSave, plan }) {
+  if (plan.name === "Collector") {
+    return <div className="admin-pricing-row membership-pricing-row"><div className="admin-pricing-service"><strong>Collector</strong><small>Pricing on Request</small></div><p>Set the member's private price, vehicle allowance, and included services in Benefits & Notifications after consultation.</p></div>;
+  }
   const fallback = defaultMembershipPricingForPlan(plan.name);
   const initialAmountCents = membershipPricing?.amountCents ?? fallback.amountCents;
   const [amount, setAmount] = useState(initialAmountCents === null || initialAmountCents === undefined ? "" : (initialAmountCents / 100).toString());
-  const [cadence, setCadence] = useState(membershipPricing?.cadence || fallback.cadence || "/month");
+  const [cadence, setCadence] = useState(membershipPricing?.cadence || fallback.cadence || "");
   const [note, setNote] = useState(membershipPricing?.note || fallback.note || "");
   const [saving, setSaving] = useState(false);
 
@@ -4297,7 +4310,7 @@ function AdminMembershipPriceRow({ membershipPricing, onSave, plan }) {
     const nextFallback = defaultMembershipPricingForPlan(plan.name);
     const nextAmountCents = membershipPricing?.amountCents ?? nextFallback.amountCents;
     setAmount(nextAmountCents === null || nextAmountCents === undefined ? "" : (nextAmountCents / 100).toString());
-    setCadence(membershipPricing?.cadence || nextFallback.cadence || "/month");
+    setCadence(membershipPricing?.cadence || nextFallback.cadence || "");
     setNote(membershipPricing?.note || nextFallback.note || "");
   }, [membershipPricing?.amountCents, membershipPricing?.cadence, membershipPricing?.note, plan.name]);
 
@@ -4336,6 +4349,7 @@ function AdminMembershipPriceRow({ membershipPricing, onSave, plan }) {
       <label>
         Billing
         <select value={cadence} onChange={(event) => setCadence(event.target.value)}>
+          <option value="">Choose cadence</option>
           <option value="/month">Monthly</option>
           <option value="/year">Yearly</option>
         </select>
@@ -4353,6 +4367,135 @@ function AdminMembershipPriceRow({ membershipPricing, onSave, plan }) {
         {saving ? "Saving..." : "Save"}
       </button>
     </form>
+  );
+}
+
+function AdminBenefitLedgerRow({ benefit, member, onAction }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const remaining = Math.max(0, Number(benefit.quantity_total) - Number(benefit.quantity_redeemed));
+
+  async function save(event) {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    setSaving(true);
+    try {
+      await onAction({
+        action: "update-benefit",
+        benefitId: benefit.id,
+        label: values.get("label"),
+        description: values.get("description"),
+        quantityTotal: values.get("quantityTotal"),
+        expiresAt: values.get("expiresAt") ? new Date(`${values.get("expiresAt")}T23:59:59`).toISOString() : null,
+      });
+      setEditing(false);
+    } finally { setSaving(false); }
+  }
+
+  if (editing) return <form className="admin-benefit-edit" onSubmit={save}><input defaultValue={benefit.label} name="label" required /><input defaultValue={benefit.description || ""} name="description" placeholder="Description" /><input defaultValue={benefit.quantity_total} min={benefit.quantity_redeemed || 1} max="100" name="quantityTotal" type="number" /><input defaultValue={benefit.expires_at ? String(benefit.expires_at).slice(0, 10) : ""} name="expiresAt" type="date" /><button className="button secondary compact-button" disabled={saving} type="submit">Save</button><button className="text-button" onClick={() => setEditing(false)} type="button">Cancel</button></form>;
+  return <article><div><strong>{benefit.label}</strong><span>{member?.full_name || member?.email || "Member"} · {remaining} of {benefit.quantity_total} available</span><small>{benefit.expires_at ? `Expires ${new Date(benefit.expires_at).toLocaleDateString()}` : "No expiry"} · {benefit.status}</small></div><div className="admin-benefit-ledger-actions">{benefit.status === "active" && <><button className="text-button" onClick={() => setEditing(true)} type="button">Edit</button><button className="text-button danger-button" onClick={() => onAction({ benefitId: benefit.id }, "DELETE")} type="button"><Trash2 size={16} /> Remove</button></>}</div></article>;
+}
+
+function AdminMemberExperience({ data, onAction }) {
+  const members = ensureList(data?.members);
+  const benefits = ensureList(data?.benefits);
+  const settings = data?.notificationSettings || {};
+  const [saving, setSaving] = useState(false);
+
+  async function assignBenefit(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const values = new FormData(form);
+    const benefitKey = values.get("benefitKey");
+    const catalog = membershipBenefitCatalog[benefitKey];
+    setSaving(true);
+    try {
+      await onAction({
+        action: "assign-benefit",
+        userId: values.get("userId"),
+        benefitKey,
+        label: values.get("label") || catalog?.label || "Member benefit",
+        description: values.get("description") || catalog?.note || "Assigned by White Glove Concierge.",
+        quantity: values.get("quantity"),
+        expiresAt: values.get("expiresAt") ? new Date(`${values.get("expiresAt")}T23:59:59`).toISOString() : null,
+      }, "POST");
+      form.reset();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveSettings(event) {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    setSaving(true);
+    try {
+      await onAction({
+        action: "update-notification-settings",
+        recommendationEnabled: values.get("recommendationEnabled") === "on",
+        maintenanceEnabled: values.get("maintenanceEnabled") === "on",
+        mileageEnabled: values.get("mileageEnabled") === "on",
+        benefitEnabled: values.get("benefitEnabled") === "on",
+        appointmentEnabled: values.get("appointmentEnabled") === "on",
+        reminderDays: String(values.get("reminderDays") || "7,3,0").split(",").map((value) => Number(value.trim())),
+        overdueRepeatDays: values.get("overdueRepeatDays"),
+        mileageIntervalDays: values.get("mileageIntervalDays"),
+        timezone: values.get("timezone"),
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="admin-experience-grid">
+      <form className="admin-pricing-card admin-experience-card" onSubmit={assignBenefit}>
+        <div className="admin-pricing-heading"><div><p className="eyebrow">Admin-only benefits</p><h2>Assign a benefit</h2><p>New members start with zero benefits. Every assignment is recorded in the audit ledger.</p></div><Gift size={24} /></div>
+        <div className="admin-experience-form-grid">
+          <label>Member<select name="userId" required defaultValue=""><option value="" disabled>Choose member</option>{members.map((member) => <option key={member.id} value={member.id}>{member.full_name || member.email} · {member.plan || "Essential"}</option>)}</select></label>
+          <label>Benefit<select name="benefitKey" required defaultValue=""><option value="" disabled>Choose benefit</option>{Object.entries(membershipBenefitCatalog).map(([key, benefit]) => <option key={key} value={key}>{benefit.label}</option>)}</select></label>
+          <label>Display name<input name="label" placeholder="Uses the benefit name by default" /></label>
+          <label>Quantity<input min="1" max="100" name="quantity" required type="number" defaultValue="1" /></label>
+          <label>Expiry (optional)<input name="expiresAt" type="date" /></label>
+          <label className="wide">Member description<input name="description" placeholder="Assigned by your White Glove concierge." /></label>
+        </div>
+        <button className="button primary compact-button" disabled={saving || !members.length} type="submit">{saving ? "Saving..." : "Assign Benefit"}</button>
+      </form>
+
+      <form className="admin-pricing-card admin-experience-card" onSubmit={saveSettings}>
+        <div className="admin-pricing-heading"><div><p className="eyebrow">Automation controls</p><h2>Notification schedule</h2><p>Control recommendations, maintenance, mileage, benefit, and appointment notifications.</p></div><Bell size={24} /></div>
+        <div className="admin-experience-toggles">
+          {[['recommendationEnabled','Recommendations','recommendation_enabled'],['maintenanceEnabled','Maintenance reminders','maintenance_enabled'],['mileageEnabled','Mileage reminders','mileage_enabled'],['benefitEnabled','Benefit updates','benefit_enabled'],['appointmentEnabled','Appointments','appointment_enabled']].map(([name, label, key]) => <label className="admin-inline-check" key={name}><input defaultChecked={settings[key] !== false} name={name} type="checkbox" /> {label}</label>)}
+        </div>
+        <div className="admin-experience-form-grid">
+          <label>Reminder days<input defaultValue={ensureList(settings.reminder_days).join(",") || "7,3,0"} name="reminderDays" placeholder="7,3,0" /></label>
+          <label>Repeat overdue every<input defaultValue={settings.overdue_repeat_days || 3} min="1" max="30" name="overdueRepeatDays" type="number" /></label>
+          <label>Mileage check-in days<select defaultValue={settings.mileage_interval_days || 60} name="mileageIntervalDays"><option value="30">30 days</option><option value="60">60 days</option></select></label>
+          <label>Timezone<input defaultValue={settings.timezone || "America/Toronto"} name="timezone" /></label>
+        </div>
+        <button className="button secondary compact-button" disabled={saving} type="submit">Save Notification Schedule</button>
+      </form>
+
+      <section className="admin-pricing-card admin-experience-card admin-experience-wide">
+        <div className="admin-pricing-heading"><div><p className="eyebrow">Benefit ledger</p><h2>Current assignments</h2><p>Active, used, expired, and removed quantities remain traceable.</p></div><span>{benefits.length}</span></div>
+        <div className="admin-benefit-ledger">
+          {benefits.length ? benefits.map((benefit) => <AdminBenefitLedgerRow benefit={benefit} key={benefit.id} member={members.find((item) => item.id === benefit.user_id)} onAction={onAction} />) : <p>No benefits have been assigned.</p>}
+        </div>
+      </section>
+
+      <form className="admin-pricing-card admin-experience-card admin-experience-wide" onSubmit={async (event) => { event.preventDefault(); const values = new FormData(event.currentTarget); setSaving(true); try { await onAction({ action: "configure-collector", userId: values.get("userId"), vehicleAllowance: values.get("vehicleAllowance"), priceCents: values.get("price") === "" ? null : Math.round(Number(values.get("price")) * 100), cadence: values.get("cadence"), includedServices: String(values.get("includedServices") || "").split(",").map((value) => value.trim()).filter(Boolean), fleetManagement: values.get("fleetManagement") === "on" }); } finally { setSaving(false); } }}>
+        <div className="admin-pricing-heading"><div><p className="eyebrow">Collector membership</p><h2>Custom pricing and fleet access</h2><p>Configure an individual proposal without changing any existing Stripe subscription.</p></div><Car size={24} /></div>
+        <div className="admin-experience-form-grid">
+          <label>Member<select name="userId" required defaultValue=""><option value="" disabled>Choose member</option>{members.map((member) => <option key={member.id} value={member.id}>{member.full_name || member.email}</option>)}</select></label>
+          <label>Vehicle allowance<input defaultValue="2" min="2" max="100" name="vehicleAllowance" required type="number" /></label>
+          <label>Custom price CAD<input min="0" name="price" placeholder="Set after consultation" step="0.01" type="number" /></label>
+          <label>Billing<select defaultValue="" name="cadence"><option value="">Not configured</option><option value="/month">Monthly</option><option value="/year">Annual</option></select></label>
+          <label className="wide">Included services<input name="includedServices" placeholder="24/7 concierge, collection management" /></label>
+          <label className="admin-inline-check wide"><input defaultChecked name="fleetManagement" type="checkbox" /> Fleet-management tools</label>
+        </div>
+        <button className="button primary compact-button" disabled={saving} type="submit">Save Collector Configuration</button>
+      </form>
+    </section>
   );
 }
 
@@ -6035,6 +6178,7 @@ function AdminPortal({ onBack }) {
   const [serviceRequests, setServiceRequests] = useState([]);
   const [selectedAdminRequestId, setSelectedAdminRequestId] = useState("");
   const [vehicleIntelligence, setVehicleIntelligence] = useState({ overview: {}, vehicles: [] });
+  const [memberExperience, setMemberExperience] = useState({ benefits: [], collectorInquiries: [], members: [], notificationSettings: null });
 
   async function loadAdminRequests(token = adminToken, options = {}) {
     if (!token) return;
@@ -6127,6 +6271,37 @@ function AdminPortal({ onBack }) {
       if (options.throwOnError) throw error;
       setAdminNotice(`${message} Run the Garage capacity and window sticker SQL migration in Supabase.`);
     }
+  }
+
+  async function loadMemberExperience(token = adminToken, options = {}) {
+    if (!token) return;
+    try {
+      const response = await fetch("/.netlify/functions/admin-member-experience", { headers: { "x-admin-token": token } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Could not load benefits and notifications.");
+      setMemberExperience(payload);
+    } catch (error) {
+      if (options.throwOnError) throw error;
+      setAdminNotice(error.message || "Run the complete platform update SQL before using Benefits & Notifications.");
+    }
+  }
+
+  async function updateMemberExperience(payload, method = "PATCH") {
+    setAdminError("");
+    const response = await fetch("/.netlify/functions/admin-member-experience", {
+      method,
+      headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(result.error || "Could not update the member experience.");
+      setAdminError(error.message);
+      throw error;
+    }
+    await loadMemberExperience(adminToken, { keepNotice: true });
+    setAdminNotice(payload.action === "update-notification-settings" ? "Notification schedule updated." : "Member benefit updated and audited.");
+    return result;
   }
 
   async function loadAdminConsultations(token = adminToken, options = {}) {
@@ -6248,6 +6423,7 @@ function AdminPortal({ onBack }) {
       loadAdminMembers(draftToken, { keepNotice: true });
       loadAdminConsultations(draftToken, { keepNotice: true });
       loadVehicleIntelligence(draftToken, { keepNotice: true });
+      loadMemberExperience(draftToken, { keepNotice: true });
     } catch (error) {
       localStorage.removeItem("whiteGloveAdminToken");
       setAdminToken("");
@@ -6268,6 +6444,7 @@ function AdminPortal({ onBack }) {
     setAdminFeedEvents([]);
     setConsultations([]);
     setVehicleIntelligence({ overview: {}, vehicles: [] });
+    setMemberExperience({ benefits: [], collectorInquiries: [], members: [], notificationSettings: null });
     setAdminNotice("");
   }
 
@@ -6589,6 +6766,7 @@ function AdminPortal({ onBack }) {
     { id: "vehicle-intelligence", label: "Vehicles", icon: Car },
   ];
   const secondaryAdminNavigation = [
+    { id: "member-experience", label: "Benefits & Notifications", icon: Bell },
     { id: "consultations", label: "Consultations", icon: MessageCircle },
     { id: "past-events", label: "Past Events", icon: Clock },
     { id: "pricing", label: "Booking Prices", icon: CreditCard },
@@ -6643,6 +6821,10 @@ function AdminPortal({ onBack }) {
       title: "Subscription Price Settings",
       description: "Update membership checkout prices.",
     },
+    "member-experience": {
+      title: "Benefits & Notifications",
+      description: "Assign member benefits and control automated reminder schedules.",
+    },
     "garage-capacity": {
       title: "Garage Capacity",
       description: "Manage additional vehicle spaces for members.",
@@ -6689,7 +6871,7 @@ function AdminPortal({ onBack }) {
             <p>{adminPageContent.description}</p>
           </div>
           <div className="admin-header-actions">
-            <button className="button secondary compact-button" type="button" onClick={() => { loadAdminRequests(adminToken); loadAdminPricing(adminToken); loadAdminMembershipPricing(adminToken); loadAdminMembers(adminToken); loadAdminConsultations(adminToken); loadVehicleIntelligence(adminToken); }} disabled={loadingRequests}>
+            <button className="button secondary compact-button" type="button" onClick={() => { loadAdminRequests(adminToken); loadAdminPricing(adminToken); loadAdminMembershipPricing(adminToken); loadAdminMembers(adminToken); loadAdminConsultations(adminToken); loadVehicleIntelligence(adminToken); loadMemberExperience(adminToken); }} disabled={loadingRequests}>
               <RefreshCw size={17} /> {loadingRequests ? "Loading..." : "Refresh"}
             </button>
           </div>
@@ -6747,6 +6929,7 @@ function AdminPortal({ onBack }) {
         {adminMenu === "crm" && <AdminPhase4Crm data={vehicleIntelligence} onAction={updateVehicleIntelligence} />}
         {adminMenu === "pricing" && <AdminServicePricingEditor onSave={updateServicePrice} pricing={servicePricing} />}
         {adminMenu === "memberships" && <AdminMembershipPricingEditor membershipPricing={membershipPricing} onSave={updateMembershipPrice} />}
+        {adminMenu === "member-experience" && <AdminMemberExperience data={memberExperience} onAction={updateMemberExperience} />}
         {adminMenu === "garage-capacity" && <AdminGarageCapacity members={adminMembers} onSave={updateMemberGarageCapacity} />}
         {adminMenu === "past-events" && <AdminEventArchive events={adminFeedEvents} />}
         {adminMenu === "consultations" && <AdminConsultationCalendar consultations={consultations} onStatus={updateConsultationStatus} />}
@@ -6820,7 +7003,7 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
         email: formData.get("email") || "member@example.com",
         password: formData.get("password"),
         phone: formData.get("phone") || "",
-        plan: formData.get("plan") || "Club Drive",
+        plan: formData.get("plan") || "Essential",
         addresses,
       });
     } catch (error) {
@@ -6946,9 +7129,7 @@ function LoginScreen({ appError, backendEnabled, membershipPricing, onBack, onFo
                   ))}
                 </select>
               </label>
-              <p className="membership-benefit-disclosure compact-disclosure">
-                Package benefits become available gradually after successful membership payments; they are not all available when you sign up.
-              </p>
+              <p className="membership-benefit-disclosure compact-disclosure">Benefits are not added automatically. Any benefit assigned by your concierge will appear in your member account.</p>
             </>
           )}
           <label>
@@ -7341,7 +7522,7 @@ function ConsultationConfirmationScreen({ consultation, member, onDone }) {
 }
 
 function SubscriptionActivationScreen({ appError, member, membershipPricing, onBack, onDeleteAccount, onLogout, onRefreshMember }) {
-  const [selectedPlan, setSelectedPlan] = useState(member?.plan || "Club Drive");
+  const [selectedPlan, setSelectedPlan] = useState(normalizedMembershipPlan(member?.plan || "Essential"));
   const [activationError, setActivationError] = useState("");
   const [activationNotice, setActivationNotice] = useState("");
   const [loading, setLoading] = useState(false);
@@ -7350,7 +7531,8 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
   const lifecycleContent = membershipLifecycleContent(member?.subscriptionStatus);
   const selectedPricing = membershipPricingForPlan(selectedPlan, membershipPricing);
   const hasCheckoutPrice = selectedPricing.amountCents !== null && selectedPricing.amountCents !== undefined && selectedPricing.amountCents > 0;
-  const canCheckout = lifecycleContent.canStartCheckout && hasCheckoutPrice;
+  const collectorInquiry = selectedPlan === "Collector";
+  const canCheckout = lifecycleContent.canStartCheckout && (collectorInquiry || (hasCheckoutPrice && selectedPricing.cadence));
 
   async function startMembershipCheckout(consultation) {
     setActivationError("");
@@ -7358,6 +7540,32 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
 
     if (!lifecycleContent.canStartCheckout) {
       setActivationError("Resolve the existing subscription balance through Stripe before starting another membership.");
+      return;
+    }
+
+    if (collectorInquiry) {
+      try {
+        setLoading(true);
+        const accessToken = await getCurrentAccessToken();
+        const response = await fetch(netlifyFunctionUrl("/.netlify/functions/collector-membership-inquiry"), {
+          method: "POST",
+          headers: { "Authorization": accessToken ? `Bearer ${accessToken}` : "", "Content-Type": "application/json" },
+          body: JSON.stringify({
+            memberName: member.name,
+            phone: member.phone,
+            vehicleCount: Math.max(2, Number(consultation?.vehicle_count || consultation?.vehicleCount) || 2),
+            needs: consultation?.notes || "Collector membership pricing, 24/7 concierge, and fleet support.",
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || "Could not send the Collector pricing request.");
+        setConsultationOpen(false);
+        setActivationNotice("Your Collector pricing request was sent. A concierge will contact you with a custom membership proposal.");
+      } catch (error) {
+        setActivationError(error.message || "Could not send the Collector pricing request.");
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 
@@ -7473,16 +7681,14 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
                 <strong>{hasCheckoutPrice ? `${membershipPriceLabel(selectedPlan, membershipPricing)}${selectedPricing.cadence}` : "Custom"}</strong>
               </div>
             </div>
-            <p className="membership-benefit-disclosure compact-disclosure">
-              Included benefits become available in stages while your membership remains active and successful, non-refunded payments support the benefit program. Earliest {selectedPlan} schedule: {membershipUnlockSchedule[selectedPlan]} They are not all available today.
-            </p>
+            <p className="membership-benefit-disclosure compact-disclosure">{membershipUnlockSchedule[selectedPlan]} Membership checkout does not automatically add service benefits.</p>
           </>
         )}
 
         <div className="subscription-actions">
           {lifecycleContent.canStartCheckout && (
             <button className="button primary submit" type="button" onClick={() => setConsultationOpen(true)} disabled={loading || !canCheckout}>
-              {member?.subscriptionStatus === "canceled" ? "Book Consultation To Reactivate" : "Book Consultation To Continue"} <CalendarCheck size={18} />
+              {collectorInquiry ? "Request Collector Pricing" : member?.subscriptionStatus === "canceled" ? "Book Consultation To Reactivate" : "Book Consultation To Continue"} <CalendarCheck size={18} />
             </button>
           )}
           <button className={lifecycleContent.canStartCheckout ? "button secondary submit" : "button primary submit"} type="button" onClick={checkMembership} disabled={loading}>
@@ -7511,10 +7717,35 @@ function SubscriptionActivationScreen({ appError, member, membershipPricing, onB
   );
 }
 
+function NotificationCenter({ notifications, onClose, onDismiss, onOpen }) {
+  return (
+    <div className="garage-modal-backdrop notification-center-backdrop" role="presentation" onMouseDown={onClose}>
+      <section className="notification-center" role="dialog" aria-modal="true" aria-label="Notifications" onMouseDown={(event) => event.stopPropagation()}>
+        <header><div><p className="eyebrow">White Glove updates</p><h2>Notifications</h2><p>Service recommendations, maintenance, mileage, benefits, and appointments.</p></div><button className="icon-button" aria-label="Close notifications" type="button" onClick={onClose}><X size={20} /></button></header>
+        <div className="notification-center-list">
+          {notifications.length ? notifications.map((notification) => (
+            <article className={notification.readAt ? "notification-item" : "notification-item unread"} key={notification.id}>
+              <button className="notification-item-main" type="button" onClick={() => onOpen(notification)}>
+                <span className="notification-item-icon"><Bell size={18} /></span>
+                <span><small>{String(notification.category || "update").replaceAll("_", " ")}</small><strong>{notification.title}</strong><em>{notification.body}</em><time>{new Date(notification.createdAt).toLocaleString()}</time></span>
+                <ChevronRight size={18} />
+              </button>
+              <button className="notification-dismiss" type="button" onClick={() => onDismiss(notification.id)} aria-label={`Dismiss ${notification.title}`}><X size={16} /></button>
+            </article>
+          )) : <div className="empty-state compact-empty"><Bell size={24} /><h3>You’re all caught up</h3><p>New White Glove updates will appear here.</p></div>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompletion, member, membershipRevenueEvents, onAddAppointment, onAddFeedComment, onAddFeedPost, onAddVehicle, onDeleteAccount, onDeleteFeedPost, onDeleteVehicle, onEditFeedPost, onLogout, onRefreshFeedPosts, onRefreshMemberAppData, onToggleFeedReaction, onUpdateAppointment, onUpdateMember, onUpdateVehicle, serviceDocuments, servicePricing, vehicleValuations }) {
   const [activeTab, setActiveTab] = useState("home");
   const [completion, setCompletion] = useState(null);
   const [instantBooking, setInstantBooking] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationVehicleId, setNotificationVehicleId] = useState("");
   const activeVehicleStorageKey = `carClubActiveVehicle:${member.id || member.email || "member"}`;
   const [activeVehicleId, setActiveVehicleId] = useState(() => localStorage.getItem(activeVehicleStorageKey) || "");
   const [tabRefreshKeys, setTabRefreshKeys] = useState({ account: 0, feed: 0, garage: 0, home: 0, schedule: 0 });
@@ -7530,6 +7761,7 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
   const vehicleOptions = useMemo(() => garageList.map((vehicle) => `${vehicle.year || ""} ${vehicle.make || ""} ${vehicle.model || ""}`.trim() || "Garage vehicle"), [garageList]);
   const garageVehicleIds = garageList.map((vehicle) => vehicle.id).filter(Boolean).join("|");
   const firstName = member.name?.split(" ")[0] || "Member";
+  const unreadNotifications = notifications.filter((notification) => !notification.readAt).length;
 
   const selectActiveVehicle = (vehicleId) => {
     if (!vehicleId) return;
@@ -7623,6 +7855,37 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
   }, [activeTab, completion, onRefreshFeedPosts]);
 
   useEffect(() => {
+    let active = true;
+    if (!member?.id) return undefined;
+    const refreshNotifications = () => loadMemberNotifications(member.id)
+      .then((items) => { if (active) setNotifications(items); })
+      .catch(() => {});
+    refreshNotifications();
+    const timer = window.setInterval(refreshNotifications, 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [member?.id]);
+
+  async function openNotification(notification) {
+    setNotificationsOpen(false);
+    setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, readAt: item.readAt || new Date().toISOString() } : item));
+    updateMemberNotification(notification.id, "read").catch(() => {});
+    const [target, vehicleId] = String(notification.deepLink || "").split(":");
+    if (vehicleId && ["garage", "schedule"].includes(target) && garageList.some((vehicle) => vehicle.id === vehicleId)) {
+      selectActiveVehicle(vehicleId);
+      setNotificationVehicleId(vehicleId);
+    }
+    if (target === "schedule") navigateToTab("schedule");
+    else if (target === "garage") navigateToTab("garage");
+    else if (target === "account") navigateToTab("account");
+    else navigateToTab("home");
+  }
+
+  async function dismissNotification(notificationId) {
+    setNotifications((items) => items.filter((item) => item.id !== notificationId));
+    updateMemberNotification(notificationId, "dismiss").catch(() => {});
+  }
+
+  useEffect(() => {
     if (!garageList.length) {
       setActiveVehicleId("");
       localStorage.removeItem(activeVehicleStorageKey);
@@ -7656,9 +7919,14 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
             <p className="eyebrow">Member app</p>
             <h1>{completion ? "Update Complete" : activeTab === "home" ? `Welcome, ${firstName}` : tabTitle(activeTab)}</h1>
           </div>
-          <button className="icon-button profile-settings-button" type="button" aria-label="Profile settings" title={activeTab === "account" && !completion ? "Double-click to refresh Account" : "Open Account"} onClick={() => handleTabPress("account")}>
-            <ProfileAvatar member={member} size={48} />
-          </button>
+          <div className="app-topbar-actions">
+            <button className="icon-button notification-center-button" type="button" aria-label={`${unreadNotifications} unread notifications`} onClick={() => setNotificationsOpen(true)}>
+              <Bell size={22} />{unreadNotifications > 0 && <span>{unreadNotifications > 9 ? "9+" : unreadNotifications}</span>}
+            </button>
+            <button className="icon-button profile-settings-button" type="button" aria-label="Profile settings" title={activeTab === "account" && !completion ? "Double-click to refresh Account" : "Open Account"} onClick={() => handleTabPress("account")}>
+              <ProfileAvatar member={member} size={48} />
+            </button>
+          </div>
         </header>
 
         {member.subscriptionCancelAtPeriodEnd && (
@@ -7689,7 +7957,7 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
         </div>
         <div className="member-tab-panel" hidden={Boolean(completion) || activeTab !== "garage"}>
           <MemberPanelErrorBoundary resetKey={`garage-${tabRefreshKeys.garage}`} onRecover={() => navigateToTab("home")}>
-            <GarageScreen key={`garage-${tabRefreshKeys.garage}`} activeVehicleId={activeVehicleId} appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onSelectVehicle={selectActiveVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={showCompletion} serviceDocuments={serviceDocuments} vehicleValuations={vehicleValuations} />
+            <GarageScreen key={`garage-${tabRefreshKeys.garage}`} activeVehicleId={activeVehicleId} deepLinkedVehicleId={notificationVehicleId} appointments={appointmentList} garage={garageList} member={member} onAddAppointment={onAddAppointment} onAddVehicle={onAddVehicle} onDeleteVehicle={onDeleteVehicle} onSelectVehicle={selectActiveVehicle} onUpdateVehicle={onUpdateVehicle} onComplete={showCompletion} serviceDocuments={serviceDocuments} vehicleValuations={vehicleValuations} />
           </MemberPanelErrorBoundary>
         </div>
         <div className="member-tab-panel" hidden={Boolean(completion) || activeTab !== "schedule"}>
@@ -7708,6 +7976,8 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
           </MemberPanelErrorBoundary>
         </div>
       </main>
+
+      {notificationsOpen && <NotificationCenter notifications={notifications} onClose={() => setNotificationsOpen(false)} onDismiss={dismissNotification} onOpen={openNotification} />}
 
       <nav className="bottom-tabs" aria-label="App navigation">
         <AppNavButton active={activeTab === "home" && !completion} icon={Home} label="Home" onClick={() => handleTabPress("home")} />
@@ -8389,6 +8659,41 @@ function VehicleAssistantDialog({ initialVehicleId, onClose, onSelectVehicle, ve
     setError("");
   }
 
+  function vehicleHandoffPrompt(vehicle, memberQuestion) {
+    const confirmed = [
+      ["Year", vehicle.year],
+      ["Make", vehicle.make],
+      ["Model", vehicle.model],
+      ["Trim", vehicle.trim],
+      ["Current odometer", vehicle.mileage ? `${vehicle.mileage} ${vehicle.mileageUnit || "km"}` : "Not recorded"],
+      ["Engine", vehicle.engine],
+      ["Transmission", vehicle.transmission],
+      ["Drivetrain", vehicle.drivetrain],
+      ["Fuel type", vehicle.fuelType],
+      ["Body style", vehicle.bodyStyle],
+      ["Last oil change", vehicle.lastOilChange],
+      ["Next service currently recorded", vehicle.nextService],
+      ["Service interval currently recorded", vehicle.serviceInterval],
+      ["Warranty", vehicle.warranty],
+      ["Recall status", vehicle.recallStatus],
+    ].filter(([, value]) => String(value || "").trim());
+    const history = ensureList(vehicle.workDone).slice(0, 12);
+    return [
+      "Act as a careful automotive research assistant. Answer the question below for the selected vehicle.",
+      "Clearly separate confirmed vehicle information, manufacturer-authorized maintenance guidance, general recommendations, and estimates.",
+      "Do not invent factory equipment, service history, maintenance intervals, recalls, reliability facts, or market values. When exact manufacturer guidance is unavailable, say what needs verification and recommend the appropriate official owner resource or qualified technician.",
+      "Use current Canadian context and CAD for values when relevant. Keep the response professional, practical, and specific to this vehicle.",
+      "",
+      "Confirmed vehicle information:",
+      ...confirmed.map(([label, value]) => `- ${label}: ${value}`),
+      ...(history.length ? ["", "Recorded service/work notes:", ...history.map((item) => `- ${item}`)] : []),
+      `- Window sticker available in White Glove records: ${vehicle.windowStickerUrl ? "Yes" : "No"}`,
+      `- Factory build sheet available in White Glove records: ${vehicle.buildSheetUrl ? "Yes" : "No"}`,
+      "",
+      `Member question: ${memberQuestion}`,
+    ].join("\n");
+  }
+
   async function submitQuestion(event, suggestedQuestion = "") {
     event?.preventDefault?.();
     const nextQuestion = String(suggestedQuestion || question).trim();
@@ -8398,8 +8703,23 @@ function VehicleAssistantDialog({ initialVehicleId, onClose, onSelectVehicle, ve
     setAnswer("");
     setAsking(true);
     try {
-      const result = await askVehicleAssistant(vehicleId, nextQuestion);
-      setAnswer(result.answer || "No answer was returned.");
+      const prompt = vehicleHandoffPrompt(selectedVehicle, nextQuestion);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(prompt);
+      } else {
+        const textArea = window.document.createElement("textarea");
+        textArea.value = prompt;
+        textArea.setAttribute("readonly", "");
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        window.document.body.appendChild(textArea);
+        textArea.select();
+        window.document.execCommand("copy");
+        textArea.remove();
+      }
+      setAnswer("Your vehicle question and confirmed details were copied. ChatGPT is opening now—paste the prepared prompt to continue.");
+      const chatWindow = window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer");
+      if (!chatWindow) window.location.href = "https://chatgpt.com/";
     } catch (assistantError) {
       setError(assistantError.message || "Ask AI could not answer right now.");
     } finally {
@@ -8410,20 +8730,20 @@ function VehicleAssistantDialog({ initialVehicleId, onClose, onSelectVehicle, ve
   return (
     <div className="garage-modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="garage-modal vehicle-assistant-dialog" role="dialog" aria-modal="true" aria-label="Ask AI vehicle assistant" onMouseDown={(event) => event.stopPropagation()}>
-        <header><div><p className="eyebrow">AI Vehicle Assistant</p><h2>Ask AI</h2><p>Personalized answers using your selected vehicle, saved history, and available documents.</p></div><button className="icon-button" aria-label="Close Ask AI" type="button" onClick={onClose}><X size={20} /></button></header>
+        <header><div><p className="eyebrow">ChatGPT vehicle handoff</p><h2>Ask AI</h2><p>White Glove prepares a professional question from your selected vehicle, copies it, and opens ChatGPT.</p></div><button className="icon-button" aria-label="Close Ask AI" type="button" onClick={onClose}><X size={20} /></button></header>
         <label className="assistant-vehicle-select">Vehicle<select value={vehicleId} onChange={(event) => chooseVehicle(event.target.value)}>{vehicleList.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicleLabel(vehicle)}</option>)}</select></label>
         {selectedVehicle && <div className="assistant-context"><Car size={20} /><div><strong>{vehicleLabel(selectedVehicle)}</strong><span>{formatVehicleMileage(selectedVehicle.mileage)} · {[selectedVehicle.windowStickerUrl && "window sticker", selectedVehicle.buildSheetUrl && "build sheet"].filter(Boolean).join(" + ") || "no factory documents uploaded"}</span></div></div>}
         <div className="assistant-suggestions">{vehicleAssistantQuestions.map(([category, questions]) => <section key={category}><h3>{category}</h3><div>{questions.map((item) => <button disabled={asking} key={item} type="button" onClick={(event) => submitQuestion(event, item)}>{item}</button>)}</div></section>)}</div>
-        <form className="assistant-question-form" onSubmit={submitQuestion}><label>Ask your own question<textarea maxLength="800" onChange={(event) => setQuestion(event.target.value)} placeholder="Ask about this vehicle’s maintenance, history, equipment, value, or ownership…" rows="3" value={question} /></label><button className="button primary" disabled={!question.trim() || !vehicleId || asking} type="submit">{asking ? "Reviewing vehicle…" : <><Sparkles size={18} /> Ask AI</>}</button></form>
-        <p className="assistant-disclaimer">Confirmed records, estimates, and general recommendations are identified separately. Always verify safety-critical work with a qualified technician.</p>
+        <form className="assistant-question-form" onSubmit={submitQuestion}><label>Ask your own question<textarea maxLength="800" onChange={(event) => setQuestion(event.target.value)} placeholder="Ask about this vehicle’s maintenance, reliability, factory specifications, modifications, value, or ownership…" rows="3" value={question} /></label><button className="button primary" disabled={!question.trim() || !vehicleId || asking} type="submit">{asking ? "Preparing prompt…" : <><Sparkles size={18} /> Copy & Open ChatGPT</>}</button></form>
+        <p className="assistant-disclaimer">No API key, account credentials, email, phone number, address, or VIN is included. Paste the copied prompt into ChatGPT after it opens.</p>
         {error && <div className="error-message" role="alert">{error}</div>}
-        {answer && <article className="assistant-answer" aria-live="polite"><span>White Glove AI Vehicle Assistant</span><div>{answer}</div></article>}
+        {answer && <article className="assistant-answer" aria-live="polite"><span>Ready for ChatGPT</span><div>{answer}</div></article>}
       </section>
     </div>
   );
 }
 
-function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppointment, onAddVehicle, onDeleteVehicle, onSelectVehicle, onUpdateVehicle, onComplete, serviceDocuments, vehicleValuations }) {
+function GarageScreen({ activeVehicleId, appointments, deepLinkedVehicleId, garage, member, onAddAppointment, onAddVehicle, onDeleteVehicle, onSelectVehicle, onUpdateVehicle, onComplete, serviceDocuments, vehicleValuations }) {
   const garageList = ensureList(garage);
   const valuationList = ensureList(vehicleValuations);
   const serviceReminders = useMemo(() => buildServiceReminders(garageList, member.plan), [garageList, member.plan]);
@@ -8448,6 +8768,13 @@ function GarageScreen({ activeVehicleId, appointments, garage, member, onAddAppo
   const editingVehicle = garageList.find((vehicle) => vehicle.id === editingVehicleId);
   const chartVehicle = garageList.find((vehicle) => vehicle.id === chartVehicleId) || garageList[0] || null;
   const showHomeVehicleSelection = garageList.length > 1;
+
+  useEffect(() => {
+    if (deepLinkedVehicleId && garageList.some((vehicle) => vehicle.id === deepLinkedVehicleId)) {
+      setSelectedVehicleId(deepLinkedVehicleId);
+      onSelectVehicle?.(deepLinkedVehicleId);
+    }
+  }, [deepLinkedVehicleId]);
 
   function openVehicle(vehicleId) {
     onSelectVehicle?.(vehicleId);
@@ -8984,6 +9311,7 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
             </header>
             <p>{availableBenefitCount} ready to use · {waitingBenefitCount} waiting to unlock</p>
             <div className="booking-benefit-popover-list">
+              {!benefitSummary.length && <div className="empty-state compact-empty"><Gift size={24} /><h3>No benefits available at the moment.</h3><p>Your concierge will notify you when a benefit is assigned.</p></div>}
               {benefitSummary.map((benefit) => {
                 const compatible = compatibleBenefits.some((item) => item.key === benefit.key);
                 const expanded = expandedBenefitKey === benefit.key;
@@ -9085,7 +9413,8 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
         <div className="schedule-service-grid">
           {serviceOptions.map((service) => {
             const selected = selectedService === service.label;
-            const included = service.allowedPlans.includes(member.plan);
+            const included = planCanAccessService(member.plan, service);
+            const requiredPlan = serviceRequirementLabel(service);
             return (
               <button
                 className={`${selected ? "selected-service" : ""} ${included ? "" : "locked-schedule-service"}`.trim()}
@@ -9093,14 +9422,14 @@ function ScheduleScreen({ activeVehicleId, appointments, benefitSummary, garage,
                 key={service.label}
                 type="button"
                 onClick={() => chooseService(service.label)}
-                aria-label={included ? `Book ${service.label}` : `${service.label} requires ${service.allowedPlans[0]} package`}
+                aria-label={included ? `Book ${service.label}` : `${service.label} requires ${requiredPlan} membership`}
               >
                 <span className="schedule-service-icon">
                   {included ? selected ? <Check size={24} /> : <CalendarCheck size={24} /> : <ShieldCheck size={24} />}
                 </span>
                 <div>
                   <h3>{service.label}</h3>
-                  <p>{included ? "Included in your package. Tap to book." : `Requires ${service.allowedPlans[0]} or higher.`}</p>
+                  <p>{included ? "Included in your membership. Tap to book." : `Available with ${requiredPlan}.`}</p>
                 </div>
                 <span className="schedule-service-cta">{included ? "Book" : "Locked"}</span>
               </button>
@@ -9178,13 +9507,14 @@ function ServicesScreen({ member, setActiveTab }) {
         </div>
         <div className="app-service-list">
           {serviceOptions.map((service) => {
-            const included = service.allowedPlans.includes(member.plan);
+            const included = planCanAccessService(member.plan, service);
+            const requiredPlan = serviceRequirementLabel(service);
             return (
               <article className={included ? "" : "locked-service"} key={service.label}>
                 {included ? <Check size={22} /> : <ShieldCheck size={22} />}
                 <div>
                   <h3>{service.label}</h3>
-                  <p>{included ? "Included in your package" : `Requires ${service.allowedPlans[0]} or higher`}</p>
+                  <p>{included ? "Included in your membership" : `Available with ${requiredPlan}`}</p>
                 </div>
                 <button disabled={!included} type="button" onClick={() => setActiveTab("schedule")} aria-label={`Schedule ${service.label}`}>
                   <ChevronRight size={20} />
@@ -10036,8 +10366,11 @@ function AccountScreen({ garageCount, member, onDeleteAccount, onLogout, onUpdat
     const formData = new FormData(event.currentTarget);
     const nextNotifications = {
       bookingUpdates: formData.has("bookingUpdates"),
+      benefitUpdates: formData.has("benefitUpdates"),
       feedActivity: formData.has("feedActivity"),
+      mileageReminders: formData.has("mileageReminders"),
       offers: formData.has("offers"),
+      recommendationUpdates: formData.has("recommendationUpdates"),
       serviceReminders: formData.has("serviceReminders"),
     };
     const addresses = accountAddresses
@@ -10119,7 +10452,7 @@ function AccountScreen({ garageCount, member, onDeleteAccount, onLogout, onUpdat
             </label>
             <label>
               Membership plan
-              <input type="text" value={`${member.plan || "Club Drive"} · managed through your subscription`} readOnly />
+              <input type="text" value={`${normalizedMembershipPlan(member.plan || "Essential")} · managed through your subscription`} readOnly />
             </label>
             <label>
               New password
@@ -10169,12 +10502,15 @@ function AccountScreen({ garageCount, member, onDeleteAccount, onLogout, onUpdat
             <legend>Notifications</legend>
             <label>
               <input name="serviceReminders" type="checkbox" defaultChecked={notifications.serviceReminders} />
-              Service reminders
+              Maintenance reminders
             </label>
+            <label><input name="recommendationUpdates" type="checkbox" defaultChecked={notifications.recommendationUpdates} />Service recommendations</label>
+            <label><input name="mileageReminders" type="checkbox" defaultChecked={notifications.mileageReminders} />Mileage check-ins</label>
             <label>
               <input name="bookingUpdates" type="checkbox" defaultChecked={notifications.bookingUpdates} />
-              Booking updates
+              Appointment updates
             </label>
+            <label><input name="benefitUpdates" type="checkbox" defaultChecked={notifications.benefitUpdates} />Benefit updates</label>
             <label>
               <input name="feedActivity" type="checkbox" defaultChecked={notifications.feedActivity} />
               Feed activity
@@ -11634,6 +11970,7 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
   const [savingValuation, setSavingValuation] = useState(false);
   const [savingIntelligence, setSavingIntelligence] = useState(false);
   const [mileageReadings, setMileageReadings] = useState([]);
+  const [mileageNotice, setMileageNotice] = useState("");
   const [normalizedServiceHistory, setNormalizedServiceHistory] = useState([]);
   const [editVehicleYear, setEditVehicleYear] = useState(vehicle.year || "");
   const [editVehicleMake, setEditVehicleMake] = useState(vehicle.make || "");
@@ -11709,6 +12046,7 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
     const form = event.currentTarget;
     const formData = new FormData(form);
     setDetailError("");
+    setMileageNotice("");
     setSavingIntelligence(true);
     try {
       const reading = await createVehicleMileageReading(vehicle.id, {
@@ -11719,6 +12057,9 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
       });
       setMileageReadings((items) => [reading, ...items]);
       await onUpdateVehicle(vehicle.id, { mileage: String(reading.odometerValue), mileageUnit: reading.unit });
+      setMileageNotice(reading.maintenanceRecalculated
+        ? "Mileage updated. Service timing was recalculated immediately."
+        : "Mileage updated. Service timing will refresh as soon as maintenance rules are available.");
       form.reset();
     } catch (error) {
       setDetailError(error.message || "Could not record mileage.");
@@ -12157,6 +12498,7 @@ function VehicleDetailScreen({ appointments, onBack, onComplete, onDeleteVehicle
           <label className="wide">Note<input name="note" placeholder="Optional context for this reading" /></label>
           <button className="button primary compact-button" disabled={savingIntelligence} type="submit">{savingIntelligence ? "Saving..." : "Record Mileage"}</button>
         </form>
+        {mileageNotice && <div className="success-message" role="status">{mileageNotice}</div>}
         <div className="vehicle-intelligence-history">
           {mileageReadings.length ? mileageReadings.slice(0, 8).map((reading) => <article key={reading.id}><Gauge size={18} /><div><strong>{Number(reading.odometerValue).toLocaleString()} {reading.unit}</strong><span>{new Date(reading.recordedAt).toLocaleDateString()} · {String(reading.verificationStatus).replaceAll("_", " ")}</span></div></article>) : <p>No mileage history has been recorded yet.</p>}
         </div>
@@ -12925,10 +13267,8 @@ function LeadSection({ handleSubmit, submitted, submitError, titleId }) {
             Membership you’re considering
             <select name="membership">
               <option>Not sure yet</option>
-              <option>Silver</option>
-              <option>Club Drive</option>
-              <option>Gold</option>
-              <option>Platinum</option>
+              <option>Essential</option>
+              <option>Premium</option>
               <option>Collector</option>
             </select>
           </label>

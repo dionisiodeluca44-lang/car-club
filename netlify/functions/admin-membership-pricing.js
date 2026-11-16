@@ -6,7 +6,7 @@ const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const supabase = supabaseUrl && supabaseServiceRoleKey ? createClient(supabaseUrl, supabaseServiceRoleKey) : null;
 
-const allowedPlans = ["Silver", "Club Drive", "Gold", "Platinum", "Collector"];
+const allowedPlans = ["Essential", "Premium", "Collector"];
 
 function json(statusCode, body) {
   return {
@@ -22,7 +22,9 @@ function authorized(event) {
 }
 
 function normalizeCadence(cadence) {
-  return cadence === "/year" ? "/year" : "/month";
+  if (cadence === "/year") return "/year";
+  if (cadence === "/month") return "/month";
+  return null;
 }
 
 export async function handler(event) {

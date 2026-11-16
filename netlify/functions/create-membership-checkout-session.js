@@ -11,11 +11,9 @@ const supabase = supabaseUrl && supabaseServiceRoleKey ? createClient(supabaseUr
 const siteUrl = process.env.URL || process.env.DEPLOY_PRIME_URL || "http://localhost:5173";
 const paymentSource = "white_glove_concierge";
 const defaultMembershipPricing = {
-  Silver: { amountCents: 9900, cadence: "/month" },
-  "Club Drive": { amountCents: 14900, cadence: "/month" },
-  Gold: { amountCents: 19900, cadence: "/month" },
-  Platinum: { amountCents: 39900, cadence: "/month" },
-  Collector: { amountCents: 69900, cadence: "/month" },
+  Essential: { amountCents: 14999, cadence: null },
+  Premium: { amountCents: 19999, cadence: null },
+  Collector: { amountCents: null, cadence: null },
 };
 
 function json(statusCode, body) {
@@ -55,7 +53,9 @@ function describeError(error, fallback = "Could not start membership checkout") 
 }
 
 function billingInterval(cadence) {
-  return cadence === "/year" ? "year" : "month";
+  if (cadence === "/year") return "year";
+  if (cadence === "/month") return "month";
+  return null;
 }
 
 async function pricingForPlan(planName) {
@@ -77,7 +77,7 @@ async function pricingForPlan(planName) {
 
   return {
     amountCents: data?.amount_cents ?? fallback.amountCents,
-    cadence: data?.cadence || fallback.cadence || "/month",
+    cadence: data?.cadence || fallback.cadence || null,
   };
 }
 
@@ -221,7 +221,10 @@ export async function handler(event) {
 
   try {
     const payload = JSON.parse(event.body || "{}");
-    const plan = clean(payload.plan, "Club Drive");
+    const requestedPlan = clean(payload.plan, "Essential");
+    const plan = ["Silver", "Club Drive", "Gold"].includes(requestedPlan)
+      ? "Essential"
+      : requestedPlan === "Platinum" ? "Premium" : requestedPlan;
     const verifiedUser = await verifyMember(event, payload);
     const pricing = await pricingForPlan(plan);
     await ensureSignupBillingProfile(verifiedUser, payload, plan);
@@ -246,6 +249,10 @@ export async function handler(event) {
 
     if (!Number.isFinite(Number(pricing.amountCents)) || Number(pricing.amountCents) <= 0) {
       return json(400, { error: "This membership needs a price before checkout can start." });
+    }
+    const interval = billingInterval(pricing.cadence);
+    if (!interval) {
+      return json(409, { error: "An administrator must choose monthly or annual billing before checkout can start." });
     }
 
     const metadata = {
@@ -280,7 +287,7 @@ export async function handler(event) {
             currency: "cad",
             unit_amount: Number(pricing.amountCents),
             recurring: {
-              interval: billingInterval(pricing.cadence),
+              interval,
             },
             product_data: {
               name: `White Glove Concierge ${plan} Membership`,

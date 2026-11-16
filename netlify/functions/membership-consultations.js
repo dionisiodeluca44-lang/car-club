@@ -161,7 +161,7 @@ export async function handler(event) {
         email: clean(user.email || payload.memberEmail, 320),
         full_name: clean(payload.memberName || user.user_metadata?.full_name || user.email, 160),
         phone: clean(payload.memberPhone || user.user_metadata?.phone, 80) || null,
-        plan: clean(payload.plan || user.user_metadata?.plan || "Club Drive", 80),
+        plan: clean(payload.plan || user.user_metadata?.plan || "Essential", 80),
         lead_source: payload.publicInquiry ? "website_consultation" : payload.signupActivation ? "membership_signup" : "membership_activation",
         consultation_date: date,
         consultation_time: time,

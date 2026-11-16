@@ -1924,6 +1924,129 @@ textarea:focus {
   margin-bottom: 1.4rem;
 }
 
+.app-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.notification-center-button {
+  position: relative;
+}
+
+.notification-center-button > span {
+  position: absolute;
+  top: -0.2rem;
+  right: -0.15rem;
+  min-width: 1.1rem;
+  height: 1.1rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--gold, #d1ad5f);
+  color: #050505;
+  font-size: 0.65rem;
+  font-weight: 800;
+}
+
+.notification-center-backdrop {
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: max(1rem, env(safe-area-inset-top)) 1rem 1rem;
+}
+
+.notification-center {
+  width: min(430px, 100%);
+  max-height: calc(100dvh - max(2rem, env(safe-area-inset-top)));
+  overflow: hidden;
+  border: 1px solid rgba(209, 173, 95, 0.3);
+  border-radius: 1.2rem;
+  background: #0c0c0c;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+}
+
+.notification-center > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.2rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.notification-center h2,
+.notification-center p {
+  margin: 0;
+}
+
+.notification-center-list {
+  max-height: calc(100dvh - 12rem);
+  overflow: auto;
+  padding: 0.65rem;
+}
+
+.notification-item {
+  position: relative;
+  margin-bottom: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.notification-item.unread {
+  border-color: rgba(209, 173, 95, 0.38);
+  background: rgba(209, 173, 95, 0.07);
+}
+
+.notification-item-main {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.9rem 2.4rem 0.9rem 0.9rem;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+
+.notification-item-main > span:nth-child(2) {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.notification-item-main small {
+  color: var(--gold, #d1ad5f);
+  text-transform: capitalize;
+}
+
+.notification-item-main em,
+.notification-item-main time {
+  color: #aaa39a;
+  font-style: normal;
+  font-size: 0.82rem;
+}
+
+.notification-item-icon {
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--gold, #d1ad5f);
+  background: rgba(209, 173, 95, 0.12);
+}
+
+.notification-dismiss {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.55rem;
+  color: #aaa39a;
+  background: transparent;
+  border: 0;
+}
+
 .app-topbar h1 {
   margin-bottom: 0;
   font-size: clamp(2.1rem, 5vw, 4rem);
@@ -6219,6 +6342,26 @@ textarea:focus {
   .feed-post-header time {
     display: none;
   }
+}
+
+.admin-experience-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.admin-experience-card { display: grid; gap: 1rem; align-content: start; }
+.admin-experience-wide { grid-column: 1 / -1; }
+.admin-experience-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+.admin-experience-form-grid label, .admin-experience-toggles { display: grid; gap: .4rem; }
+.admin-experience-form-grid .wide { grid-column: 1 / -1; }
+.admin-experience-toggles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.admin-benefit-ledger { display: grid; gap: .7rem; }
+.admin-benefit-ledger article { align-items: center; background: rgba(255,255,255,.025); border: 1px solid var(--line); border-radius: 14px; display: flex; justify-content: space-between; gap: 1rem; padding: .9rem 1rem; }
+.admin-benefit-ledger article > div { display: grid; gap: .2rem; }
+.admin-benefit-ledger span, .admin-benefit-ledger small { color: var(--muted); }
+.admin-benefit-ledger-actions { display: flex !important; grid-auto-flow: column; align-items: center; gap: .7rem !important; }
+.admin-benefit-edit { display: grid; grid-template-columns: 1.1fr 2fr .6fr 1fr auto auto; gap: .6rem; align-items: center; border: 1px solid var(--line); border-radius: 14px; padding: .8rem; }
+
+@media (max-width: 820px) {
+  .admin-experience-grid, .admin-experience-form-grid, .admin-experience-toggles { grid-template-columns: 1fr; }
+  .admin-experience-wide, .admin-experience-form-grid .wide { grid-column: auto; }
+  .admin-benefit-edit { grid-template-columns: 1fr; }
 }
 
 /* Vehicle Intelligence — Phase 1 */

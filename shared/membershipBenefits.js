@@ -22,59 +22,17 @@ export const membershipBenefitCatalog = {
 };
 
 export const membershipBenefitsByPlan = {
-  Silver: [
-    { key: "maintenance-wash", annualQuantity: 1, creditCents: 7000 },
-  ],
-  "Club Drive": [
-    { key: "maintenance-wash", annualQuantity: 2, creditCents: 7000 },
-    { key: "transport", annualQuantity: 1, creditCents: 17500 },
-  ],
-  Gold: [
-    { key: "maintenance-wash", annualQuantity: 4, creditCents: 7000 },
-    { key: "full-detail", annualQuantity: 1, creditCents: 15000 },
-    { key: "transport", annualQuantity: 1, creditCents: 17500 },
-  ],
-  Platinum: [
-    { key: "maintenance-wash", annualQuantity: 6, creditCents: 7000 },
-    { key: "full-detail", annualQuantity: 2, creditCents: 15000 },
-    { key: "transport", annualQuantity: 3, creditCents: 17500 },
-    { key: "protection", annualQuantity: 1, creditCents: 30000 },
-  ],
-  Collector: [
-    { key: "maintenance-wash", annualQuantity: 12, creditCents: 7000 },
-    { key: "full-detail", annualQuantity: 4, creditCents: 15000 },
-    { key: "transport", annualQuantity: 6, creditCents: 17500 },
-    { key: "protection", annualQuantity: 1, creditCents: 50000 },
-  ],
+  Essential: [],
+  Premium: [],
+  Collector: [],
 };
 
 export const benefitRevenueShare = 0.4;
 
 export const benefitUnlockDaysByPlan = {
-  Silver: {
-    "maintenance-wash": [45],
-  },
-  "Club Drive": {
-    "maintenance-wash": [30, 90],
-    transport: [180],
-  },
-  Gold: {
-    "maintenance-wash": [14, 45, 75, 105],
-    "full-detail": [180],
-    transport: [270],
-  },
-  Platinum: {
-    "maintenance-wash": [14, 45, 75, 105, 135, 165],
-    "full-detail": [180, 240],
-    transport: [210, 270, 300],
-    protection: [330],
-  },
-  Collector: {
-    "maintenance-wash": [14, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180],
-    "full-detail": [90, 150, 210, 270],
-    transport: [120, 180, 210, 240, 300, 330],
-    protection: [330],
-  },
+  Essential: {},
+  Premium: {},
+  Collector: {},
 };
 
 export function benefitAllowancesForPlan(plan) {
@@ -135,6 +93,34 @@ function addDays(date, days) {
 }
 
 export function summarizeMembershipBenefits(plan, usage = [], options = {}) {
+  const assignedBenefits = usage.filter((entry) => (
+    entry.assignmentId || entry.quantityTotal != null || entry.quantity_total != null
+  ));
+  if (assignedBenefits.length) {
+    const now = options.now ? new Date(options.now) : new Date();
+    return assignedBenefits
+      .filter((entry) => (entry.status || "active") === "active")
+      .filter((entry) => !entry.expiresAt && !entry.expires_at ? true : new Date(entry.expiresAt || entry.expires_at) > now)
+      .map((entry) => {
+        const key = entry.benefitKey || entry.benefit_key;
+        const total = Number(entry.quantityTotal ?? entry.quantity_total ?? 0);
+        const used = Number(entry.quantityRedeemed ?? entry.quantity_redeemed ?? 0);
+        return {
+          ...(membershipBenefitCatalog[key] || {}),
+          key,
+          label: entry.label || membershipBenefitCatalog[key]?.label || "Member benefit",
+          note: entry.description || membershipBenefitCatalog[key]?.note || "Assigned by your White Glove concierge.",
+          annualQuantity: total,
+          creditCents: Number(entry.creditCents ?? entry.credit_cents ?? 0),
+          expiresAt: entry.expiresAt || entry.expires_at || "",
+          unlocked: total,
+          used,
+          remaining: Math.max(total - used, 0),
+          locked: 0,
+        };
+      });
+  }
+
   const allowances = benefitAllowancesForPlan(plan);
   const now = options.now ? new Date(options.now) : new Date();
   const period = membershipBenefitPeriod(options.activationDate, now);
