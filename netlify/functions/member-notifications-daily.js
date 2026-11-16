@@ -34,8 +34,8 @@ async function insertNotification(supabase, notification) {
   return data || null;
 }
 
-async function sendOneSignal(notification, devices) {
-  if (!notification || !oneSignalAppId || !oneSignalRestApiKey || !devices.length) return { sent: false, reason: "provider_not_configured" };
+async function sendOneSignal(notification) {
+  if (!notification || !oneSignalAppId || !oneSignalRestApiKey) return { sent: false, reason: "provider_not_configured" };
   const response = await fetch("https://api.onesignal.com/notifications", {
     method: "POST",
     headers: {
@@ -44,7 +44,8 @@ async function sendOneSignal(notification, devices) {
     },
     body: JSON.stringify({
       app_id: oneSignalAppId,
-      include_subscription_ids: devices.map((device) => device.provider_device_id),
+      include_aliases: { external_id: [notification.user_id] },
+      target_channel: "push",
       headings: { en: notification.title },
       contents: { en: notification.body },
       data: { deepLink: notification.deep_link, notificationId: notification.id },
@@ -61,24 +62,21 @@ export async function handler() {
   const stats = { created: 0, sent: 0, inAppOnly: 0, errors: 0 };
 
   try {
-    const [settingsResult, profilesResult, vehiclesResult, forecastsResult, rulesResult, appointmentsResult, devicesResult] = await Promise.all([
+    const [settingsResult, profilesResult, vehiclesResult, forecastsResult, rulesResult, appointmentsResult] = await Promise.all([
       supabase.from("notification_settings").select("*").eq("id", true).maybeSingle(),
       supabase.from("profiles").select("id, notifications, subscription_status"),
       supabase.from("vehicles").select("id, user_id, year, make, model, trim, mileage, mileage_unit, last_mileage_update, archived_at, created_at").is("archived_at", null),
       supabase.from("vehicle_maintenance_forecasts").select("id, vehicle_id, rule_id, next_due_date, next_due_mileage_km, status, confidence, calculated_at, archived_at").is("archived_at", null),
       supabase.from("vehicle_maintenance_rules").select("id, service_type, name"),
       supabase.from("service_requests").select("id, user_id, vehicle_id, service_type, preferred_date, preferred_time, status").gte("preferred_date", today).neq("status", "Cancelled").neq("status", "Canceled").neq("status", "Archived"),
-      supabase.from("push_devices").select("user_id, provider_device_id, enabled").eq("enabled", true),
     ]);
-    const error = [settingsResult.error, profilesResult.error, vehiclesResult.error, forecastsResult.error, rulesResult.error, appointmentsResult.error, devicesResult.error].find(Boolean);
+    const error = [settingsResult.error, profilesResult.error, vehiclesResult.error, forecastsResult.error, rulesResult.error, appointmentsResult.error].find(Boolean);
     if (error) throw error;
 
     const settings = settingsResult.data || { reminder_days: [7, 3, 0], overdue_repeat_days: 3, mileage_interval_days: 60 };
     const profileById = new Map((profilesResult.data || []).map((profile) => [profile.id, profile]));
     const vehicleById = new Map((vehiclesResult.data || []).map((vehicle) => [vehicle.id, vehicle]));
     const ruleById = new Map((rulesResult.data || []).map((rule) => [rule.id, rule]));
-    const devicesByUser = new Map();
-    (devicesResult.data || []).forEach((device) => devicesByUser.set(device.user_id, [...(devicesByUser.get(device.user_id) || []), device]));
     const candidates = [];
 
     if (settings.recommendation_enabled !== false || settings.maintenance_enabled !== false) {
@@ -160,7 +158,7 @@ export async function handler() {
         const saved = await insertNotification(supabase, candidate);
         if (!saved) continue;
         stats.created += 1;
-        const delivery = await sendOneSignal(saved, devicesByUser.get(saved.user_id) || []);
+        const delivery = await sendOneSignal(saved);
         if (delivery.sent) {
           stats.sent += 1;
           await supabase.from("member_notifications").update({ delivery_status: "sent", attempts: 1, sent_at: new Date().toISOString() }).eq("id", saved.id);

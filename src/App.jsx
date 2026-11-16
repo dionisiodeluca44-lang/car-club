@@ -207,6 +207,20 @@ function isNativeAppRuntime() {
   return capacitor?.isNativePlatform?.() === true || platform === "ios" || platform === "android" || /^(capacitor|ionic):\/\/localhost$/i.test(window.location.origin);
 }
 
+async function initializeNativePush(memberId) {
+  const appId = String(import.meta.env.VITE_ONESIGNAL_APP_ID || "").trim();
+  if (!isNativeAppRuntime() || !appId || !memberId) return;
+  const { default: OneSignal } = await import("onesignal-cordova-plugin");
+  OneSignal.initialize(appId);
+  OneSignal.login(String(memberId));
+  OneSignal.Notifications.addEventListener("click", (event) => {
+    const deepLink = event?.notification?.additionalData?.deepLink;
+    if (deepLink) window.dispatchEvent(new CustomEvent("whiteglove:push-open", { detail: { deepLink } }));
+  });
+  const canRequest = await OneSignal.Notifications.canRequestPermission().catch(() => false);
+  if (canRequest) await OneSignal.Notifications.requestPermission(false).catch(() => false);
+}
+
 function netlifyFunctionUrl(path) {
   return isNativeAppRuntime() ? `${publicSiteUrl}${path}` : path;
 }
@@ -7864,6 +7878,29 @@ function MemberApp({ appointments, benefitUsage, feedPosts, garage, initialCompl
     const timer = window.setInterval(refreshNotifications, 60_000);
     return () => { active = false; window.clearInterval(timer); };
   }, [member?.id]);
+
+  useEffect(() => {
+    if (!member?.id || !isNativeAppRuntime()) return undefined;
+    initializeNativePush(member.id).catch((error) => console.warn("Push notifications are not configured yet.", error));
+    return undefined;
+  }, [member?.id]);
+
+  useEffect(() => {
+    if (!member?.id || !isNativeAppRuntime()) return undefined;
+    const openPush = (event) => {
+      const [target, vehicleId] = String(event.detail?.deepLink || "").split(":");
+      if (vehicleId && ["garage", "schedule"].includes(target) && garageList.some((vehicle) => vehicle.id === vehicleId)) {
+        selectActiveVehicle(vehicleId);
+        setNotificationVehicleId(vehicleId);
+      }
+      if (target === "schedule") navigateToTab("schedule");
+      else if (target === "garage") navigateToTab("garage");
+      else if (target === "account") navigateToTab("account");
+      else navigateToTab("home");
+    };
+    window.addEventListener("whiteglove:push-open", openPush);
+    return () => window.removeEventListener("whiteglove:push-open", openPush);
+  }, [member?.id, garageList]);
 
   async function openNotification(notification) {
     setNotificationsOpen(false);
