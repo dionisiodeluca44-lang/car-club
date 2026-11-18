@@ -208,7 +208,7 @@ function isNativeAppRuntime() {
 }
 
 async function initializeNativePush(memberId) {
-  const appId = String(import.meta.env.VITE_ONESIGNAL_APP_ID || "").trim();
+  const appId = String(import.meta.env.VITE_ONESIGNAL_APP_ID || "5850c8e8-8feb-4900-852b-c49a74d046eb").trim();
   if (!isNativeAppRuntime() || !appId || !memberId) return;
   const { default: OneSignal } = await import("onesignal-cordova-plugin");
   OneSignal.initialize(appId);
